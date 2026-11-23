@@ -350,7 +350,7 @@ test("上传写租约包住真实写入，取消在全部目标收敛后才抛�
   // 身份登记与未知写入核实都必须排在等锁之前：否则等待同一目标的别名会被提前放行，
   // 或者重试会等自己必须先查询才能释放的那把锁。
   const noteAt = sync.indexOf("this.noteCodeUploadTargetLocal?.(codeUploadHandoff, root, target.id, targetKey);");
-  const takeoverAt = sync.indexOf("await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId)");
+  const takeoverAt = sync.indexOf("await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId, assertCurrent)");
   const identityAt = sync.indexOf("this.resolveCodeUploadTargetIdentityLocal(target).key");
   const acquireAt = sync.indexOf("await this.acquireCodeUploadTargetLeaseLocal?.(");
   assert.ok(identityAt > 0 && identityAt < noteAt, "先解析真实身份，再登记");
@@ -358,17 +358,17 @@ test("上传写租约包住真实写入，取消在全部目标收敛后才抛�
   assert.ok(takeoverAt > 0 && takeoverAt < acquireAt, "取消并接管（含交出旧租约）必须排在等锁之前");
   // 接管靠“先取消上一份传输、再核实静默”，而且只能走现有 simpleSftpApiCall 通道。
   assert.match(srcSource, /用户重新发起同步，取消上一次传输以接管/, "取消理由必须写清楚");
-  assert.match(srcSource, /this\.simpleSftpApiCall\("transfers\.cancel", params\)/, "取消只能走现有 SimpleSFTP 通道");
-  assert.match(srcSource, /this\.simpleSftpApiCall\("transfers\.list", \{\}\)/, "核实只靠同一个只读投影");
+  assert.match(srcSource, /this\.simpleSftpApiCall\("transfers\.cancel", params, 0, undefined, undefined, assertCurrent\)/, "取消只能走现有 SimpleSFTP 通道");
+  assert.match(srcSource, /this\.simpleSftpApiCall\("transfers\.list", \{\}, 0, undefined, undefined, assertCurrent\)/, "核实只靠同一个只读投影");
   // 已被未确认写入围栏的目标必须在任何写入之前退出，否则同批等待者会被同一把保留锁吊死。
   const deferredAt = sync.indexOf("if (!lease.token && lease.deferred) {");
-  const uploadAt = sync.indexOf("try { return await uploadOneTarget(target, index, lease, leaseState); }");
+  const uploadAt = sync.indexOf("try { assertCurrent(); return await uploadOneTarget(target, index, lease, leaseState); }");
   assert.ok(deferredAt > acquireAt && deferredAt < uploadAt, "等锁后拿不到令牌时要先退出，不得进入写入");
   assert.match(sync, /未开始写入，需要主动核实后重试/, "退出结局必须写明未开始、需核实");
   assert.match(sync, /if \(leaseState\.retain && lease\.token\) this\.retainCodeUploadTargetLeaseLocal\?\.\(lease\);\n\s*else this\.releaseCodeUploadTargetLeaseLocal\?\.\(lease\.token\);/,
     "写入结果未知的目标必须保留租约，只有已落定的才放回");
   assert.match(sync, /cancelledBranches\.push\(error\);/);
-  const throwAt = sync.indexOf("if (cancelledBranches.length) throw cancelledBranches[0];");
+  const throwAt = sync.lastIndexOf("if (cancelledBranches.length) throw cancelledBranches[0];");
   const mapAt = sync.indexOf("await mapLimited(enabledTargets, 2,");
   // finally 里的意图回收必须在“全部分支收敛”之后；前面那个同名调用属于未接管所有权时的提前撤销。
   const finallyAt = sync.lastIndexOf("this.endCodeUploadHandoffLocal?.(codeUploadHandoff?.uploadId);");

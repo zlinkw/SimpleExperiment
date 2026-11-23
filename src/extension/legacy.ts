@@ -11414,8 +11414,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
     }
     async verifiedSftpProjectInventory(options) {
-        const { onProgress, ...request } = options;
-        const result = await this.simpleSftpApiCall("sync.projectInventory", request, 0, onProgress);
+        const { onProgress, assertCurrent, ...request } = options;
+        const result = await this.simpleSftpApiCall("sync.projectInventory", request, 0, onProgress, undefined, assertCurrent);
         return requireCompleteScopeInventory(result, `Worker ${options.source?.id || options.source?.host || "未知"}`);
     }
     async updateSyncScopeHolds(root, mutate) {
@@ -12488,13 +12488,16 @@ reportStage("正在准备校验所需代码…");
      * SimpleSFTP 自己的“同目标仍有未确认旧请求”守卫仍是底线。
      * 旧的 `sync.projectTreeState` 只回答“目录在不在/是不是空”，不能证明写操作已结束，已不再使用。
      */
-    async verifyCodeUploadTargetQuiescentLocal(target: any, targetKey: string, syncId?: string) {
+    async verifyCodeUploadTargetQuiescentLocal(target: any, targetKey: string, syncId?: string, assertCurrent?: () => void) {
         const label = String(target?.label || target?.id || "Worker");
         let state: any;
         try {
-            state = await this.simpleSftpApiCall("transfers.list", {});
+            assertCurrent?.();
+            state = await this.simpleSftpApiCall("transfers.list", {}, 0, undefined, undefined, assertCurrent);
+            assertCurrent?.();
         }
         catch (error) {
+            assertCurrent?.();
             return { quiescent: false, rows: [] as any[], blocked: [] as any[], protectedRows: [] as any[],
                 pendingOperations: 0, evidence: "operation-query-failed",
                 detail: `${label} 的传输操作查询本身失败：${errorMessage(error)}` };
@@ -12695,7 +12698,7 @@ reportStage("正在准备校验所需代码…");
         return { rows, protectedRows, blocked, pendingOperations };
     }
     /** 取消本机插件发起的一次传输：按台账已有的身份寻址（transferId 或 operationId，有实例身份就带上），结果严格判定。 */
-    async cancelCodeUploadTargetWriteLocal(target: any, row: any) {
+    async cancelCodeUploadTargetWriteLocal(target: any, row: any, assertCurrent?: () => void) {
         const label = String(target?.label || target?.id || "Worker");
         const transferId = String(row?.transferId || "");
         const operationId = String(row?.operationId || "");
@@ -12713,8 +12716,9 @@ reportStage("正在准备校验所需代码…");
         // 台账里有实例身份就原样带上作为守卫；没有就只交已有的身份，不自己编一个。
         if (operationInstanceId) params.operationInstanceId = operationInstanceId;
         let result: any;
-        try { result = await this.simpleSftpApiCall("transfers.cancel", params); }
+        try { assertCurrent?.(); result = await this.simpleSftpApiCall("transfers.cancel", params, 0, undefined, undefined, assertCurrent); }
         catch (error) {
+            assertCurrent?.();
             return { accepted: false, id, evidence: "operation-cancel-failed",
                 detail: `${label}：取消上一次传输的请求本身失败（${errorMessage(error)}）` };
         }
@@ -12737,11 +12741,11 @@ reportStage("正在准备校验所需代码…");
      * 同一实际写目标的接管决策必须串行：两个别名分支并发决策时，B 的查询在途期间 A 可能刚取锁开始上传，
      * B 会把本轮兄弟的上传当成旧传输取消。接管段内只查询与取消，从不等写租约，因此串行不会死锁。
      */
-    async takeoverCodeUploadTargetLocal(target: any, targetKey: string, syncId: string) {
+    async takeoverCodeUploadTargetLocal(target: any, targetKey: string, syncId: string, assertCurrent?: () => void) {
         const key = String(targetKey || "");
         const tails = this.codeUploadTakeoverTails || (this.codeUploadTakeoverTails = new Map<string, Promise<void>>());
         const previous = tails.get(key) || Promise.resolve();
-        const run = () => this.takeoverCodeUploadTargetLockedLocal(target, key, syncId);
+        const run = () => { assertCurrent?.(); return this.takeoverCodeUploadTargetLockedLocal(target, key, syncId, assertCurrent); };
         const current = previous.then(run, run);
         const settled = current.then(() => undefined, () => undefined);
         tails.set(key, settled);
@@ -12759,8 +12763,15 @@ reportStage("正在准备校验所需代码…");
      * 但这是新增的有界复核行为：最多退让 20 + 40 + 60 + 80 = 200ms，另加五次复核调用自身耗时，总等待不是固定值；
      * 退让用完后仍不静默就本轮失败、以后可重试，不引入新的超时预算参数，也不把“等够了”当成成功。
      */
-    async takeoverCodeUploadTargetLockedLocal(target: any, targetKey: string, syncId: string) {
+    async takeoverCodeUploadTargetLockedLocal(target: any, targetKey: string, syncId: string, assertCurrent?: () => void) {
         const label = String(target?.label || target?.id || "Worker");
+        const cancelled: string[] = [];
+        const assertCaller = () => { try { assertCurrent?.(); } catch (error) {
+            if (cancelled.length && error && typeof error === "object" && typeof (error as any).message === "string")
+                (error as any).message += `；此前已受理取消：${cancelled.join("、")}`;
+            throw error;
+        } };
+        assertCaller();
         // 覆盖批准绑定的冻结写入范围（A3）：本轮清单指纹 + 这个实际目标键，发送前范围变了就停下重新确认。
         const staleScopeEpoch = { targetKey: String(targetKey || ""),
             fingerprint: String(this.codeUploadRoundScopeLocal?.fingerprint || "") };
@@ -12779,7 +12790,8 @@ reportStage("正在准备校验所需代码…");
                 ? `已先取消 ${cancelledAlready.length} 项本插件发起的旧写入，随后发现同一次同步已有分支在该实际目标上写入（${stage}）`
                 : `同一次同步已有分支在该实际目标上写入（${stage}）`}，本分支只排队等锁，不取消自己人的传输` });
         if (currentBatchWriting()) return siblingReceipt("接管入口处");
-        const first = await this.verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId);
+        const first = await this.verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId, assertCaller);
+        assertCaller();
         /**
          * 覆盖接管的唯一出路（A1/A2/A3 返修后）：
          * ① 只读预检已经拿**本轮实时投影**把这批未完成记录列给用户（或它们已按严格 3 小时过期）；
@@ -12828,12 +12840,12 @@ reportStage("正在准备校验所需代码…");
         }
         // 到这里说明既有要取消的旧项（可能还有不带主机/路径的本轮操作项）：
         // 先把旧项按用户授权取消，再在下面的复核里将剩下的本轮项转为排队，不因为兄弟在写就跳过旧项取消。
-        const cancelled: string[] = [];
         let cancelledForeign = 0;
         for (const row of first.rows) {
+            assertCaller();
             // 上一张取消可能刚好让兄弟取到锁：发下一张前重新核对，查询期间新开始的兄弟不能当旧传输取消。
             if (currentBatchWriting()) return siblingReceipt("查询返回后");
-            const receipt = await this.cancelCodeUploadTargetWriteLocal(target, row);
+            const receipt = await this.cancelCodeUploadTargetWriteLocal(target, row, assertCaller);
             if (receipt.accepted !== true) {
                 // 取消被拒：此刻的实时状态就是覆盖判定的输入，一条也不因为“已经发过取消”而被排除。
                 this.noteCodeUploadStaleSuspectsLocal(targetKey, [...(first.rows || []), ...(first.blocked || [])],
@@ -12849,7 +12861,9 @@ reportStage("正在准备校验所需代码…");
         const cancelledText = `已取消 ${cancelled.length} 项本插件发起的在传任务`
             + (cancelledForeign ? `（含 ${cancelledForeign} 项其他 Worker 的未完成上传或归属不明的传输）` : "");
         for (let attempt = 0; ; attempt += 1) {
-            const again = await this.verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId);
+            assertCaller();
+            const again = await this.verifyCodeUploadTargetQuiescentLocal(target, targetKey, syncId, assertCaller);
+            assertCaller();
             if (again.quiescent) {
                 return { ...again, takeover: "cancelled", cancelled, cancelledForeign,
                     detail: `${label}：${cancelledText}（${cancelled.slice(0, 4).join("、")}${cancelled.length > 4 ? " 等" : ""}），已确认本机侧静默，现在接管写入（只能保证本机侧没有其他任务还在写，不声称远端目录完全干净）` };
@@ -13344,6 +13358,7 @@ reportStage("正在准备校验所需代码…");
                         : `本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}${stats.cacheWriteSkipped ? "，缓存未改写" : ""}`);
                 },
             });
+        assertCurrent();
         if (reuseSubmissionManifest) this.pendingPlanSubmissionManifest = undefined;
         const transferManifest = reuseSubmissionManifest ? built.manifest : filterHeldFiles(built, holds);
         const manifest = ["run", "plan-check"].includes(scope) ? PlanCodeScopeHost.runSourceManifest(transferManifest) : transferManifest;
@@ -13384,6 +13399,7 @@ reportStage("正在准备校验所需代码…");
                     this.markCodeUploadWorkerReadyLocal?.(codeUploadHandoff, root, target.id);
                     await options.onTargetReady?.(target.id);
                 }
+                assertCurrent();
                 progressReport?.("所有 Worker 的运行代码已核对一致；未上传代码，继续 Plan 校验。");
                 this.postState();
                 await this.persistProjectCodeSyncState();
@@ -13427,7 +13443,7 @@ reportStage("正在准备校验所需代码…");
         })), projectContext);
         assertCurrent();
         if (progressReport) progressReport("正在写入 SFTP 服务器配置…");
-        await this.writeSftpManagerServerProfiles(enabledTargets.map((target) => target.id));
+        await this.writeSftpManagerServerProfiles(enabledTargets.map((target) => target.id), assertCurrent);
         assertCurrent();
         if (options.startedAction && !options.progressReport)
             this.notifyLocalActionStarted(options.startedAction.title, options.startedAction.detail);
@@ -13461,6 +13477,7 @@ reportStage("正在准备校验所需代码…");
         const staleSummary = stalePrecheckNeeded
             ? await this.collectCodeUploadStaleRecordsLocal?.(enabledTargets, root, syncId, { stuckOnly: true })
             : undefined;
+        assertCurrent();
         if (staleSummary && ((staleSummary.needsConsent || []).length || (staleSummary.expired || []).length)) {
             if (progressReport)
                 progressReport(`发现 ${(staleSummary.needsConsent || []).length + (staleSummary.expired || []).length} 项仍未完成的传输，正在确认是否完全覆盖…`);
@@ -13487,8 +13504,10 @@ reportStage("正在准备校验所需代码…");
             let writeReturned = false;
             if (progressReport) progressReport(`正在读取 ${target.label || target.id} 的远端清单（${index + 1}/${enabledTargets.length}）…`);
             try {
+                assertCurrent();
                 this.markCodeSyncTargetResultLocal?.(target, syncId, { transfer: "pending" });
                 if (incremental) await this.safeWorkerCodeSyncTargets([target], root, fingerprint, scope, progressReport);
+                assertCurrent();
                 let uploadManifest = manifest;
                 let remoteFiles;
                 const warmProofKey = this.codeSyncWarmProofKey(target, root, fingerprint, includePaths, scopePaths);
@@ -13500,6 +13519,7 @@ reportStage("正在准备校验所需代码…");
                         progressReport?.(`${target.label || target.id}：文件传输/比对已完成，正在登记同步结果…`);
                         try { proof = await this.ensureWorkerCodeSyncProof(target, root, fingerprint, manifest, includePaths, scopePaths, inventoryScopePaths, warmProofKey, progressReport); }
                         catch (error) { throw new Error(`文件传输/比对已完成，Agent 同步登记未完成：${errorMessage(error)}`); }
+                        assertCurrent();
                     }
                     return { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString(),
                         ...(proof ? { codeSyncProofId: proof.proofId, manifestDigest: proof.manifestDigest,
@@ -13519,9 +13539,11 @@ reportStage("正在准备校验所需代码…");
                     const inventoryStarted = Date.now();
                     remoteFiles = {};
                     for (const exactPaths of PlanCodeScopeHost.codeInventoryBatches(manifest)) {
+                        assertCurrent();
                         syncStats.inventoryCalls += 1;
                         const inventory = await this.verifiedSftpProjectInventory({
                             source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
+                            assertCurrent,
                             scopePaths: exactPaths,
                             ...(["run", "plan-check"].includes(scope) ? { inventoryPurpose: "code-sync" } : {}),
                             onProgress: progressReport ? snapshot => progressReport(snapshot.stalled || snapshot.phase === "stalled"
@@ -13552,9 +13574,9 @@ reportStage("正在准备校验所需代码…");
                 }
                 if (progressReport) progressReport(`正在传输 ${target.label || target.id} 的 ${Object.keys(uploadManifest).length} 个变化文件…`);
                 const transferStarted = Date.now();
-                writeStarted = true;
-                syncStats.uploads += 1;
-                const result = await this.withCodeUploadRoundWriteLocal(syncId, String(lease?.key || ""), () => this.simpleSftpApiCall("upload.workspace", {
+                const result = await this.withCodeUploadRoundWriteLocal(syncId, String(lease?.key || ""), () => {
+                    assertCurrent(); writeStarted = true; syncStats.uploads += 1;
+                    return this.simpleSftpApiCall("upload.workspace", {
                     apiMode: true,
                     confirm: true,
                     pathConfirmed: true,
@@ -13572,7 +13594,7 @@ reportStage("正在准备校验所需代码…");
                     if (snapshot.stalled || snapshot.phase === "stalled") progressReport(`${target.label || target.id}：暂未观察到新增写入，仍在查询；可手动取消`);
                     else if (snapshot.writtenBytes !== undefined) progressReport(`${target.label || target.id}：远端已写入 ${snapshot.writtenBytes}/${snapshot.totalBytes || 0} 字节，${snapshot.writtenFiles || 0}/${snapshot.totalFiles || 0} 个文件；内容待核验`);
                     else progressReport(`${target.label || target.id}：已处理 ${snapshot.processedFiles || 0} 个文件，${snapshot.processedBytes || 0} 字节`);
-                }));
+                }, undefined, assertCurrent); });
                 // 调用已返回：无论结果是成是败，传输本身已终结，不属于“仍在途”的未知写入。
                 writeReturned = true;
                 assertCurrent();
@@ -13585,6 +13607,7 @@ reportStage("正在准备校验所需代码…");
                 if (!hashCompare) {
                     const requiredSources = Object.keys(manifest).filter((file) => /\.(py|pyi)$/i.test(file));
                     const verified = await this.inspectCodeSyncTarget(target, requiredSources);
+                    assertCurrent();
                     const mismatches = verified.filter((row) => !row.exists || String(row.sha256 || "").toLowerCase() !== String(manifest[row.path]?.sha256 || "").toLowerCase());
                     if (mismatches.length)
                         throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
@@ -13601,6 +13624,7 @@ reportStage("正在准备校验所需代码…");
                 if (progressReport && progressStep > 0) progressReport(`已完成 ${target.label || target.id}（${index + 1}/${enabledTargets.length}）`, progressStep);
             }
             catch (error) {
+                if ((error as any)?.sftpNotStarted === true) writeStarted = false;
                 if (isUiCommandCancelled(error)) {
                     // 不在这里抛出：mapLimited 内部用 Promise.all，一个回调提前拒绝会让其他在途上传失去登记。
                     // 取消也不能丢未知写入身份：已越过传输边界的取消同样是“结果未知”。
@@ -13633,6 +13657,8 @@ reportStage("正在准备校验所需代码…");
         // 接管准备只查询、取消及确认旧记录。整批准备收敛前，任何目标都不能拿新写租约或发送。
         // A 静默不能使它绕过 B 尚未完成的覆盖确认；拒绝/关闭仍保证整批零写入。
         await mapLimited(enabledTargets, 2, async (target, index) => {
+            try {
+            assertCurrent();
             // 先解身份、先登记、再等锁：正在同一实际目标上排队的别名 Worker 也必须带着自己的目标键参与判定，
             // 否则“上一份已完成、另一份还在等锁”时会被提前放行，向共享 root 的写入仍可交错。
             let targetKey = "";
@@ -13661,20 +13687,23 @@ reportStage("正在准备校验所需代码…");
             }
             // 上一份没确认结束的写入按用户要求直接取消，并核实本目标确实静默之后才接管写入（包括交出被保留的那把租约）。
             // 这一步必须排在等锁之前：先等锁就是在等自己必须先核实才能释放的那把锁，同批别名等待者也无法收敛。
-            let takeover = await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId)
+            let takeover = await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId, assertCurrent)
                 || { quiescent: true, takeover: "unavailable", cancelled: [], detail: "" };
+            assertCurrent();
             if (takeover.quiescent !== true && takeover.takeover !== "stale-overwrite") {
                 // A1：接管按原有失败路径收场之前，先在本轮当场问一次（只读投影 + 一个模态框）。
                 // 批准就重试一次接管（重试只可能拿回静默/排队/明确覆盖，绝不盲写）；
                 // 拒绝、关掉框或本轮已经问过的，仍按原失败收场，未知写入与保留租约一条不动。
                 const veto = await this.codeUploadStaleLateConsentLocal?.(syncId, target, root, enabledTargets);
+                assertCurrent();
                 if (veto) {
                     // 没批就保留接管失败的原事实文案（不发明新说法），只追加“为什么这轮没继续”。
                     failures.push({ role: target.role, label: target.label,
                         message: `${takeover.detail}；本轮未获覆盖确认：${veto}` });
                     return;
                 }
-                const retried = await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId);
+                const retried = await this.takeoverCodeUploadTargetLocal?.(target, targetKey, syncId, assertCurrent);
+                assertCurrent();
                 if (retried && (retried.quiescent === true || retried.takeover === "sibling" || retried.takeover === "stale-overwrite")) {
                     takeover = retried;
                 } else {
@@ -13687,9 +13716,12 @@ reportStage("正在准备校验所需代码…");
                 }
             }
             preparedTargets[index] = { target, index, targetKey, takeover };
+            } catch (error) { cancelledBranches.push(error); }
         });
+        if (cancelledBranches.length) throw cancelledBranches[0];
         const batchDecision = this.codeUploadStaleRounds?.get(String(syncId));
         if (!batchDecision || batchDecision.approved === true) await mapLimited(preparedTargets.filter(Boolean), 2, async (prepared) => {
+            try { assertCurrent(); } catch (error) { cancelledBranches.push(error); return; }
             const { target, index, targetKey, takeover } = prepared;
             const leaseState = { retain: false };
             const pendingUnknown = this.pendingCodeUploadUnknownWriteLocal?.(root, { targetKey, workerId: target.id });
@@ -13739,7 +13771,8 @@ reportStage("正在准备校验所需代码…");
                     message: `${reason}：本目标本轮未开始写入，需要主动核实后重试` });
                 return;
             }
-            try { return await uploadOneTarget(target, index, lease, leaseState); }
+            try { assertCurrent(); return await uploadOneTarget(target, index, lease, leaseState); }
+            catch (error) { cancelledBranches.push(error); }
             finally {
                 // 写入结果未知的目标不得提前放回租约：否则另一个 Worker 可以立刻覆盖同一实际目标。
                 if (leaseState.retain && lease.token) this.retainCodeUploadTargetLeaseLocal?.(lease);
@@ -13749,6 +13782,7 @@ reportStage("正在准备校验所需代码…");
         // 全部已发起分支真正收敛后才会到这里，之后的 finally 才能释放 gate 与写入计数；
         // 不能把 finally 的执行当作底层写入已结束。
         if (cancelledBranches.length) throw cancelledBranches[0];
+        assertCurrent();
         if (failures.length) {
             const failedText = failures.map((failure) => `${failure.label}: ${failure.message}`);
             this.lastCodeSyncState = {
@@ -13808,7 +13842,7 @@ reportStage("正在准备校验所需代码…");
             progressReport?.(`正在检查 ${target.label || target.id} 的代码差异…`);
             for (const exactPaths of PlanCodeScopeHost.codeInventoryBatches(manifest)) {
                 const inventory = await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(target),
-                    relativePath: ".", recursive: true, scopePaths: exactPaths, inventoryPurpose: "code-sync" });
+                    relativePath: ".", recursive: true, scopePaths: exactPaths, inventoryPurpose: "code-sync", assertCurrent });
                 inventoryCalls++;
                 Object.assign(remoteFiles, inventoryFilesByPath(inventory));
                 assertCurrent();
@@ -14005,10 +14039,11 @@ reportStage("正在准备校验所需代码…");
             this.sshTransportIdentity(target);
         }
     }
-    async writeSftpManagerServerProfiles(targetIds) {
+    async writeSftpManagerServerProfiles(targetIds, assertCallerCurrent?: () => void) {
         this.assertTopologyActualWorkRoots("写入 SimpleSFTP 服务器配置");
         const projectContext = this.captureProjectContext();
         const assertCurrent = () => {
+            assertCallerCurrent?.();
             if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；SimpleSFTP 服务器配置未更新。");
         };
         const requestedIds = new Set((Array.isArray(targetIds) ? targetIds : []).map((item) => String(item || "").trim()).filter(Boolean));

@@ -16,7 +16,7 @@ const completeStart = source.indexOf('    async completeQuickSetupAfterWorkspace
 const completeEnd = source.indexOf('\n    async ', completeStart + 12);
 const complete = source.slice(completeStart, completeEnd);
 const quick = method('    async quickSetup(showAgentCompletion = true)', '    async completeQuickSetupAfterWorkspace(');
-const profiles = method('    async writeSftpManagerServerProfiles(targetIds)', '    sftpSharedTargets()');
+const profiles = method('    async writeSftpManagerServerProfiles(targetIds, assertCallerCurrent?: () => void)', '    sftpSharedTargets()');
 
 function fixture(readFile) {
   let current = true, rename = 0, mkdir = 0;
