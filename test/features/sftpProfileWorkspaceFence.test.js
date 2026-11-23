@@ -55,6 +55,13 @@ test('workspace change after profile read or before publication stops the write'
   await assert.rejects(f.host.writeSftpManagerServerProfiles(), /项目已切换/); assert.equal(f.rename, 0);
 });
 
+test('profile changes by another writer stop publication', async () => {
+  let reads = 0;
+  const f = fixture(async () => ++reads === 1 ? '{"servers":[]}' : '{"servers":[{"id":"other"}]}');
+  await assert.rejects(f.host.writeSftpManagerServerProfiles(), /服务器配置已变化/);
+  assert.equal(f.rename, 0);
+});
+
 test('quick setup does not start a later action after its prompt changes project', async () => {
   const f = fixture(async () => '{"servers":[]}'); let effects = 0;
   f.box.vscode.window.showInformationMessage = async () => { f.change(); return '准备 Agent 并启动'; };

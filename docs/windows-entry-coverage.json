@@ -12307,6 +12307,7 @@
         },
         {
           "id": "panel:cleanupPlan:1",
+          "currentReview": {"status":"source_scoped","evidence":"面板传planFile，Host打开所选PLAN的PlanCleanupPanel；普通移走/恢复与独立永久删除仍由各自确认和实际路径规则约束。","boundary":"本轮没有真实Worker或删除；旧证不证明全部计划产物实际处理。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=cleanupPlan]",
           "oldStatus": "concluded_scoped",
@@ -12314,6 +12315,7 @@
         },
         {
           "id": "panel:reviewIsolatedPlanBatches:1",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"Host打开隔离产物独立审核；0275a980按原ID持久未决请求、精确路径双确认，真实service配假后端12/12。","boundary":"新产物及原dist消费者仍待build；Host崩溃后发起者终态不明保unknown，不重发；未真实删除。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=reviewIsolatedPlanBatches]",
           "oldStatus": "concluded_scoped",
@@ -14530,7 +14532,7 @@
         },
         {
           "name": "simpleExperiment.quickSetup",
-          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"命令经Host租约进入quickSetup；配置读取错误不再静默覆盖，项目切换后不再发布配置或启动后续动作，假文件端4/4及原消费单项1/1；旧0.5.498实窗目标检查可复用。","boundary":"旧证未启动Agent；本轮未写真实共享配置或访问Worker，候选待源码复核及构建。"},
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"命令经Host租约进入quickSetup；配置读取错误、项目切换或发布前文件变化均阻止覆盖，假文件端5/5及原消费单项1/1；旧0.5.498实窗目标检查可复用。","boundary":"旧证未启动Agent；本轮未写真实共享配置或访问Worker，候选待源码复核及构建。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.quickSetup]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14857,6 +14859,7 @@
         },
         {
           "name": "cleanupPlan",
+          "currentReview": {"status":"source_scoped","evidence":"handleMessageCore将明确planFile或当前选择交PlanCleanupHost.open，后续人工审核；参见panel:cleanupPlan:1。","boundary":"未真实Worker或删除。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15063,6 +15066,7 @@
         },
         {
           "name": "installPluginUpdates",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"面板路由installPluginUpdates，Bootstrap单飞处理并对需更新项展示确认；命令面板0.5.501旧证仅覆盖已是最新。","boundary":"未实际下载、安装或重载。"},
           "route": "invoke_special",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15224,6 +15228,7 @@
         },
         {
           "name": "quickSetup",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"面板无额外参数调用quickSetup，复用86b950bb配置读取错误、项目切换及后续文件变化修复和假端5/5。","boundary":"未改真实共享配置或连接Worker，待build。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },

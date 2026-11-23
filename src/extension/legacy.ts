@@ -14004,8 +14004,10 @@ reportStage("正在准备校验所需代码…");
         if (!targets.length)
             return { targetCount: 0, file };
         let existing = {};
+        let originalText: string | undefined;
         try {
-            existing = JSON.parse(await fs.readFile(file, "utf8"));
+            originalText = await fs.readFile(file, "utf8");
+            existing = JSON.parse(originalText);
         }
         catch (error: any) {
             if (error?.code !== "ENOENT") throw error;
@@ -14052,7 +14054,14 @@ reportStage("正在准备校验所需代码…");
             activeServerId,
             servers,
         }, null, 2)}\n`;
-        await atomicWriteText(file, payload, { beforeRename: async () => assertCurrent() });
+        await atomicWriteText(file, payload, { beforeRename: async () => {
+            assertCurrent();
+            let currentText: string | undefined;
+            try { currentText = await fs.readFile(file, "utf8"); }
+            catch (error: any) { if (error?.code !== "ENOENT") throw error; }
+            assertCurrent();
+            if (currentText !== originalText) throw new Error("SimpleSFTP 服务器配置已变化，请重新执行当前操作。");
+        } });
         return { targetCount: targets.length, file };
     }
     sftpSharedTargets() {
