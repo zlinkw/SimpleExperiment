@@ -122,3 +122,7 @@ Plan恢复stat仅ENOENT计缺失，其他错误可见；假fs原消费者 %TEMP%
 总控对Agent漂移仅该依赖维度核24旧sourceJob与14 direct：f66d3694原SHA af809d70…，当前4cd5364e…；实际选取函数/分支不入新缓存逻辑，精确原日志/工具链限制保留coverage。31原Windows skip仍非POSIX通过，219历史超时例外不扩张；227只核serve中旧依赖分支。未运行Agent/Python测试，其他依赖及新compiled runtime未获证明。首次模板AST因未展开插值解析失败，仅只读分析，修正后成功。
 
 Agent单依赖更新后只读增量规划 %TEMP%/g004-build-evidence-after-agent-review-20261123.log exit1，下一首拒legacy源漂移；未编译或执行矩阵。
+
+本轮继续只读对账：c945e458逐项复审Plan code scope、远端结果检查、同步范围、隧道探测及完成提示的精确提取闭包；957ddb38复核更新器、精确停止旧证，并将草稿按钮及invoke明确标为退役历史，原日志保留，不重跑退役功能。覆盖中另限定Git覆盖仅旧预览取消、Plan校验/预演仅旧合成输入，未操作真实Worker或覆盖。
+
+后续执行批次和历史清除、tmux窗口、lease测试分别按精确提取片段及实际require闭包对照1e91d0d4，旧证与未变依赖的适用范围记coverage；不等于当前构建或真实Worker通过。只读对照工具首次因shell引号解析失败、再因git show默认缓冲不足退出，修正后源码比较完成；coverage字符串首次插入定位/JSON语法失败均在写入前中止，修正后复读UTF8与JSON。
