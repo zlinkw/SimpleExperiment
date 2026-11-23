@@ -244,7 +244,7 @@ test("draft rejection updates only the requested draft and preserves its identit
   vm.runInNewContext(ts.transpileModule(reject.replace(/^export /,'')+';this.rejectDraft=rejectDraft;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   sandbox.DraftPlans_1={rejectDraft:sandbox.rejectDraft};
   vm.runInNewContext(ts.transpileModule('class Host {'+hostMethod+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const host=new sandbox.Host();host.captureProjectContext=()=>({});host.projectContextIsCurrent=()=>true;host.requireDraftRecord=async file=>({draftPlanPath:file});host.withDraftMetadataLease=async(_root,fn)=>fn();host.refreshDraftPlans=async()=>{};
+  const host=new sandbox.Host();host.draftPlanState={error:''};host.captureProjectContext=()=>({});host.projectContextIsCurrent=()=>true;host.requireDraftRecord=async file=>({draftPlanPath:file});host.withDraftMetadataLease=async(_root,fn)=>fn();host.refreshDraftPlans=async()=>{};
   const result=await host.apiDraftReject({draftPlanPath:'tmp/plan/a.yaml',reviewedBy:'reviewer'});
   assert.equal(result.draftPlanPath,'tmp/plan/a.yaml');assert.equal(records['tmp/plan/a.yaml'].status,'rejected');assert.equal(records['tmp/plan/a.yaml'].reviewedBy,'reviewer');assert.equal(records['tmp/plan/b.yaml'].status,'draft');
 });

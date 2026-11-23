@@ -50,3 +50,45 @@ test("draft directory permission errors are not reported as an absent directory"
   assert.equal(host.draftPlanState.enabled, false);
   assert.equal(host.draftPlanState.drafts.length, 0);
 });
+
+test("draft rejection reports a refresh failure after the write", async () => {
+  let writes = 0;
+  const globals = { workspaceRoot: () => "project", stringField: (row, key) => String(row?.[key] || ""), errorMessage: (e) => e.message,
+    DraftPlans_1: { rejectDraft: async () => { writes += 1; } } };
+  const run = vm.runInNewContext(extract("apiDraftReject", true), globals);
+  const host = { draftPlanState: { error: "" }, requireDraftRecord: async () => ({ draftPlanPath: "tmp/plan/a.yaml" }),
+    captureProjectContext: () => ({}), projectContextIsCurrent: () => true,
+    withDraftMetadataLease: async (_root, fn) => fn(),
+    refreshDraftPlans: async function () { this.draftPlanState.error = "EACCES"; } };
+  await assert.rejects(run.call(host, { draftPlanPath: "tmp/plan/a.yaml" }), /拒绝已写入，但刷新失败：EACCES/);
+  assert.equal(writes, 1);
+  host.refreshDraftPlans = async () => { throw failure("EIO"); };
+  await assert.rejects(run.call(host, { draftPlanPath: "tmp/plan/a.yaml" }), /拒绝已写入，但刷新失败：EIO/);
+  assert.equal(writes, 2);
+  host.refreshDraftPlans = async function () { this.draftPlanState.error = ""; };
+  assert.equal((await run.call(host, { draftPlanPath: "tmp/plan/a.yaml" })).status, "rejected");
+  assert.equal(writes, 3);
+});
+
+test("draft review and rejection UI surface the same partial-write errors as the API", async () => {
+  const globals = { stringField: (row, key) => String(row?.[key] || "") };
+  for (const [method, api] of [["rejectDraftFromUi", "apiDraftReject"], ["reviewDraftFromUi", "apiDraftReview"]]) {
+    const run = vm.runInNewContext(extract(method, true), globals);
+    let seen;
+    const host = { [api]: async (args) => { seen = args.draftPlanPath; throw new Error("已写入，但刷新失败"); } };
+    await assert.rejects(run.call(host, { planFile: "tmp/plan/a.yaml" }), /已写入，但刷新失败/);
+    assert.equal(seen, "tmp/plan/a.yaml");
+  }
+});
+
+test("draft review identifies a refresh exception after its write", async () => {
+  let writes = 0;
+  const globals = { workspaceRoot: () => "project", stringField: (row, key) => String(row?.[key] || ""), errorMessage: (e) => e.message,
+    DraftPlans_1: { markDraftReviewed: async () => { writes += 1; } } };
+  const run = vm.runInNewContext(extract("apiDraftReview", true), globals);
+  const host = { requireDraftRecord: async () => ({ draftPlanPath: "tmp/plan/a.yaml" }),
+    captureProjectContext: () => ({}), projectContextIsCurrent: () => true,
+    withDraftMetadataLease: async (_root, fn) => fn(), refreshDraftPlans: async () => { throw failure("EIO"); } };
+  await assert.rejects(run.call(host, { draftPlanPath: "tmp/plan/a.yaml" }), /审核已写入，但刷新失败：EIO/);
+  assert.equal(writes, 1);
+});

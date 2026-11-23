@@ -65,7 +65,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 ## 当前预览修复与探针调查
 
-专用根原 `synthetic/final.csv` 是合法宽格式，两行含 AP/macro_f1/weighted_f1；原项目预览仅按文件名选 long preset，误报缺 metric/value、0 records。同一原字节用现有表头选择 wide preset 实际得到2 records。现预览选择时传已有文本及列映射，宽/长/JSON按现有选择契约处理；预览只把含指标的解析记录计作有效，避免只有维度的行误报成功，并允许首行无指标、后行有指标。未改原文件或底层解析结果。
+原 `synthetic/final.csv` 合法宽表两行因只按文件名选long误报0；现预览传文本及列映射，并只计含指标记录，保留后行有值场景。原文件及底层解析不变，细节见 `e9ed2a97:docs/plan-generations/G004-execution.md`。
 
 源级局部调用链的宽/长/JSON、空指标及混合行回归最终6/6、exit0、827.5419ms；原日志 `%TEMP%/g004-preview-formats-complete-20261123.out.log`/`.err.log`。首次测试夹具 AST 搜索不到函数，5/6 exit1；修夹具后第二次发现仅维度行被误判成功，5/6 exit1；均保留 `%TEMP%/g004-preview-format-20261123.*.log`、`g004-preview-format-repair-20261123.*.log`。中间回归6/6见 `g004-preview-metrics-20261123.*.log`。原520包和实际Host仍为旧实现，未冒称已部署。
 
@@ -102,3 +102,5 @@ SFTP tree、tree_state、inventory逐项核Gateway、Host与已装SFTP路径检�
 SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories原无条件附confirm/pathConfirmed且缺授权，已按总控裁决改为sync项目授权、根内精确目标及调用前项目/Worker快照复核；假Gateway/Host 18/18 exit0，`%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`。已装120确认函数仅提取VM核缺失/部分/完整因子3/3，`%TEMP%/g004-sftp120-confirmation-vm-20261123.log`。未改真实grant或访问远端。一次压缩补丁未匹配、未写入。
 
 逐位置检查静态报告打开两处与复制一处、相应invoke及命令别名；Host路径及缺失/权限错误的真实方法VM回归3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`。成功打开/复制和链接目标未实测，不操作真实剪贴板。
+
+草稿审核/拒绝写入后若刷新抛错或保存错误，原UI及拒绝API可能报完成；现UI复用项目绑定API，明确报告“已写入但刷新失败”，不自动重发。方法VM/假写入6/6 exit0 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`，原生命周期49/49 exit0 `%TEMP%/g004-draft-action-lifecycle-final-20261123.*.log`；夹具补齐真实Host已有状态，无真实草稿写入。

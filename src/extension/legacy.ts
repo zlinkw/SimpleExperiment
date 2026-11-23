@@ -20132,8 +20132,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error("需要先打开工作区。");
         await this.withDraftMetadataLease(root, () => DraftPlans_1.rejectDraft(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
         if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿拒绝已写入原项目，请在原项目核查。");
-        await this.refreshDraftPlans(true);
+        try { await this.refreshDraftPlans(true); }
+        catch (error) { throw new Error(`草稿拒绝已写入，但刷新失败：${errorMessage(error)}`); }
         if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿拒绝已写入原项目，请在原项目核查。");
+        if (this.draftPlanState.error) throw new Error(`草稿拒绝已写入，但刷新失败：${this.draftPlanState.error}`);
         return { ok: true, status: "rejected", draftPlanPath: record.draftPlanPath };
     }
 
@@ -20145,7 +20147,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw new Error("需要先打开工作区。");
         await this.withDraftMetadataLease(root, () => DraftPlans_1.markDraftReviewed(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
         if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
-        await this.refreshDraftPlans(true);
+        try { await this.refreshDraftPlans(true); }
+        catch (error) { throw new Error(`草稿审核已写入，但刷新失败：${errorMessage(error)}`); }
         if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；草稿审核已写入原项目，请在原项目核查。");
         if (this.draftPlanState.error) throw new Error(`草稿审核已写入，但刷新失败：${this.draftPlanState.error}`);
         const updated = (this.draftPlanState.drafts || []).find((item) => sameProjectRelativePath(item.draftPlanPath, record.draftPlanPath));
@@ -20260,20 +20263,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
 
     async rejectDraftFromUi(message) {
         const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile");
-        const record = await this.requireDraftRecord(planFile);
-        const root = workspaceRoot();
-        if (!root) throw new Error("需要先打开工作区。");
-        await this.withDraftMetadataLease(root, () => DraftPlans_1.rejectDraft(root, record.draftPlanPath));
-        await this.refreshDraftPlans(true);
+        return await this.apiDraftReject({ draftPlanPath: planFile });
     }
 
     async reviewDraftFromUi(message) {
         const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile");
-        const record = await this.requireDraftRecord(planFile);
-        const root = workspaceRoot();
-        if (!root) throw new Error("需要先打开工作区。");
-        await this.withDraftMetadataLease(root, () => DraftPlans_1.markDraftReviewed(root, record.draftPlanPath));
-        await this.refreshDraftPlans(true);
+        return await this.apiDraftReview({ draftPlanPath: planFile });
     }
 
     async cleanupDraftsFromUi(message) {

@@ -11347,6 +11347,7 @@
           "name": "draft_validate",
           "method": "drafts.validate",
           "oldEvidence": "projectTools[name=draft_validate]",
+          "currentReview": {"status":"mock_scoped","evidence":"Gateway校验精确草稿路径并由Host读取当前项目记录与引用；原Gateway假端3/3 %TEMP%/g004-520-mcp-draft-contracts-20261123.log，真实方法身份验证见 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"当前专用根无草稿；未写或验证真实草稿。"},
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "按原消费者及本轮证据各自条件判断，不等于所有参数或环境通过。"
@@ -11363,6 +11364,7 @@
           "name": "draft_review",
           "method": "drafts.review",
           "oldEvidence": "projectTools[name=draft_review]",
+          "currentReview": {"status":"fixed_scoped","evidence":"Gateway要求当前项目configuration授权；Host原精确写入后刷新异常未说明部分已写，现明确传回。真实方法VM与假写入6/6 %TEMP%/g004-draft-partial-write-final-20261123.*.log；生命周期49/49 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"仅假项目与假写入；未修改真实草稿。"},
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "按原消费者及本轮证据各自条件判断，不等于所有参数或环境通过。"
@@ -11371,6 +11373,7 @@
           "name": "draft_reject",
           "method": "drafts.reject",
           "oldEvidence": "projectTools[name=draft_reject]",
+          "currentReview": {"status":"fixed_scoped","evidence":"Gateway要求当前项目configuration授权；Host修复写入后刷新记录错误或抛异常时假成功，明确提示已写。真实方法假写入6/6 %TEMP%/g004-draft-partial-write-final-20261123.*.log；生命周期49/49 %TEMP%/g004-draft-action-lifecycle-final-20261123.*.log。","boundary":"仅假项目与假写入；未修改真实草稿。"},
           "scope": "single_project_local_or_mixed",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "按原消费者及本轮证据各自条件判断，不等于所有参数或环境通过。"
@@ -12522,6 +12525,7 @@
         },
         {
           "id": "panel:reviewDraft:1",
+          "currentReview": {"status":"fixed_scoped","evidence":"UI复用同一apiDraftReview，保留项目切换、实际状态和写后刷新失败提示；方法VM与假写入 %TEMP%/g004-draft-partial-write-final-20261123.*.log。","boundary":"无真实草稿或UI实点。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=reviewDraft]",
           "oldStatus": "concluded_scoped",
@@ -12536,6 +12540,7 @@
         },
         {
           "id": "panel:rejectDraft:1",
+          "currentReview": {"status":"fixed_scoped","evidence":"UI复用同一apiDraftReject，写后刷新失败不会报完成；方法VM与假写入 %TEMP%/g004-draft-partial-write-final-20261123.*.log。","boundary":"无真实草稿或UI实点。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=rejectDraft]",
           "oldStatus": "concluded_scoped",
