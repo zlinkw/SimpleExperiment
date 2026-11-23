@@ -1,6 +1,6 @@
 # G004 执行登记
 
-完整压缩前事实见Git `6f829e1d:docs/plan-generations/G004-execution.md`；该版本保留6f14818d、f66d3694、cb44bd81、f36cb6a3、18dd5614及更早T1–T7完整原材料引用。逐项receipt/日志/事件/输入以docs/windows-entry-coverage.json为准；历史授权、失败、未知和现场均不因压缩消失。本文件cap12000/90%=10800。
+压缩前事实及更早原材料引用见 `6f829e1d:docs/plan-generations/G004-execution.md`。逐项receipt/日志/事件/输入见coverage；历史授权、失败、未知和现场保留。本文件cap12000/90%=10800。
 
 ## 当前目标与边界
 
@@ -119,9 +119,9 @@ task_list只复核当前项目归并、取消及unknown源码，禁止真实任�
 
 本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付。配套仓src commit `28087f3` 已普通推送抓取一致，真实handler内存替身8/8、原结算3/3 exit0，日志 `%TEMP%/g004-sftp-cancel-identity-final2-20261123.*.log`、`g004-sftp-cancel-settlement-final-20261123.*.log`；首复现2/4 exit1保留 `g004-sftp-cancel-identity-first-20261123.*.log`。源审前未build/package/安装，已装120仍有缺陷，未操作真实传输。一次执行文档压缩补丁未匹配、未写入。
 
-总控已审通过配套源diff；原transferRecovery精确消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-consumer-20261123.*.log`，verify-runtime exit0且核23文件 `%TEMP%/g004-sftp-verify-runtime-20261123.*.log`。未递版、组装或安装；package原全套尚须逐证据核可复用范围并审收。
+配套源diff已审通过；transferRecovery消费者1/1 `%TEMP%/g004-sftp-cancel-consumer-20261123.*.log`，verify-runtime核23文件exit0 `%TEMP%/g004-sftp-verify-runtime-20261123.*.log`。未递版组装安装，原package覆盖待逐项审收。
 
-配套mappedBatchDownload精确取消消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-mapped-consumer-20261123.*.log`；SSH为注入替身，无真实连接。旧119现存56条日志的测试文件及通过数与120一致；另13条119原日志缺失、120逐项目录为空，仍需核闭包。
+配套mappedBatchDownload取消消费者1/1 `%TEMP%/g004-sftp-cancel-mapped-consumer-20261123.*.log`，SSH为替身。旧119现存56条日志的测试文件及通过数与120一致，另13条缺原日志、120逐项目录为空，闭包待核。
 
 Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retention/backup/inspection源码片段与1e91d0d4逐段一致、其余依赖字节不变，复用原15/15及10/10，更新两条该次输入；不重跑旧清理替身。并非全部build依赖已对账。
 
@@ -138,3 +138,5 @@ planBatchPhysicalPipeline及planRunRecovery受测队列写入/租约和确认/�
 SFTP配置set/reset核schema、项目上下文与人工确认转发，复用旧假对话/后端9/9；不改真实全局配置。增量build对现有包装执行日志的接纳缺口已交总控，未重放退役草稿测试。
 
 总控审通过固定G004包装核验；原pattern首次1/1及补充负例1/1 exit0，日志 `%TEMP%/g004-wrapped-evidence-runner-first-20261123.*.log`、`g004-wrapped-evidence-runner-final-20261123.*.log`，runner commit `95a01388`。已核原49/49内层状态、原外层83065 exit0、事件与双日志SHA；当前闭包六项变化均在该次执行前，原旧证保留并改非当前，草稿断言仅历史事实。整体build尚未运行。
+
+runner历史255/256按各自identity/argv复核：39个原用例中仅G004 case变化，runner新改限显式G004路径，其余依赖不变；保留原已审历史证据及未知工具链，不重跑性能测试。其余历史作业仍待各自对账。
