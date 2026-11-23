@@ -8936,10 +8936,13 @@ return this.testTunnel(true);
     }
 
     async recordRunGitProvenance(planFile, planRevision = "", operationId = "", batch?) {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root)
             throw new Error("记录 Git 版本前需要打开实验项目工作区。");
         const git = await (batch ? batch.once("git-provenance", () => this.collectRunGitProvenance(root)) : this.collectRunGitProvenance(root));
+        if (!this.projectContextIsCurrent(projectContext) || !samePath(git.repositoryRoot || "", root))
+            throw new Error("项目或 Git 仓库已变化；未写入运行版本记录。");
         const provenance = {
             schemaVersion: 1,
             recordedAt: new Date().toISOString(),
@@ -9613,21 +9616,35 @@ return false;
      * 提交钩子会改变源码，因此这一步与后续 Worker 上传读源码不得交错；本步不走任何网络。
      */
     async prepareLocalGitPublish(taskName, report = (_text: string) => { }) {
+        const projectContext = this.captureProjectContext();
+        if (!projectContext.root) throw new Error("请先打开当前实验项目。");
         const repo = await this.primaryGitRepository();
-        await vscode.commands.executeCommand("git.stageAll");
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext) || !samePath(repo.rootUri?.fsPath || "", projectContext.root))
+                throw new Error("项目或 Git 仓库已变化；未继续提交或推送。");
+        };
+        assertCurrent();
+        const paths = [...(repo.state?.workingTreeChanges || []), ...(repo.state?.untrackedChanges || [])]
+            .map(change => change.uri.fsPath);
+        if (paths.length) await repo.add(paths);
+        assertCurrent();
         const committed = gitRepositoryHasChanges(repo);
         const message = timestampCommitMessage(taskName, committed ? changedFileNamesFromRepo(repo) : []);
         if (committed) {
             assertNonEmptyCommitMessage(message);
             repo.inputBox.value = message;
             await repo.commit(message);
+            if (!this.projectContextIsCurrent(projectContext) || !samePath(repo.rootUri?.fsPath || "", projectContext.root))
+                throw new Error("项目或 Git 仓库已变化；原项目本地提交可能已完成，未继续推送。");
         }
         const hasRemote = gitRepositoryHasRemote(repo);
         report(`待推送提交已确定${committed ? "（本次新建提交）" : "（无本地变更）"}：${message}`);
-        return { repo, message, committed, hasRemote };
+        return { repo, message, committed, hasRemote, projectContext };
     }
     /** 只走网络：已有远端则 push，否则走既有首次仓库发布流程；不读写 Worker，也不读源码树。 */
     async publishPreparedGitBranch(prepared, report = (_text: string) => { }) {
+        if (!this.projectContextIsCurrent(prepared.projectContext) || !samePath(prepared.repo.rootUri?.fsPath || "", prepared.projectContext.root))
+            throw new Error("项目或 Git 仓库已变化；未推送原项目。");
         if (prepared.hasRemote) {
             report("正在推送到 GitHub…");
             await prepared.repo.push();
@@ -9660,6 +9677,7 @@ return false;
         void vscode.window.showInformationMessage(`GitHub 同步完成：${prepared.message}`);
     }
     async publishToGitHub(taskName) {
+        const projectContext = this.captureProjectContext();
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "发布到git并上传worker", cancellable: false }, async (progress) => {
             const report = (message, increment) => progress.report({ message, increment });
             // 总进度按各分支最新状态归并：增量只在确定阶段加一次，交错回调只改写文案，不重复累加。
@@ -9667,7 +9685,9 @@ return false;
             const merged = () => report(`GitHub：${branchState.git}｜Worker：${branchState.workers}`, 0);
             report("正在准备本机提交与 GitHub 凭证…", 8);
             const token = await this.githubUpdateToken(true);
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；未发布或上传。");
             const prepared = await this.prepareLocalGitPublish(taskName, text => { branchState.git = text; merged(); });
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；未推送或上传，原项目的本地准备可能已完成。");
             // 本机准备完成后，Git 网络推送与 Worker 上传是两条独立分支：Worker 不等 Git 网络成功，
             // 任一侧失败都不得自动取消另一侧已经开始的工作，也不得提前释放已发起的写入所有权。
             // 两条分支各自收敛为结果对象，Promise.all 不会提前拒绝而留下无主写入。
@@ -9684,6 +9704,7 @@ return false;
             })();
             const workerBranch = (async () => {
                 try {
+                    if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换；未向 Worker 上传。");
                     const upload = await this.uploadProjectToWorkers(false, {
                         progressReport: text => { branchState.workers = text; merged(); }, progressSpan: 70,
                     });
@@ -14127,9 +14148,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const extension = vscode.extensions.getExtension("vscode.git");
         const git = extension ? (extension.isActive ? extension.exports : await extension.activate()).getAPI(1) : undefined;
         const root = workspaceRoot();
-        const repo = git?.repositories?.find((item) => root && samePath(item.rootUri?.fsPath, root)) || git?.repositories?.[0];
+        const repo = git?.repositories?.find((item) => root && samePath(item.rootUri?.fsPath, root));
         if (!repo)
-            throw new Error("当前工作区没有可用的 VS Code Git 仓库。");
+            throw new Error("当前实验项目根目录没有对应的 VS Code Git 仓库。");
         return repo;
     }
     async ensureSftpManagerCommand(command) {

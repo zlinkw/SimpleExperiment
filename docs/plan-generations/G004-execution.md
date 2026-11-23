@@ -107,33 +107,7 @@ Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和
 
 ## 当前补充调查
 
-runner 257/258、260/261/262原日志各1/1；259为Windows跳过POSIX符号链接，不算通过；原事件和逐项细节见 `6019d151:docs/plan-generations/G004-execution.md`。新源码须复核旧快照。
-
-结果目录、复制、高级设置及SFTP服务器/目标/确认重置逐ID审查见coverage；未改配置或共享确认。
-
-MCP诊断取消发送前重核授权及身份；假Gateway/Host 3/3、Host 1/1 exit0，首模式零用例不算验证；完整日志见 `d1d816d2:docs/plan-generations/G004-execution.md`。384f6d5f已同步待build，无真实Worker。
-
-打开Plan项目绑定修复 `6b4e5651` 已同步待build；假编辑器3/3及边界见 `6019d151:docs/plan-generations/G004-execution.md`，未打开真实编辑器。
-
-只读glob与git show缓冲失败及coverage脚本、压缩首稿失败均未写入，详见 `0f6ea82b:docs/plan-generations/G004-execution.md`。
-
-结果规则保存、映射保存及运行前同步绑定原项目，切项目不继续剩余Worker，155d0593已同步待build。假Worker 1/1、VM 1/1、调用链2/2及首夹具语法失败日志见 `d1d816d2:docs/plan-generations/G004-execution.md`；未访问真实Worker或写真实配置。
-
-结果区原自动匹配无实际恢复；首次拟改仅刷新会缩减入口承诺，已撤回、不计通过，VM日志见 `0f6ea82b:docs/plan-generations/G004-execution.md`。不恢复旧registry；未改真实结果。
-
-自动匹配候选仅应用当前未分配PLAN唯一单值已保存映射、不读旧registry；结果表打开固定并复核目录。假Host/真实写入方法8/8 exit0，原日志及先前7/7、旧dist消费者待验证细节见 `6019d151:docs/plan-generations/G004-execution.md`。候选未提交、未build、未动真实结果，待源审及P0门禁。
-
-日志历史最多50行，五处提示候选改为“日志尾部”，保留完整日志入口；未请求真实日志，待build。
-
-配套agentLifecycle及agentPythonResolution相关测试与源从119到28087f3无变化；120汇总1及12通过但原日志缺失，工具链未知，见 `0f6ea82b:docs/plan-generations/G004-execution.md`；未运行Agent或WSL。
-
-MCP resource_available对明确过期、离线或degraded缓存改返回unknown；假RPC及源码函数各1/1、首次补丁未匹配和新鲜度缺口见 `1ec62029:docs/plan-generations/G004-execution.md`。未查询真实GPU、任务或Worker，待构建。
-
-诊断复制、操作日志、面板恢复和配置说明逐ID源码复核，边界见coverage；未操作真实剪贴板、窗口或重新识别。
-
-日志分析项目切换修复、假Worker验证及失败记录见 `e7b3483e:docs/plan-generations/G004-execution.md`；未查询真实Worker，待build。
-
-log_read无效响应修复及TensorBoard、tmux、artifact逐ID源码和有限假对象证据见coverage，压缩前明细见 `9271a7ec:docs/plan-generations/G004-execution.md`；未查询真实Worker、任务、日志或活动结果，待build。
+此前逐入口、原日志与未通过项详见 `bcda04ad:docs/plan-generations/G004-execution.md` 与coverage：runner 257/258、260—262通过、259仅跳过；无关glob、缓冲、脚本及压缩尝试失败未写入。打开Plan、结果规则/映射/同步、日志分析、MCP诊断授权与资源新鲜度的定向修复和假消费者证据均按原记录适用，待build；未连接真实Worker。自动匹配、日志尾部及面板候选仍未提交，需P0 build；原首失败和被撤回的缩范围方案保留原Git记录。历史草稿调查和断言仅为已退役功能的事实，不作为当前功能。配套119/120旧测试逐日志缺口及工具链未知仍未消除。
 
 配套120→28087f3的api-server、清理实现和11个测试字节未变；原120汇总通过数、119差异和未存逐项日志详见 `f02bb042:docs/plan-generations/G004-execution.md`。其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。工具链未知，未执行真实清理/WSL，打包覆盖待审收。
 
@@ -162,3 +136,11 @@ openXshell、testAll、snapshot入口按实际源码分别核确认、Worker、�
 当前HEAD 9271a7ec、脏树只读build规划316项，selectionHash `7db4b499442fed600a06741b61d7d4970ca6d1864b694579bb39005f3efb2893`；compile/fullCheck均未运行，该选择非构建通过，后续HEAD或输入变化重算。
 
 clearOperations四个原ID分别核Plan、全部、选中、单项路由与确认；当前invoke走本机处理，旧远程误路由分类不适用，未改真实历史。
+
+缓存持久化候选：同一local_operations.json和文件lease预留完整批次，旧快照保留未决记录，真实执行未知不重发；坏JSON/EACCES拒绝覆盖，原ID明确结束后清路径。Host重启丢本机退出证据则继续unknown；无真实删除或Worker。新旧Agent同路径LIVE互斥和预检已补。假存储/执行器及Windows只读身份 %TEMP%/g004-cache-persistent-v5-20261123.log 11/11 exit0（含启动前失败结清与已启动未退出保留）；v2 9/10 exit1为测试在refresh后才注入错误回调，调整顺序后v3/v4通过。候选待源审和build，非已交付。
+
+Git当前项目仓库绑定候选：仅精确仓库stage/commit/push，项目切换不继续后续效果，已发commit可能完成如实提示；Git溯源写入前复核项目。假Git/写入 %TEMP%/g004-git-project-binding-v2-20261123.log 6/6 exit0，未操作真实产品Git；候选待审。
+
+六个草稿MCP原证保留，仅标retired历史兼容，不计现行通过；coverage JSON及UTF8复读有效，首文本替换count7中止未写。
+
+Git自动备份入口源审发现嵌套工作区会向父仓库安装hook，且等待远端确认时项目可能切换；候选仅接受当前项目精确仓库，并在安装前重核仓库、hook与remote，原异步返回/原hook保护保留。假fs/假UI %TEMP%/g004-git-backup-boundary-20261123.log 5/5 exit0；未触真实hook或远端，候选待构建。

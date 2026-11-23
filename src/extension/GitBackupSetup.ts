@@ -16,6 +16,7 @@ import {
   uninstallBackupHook,
   type GitBackupInspection,
 } from "../features/GitBackup";
+import * as path from "node:path";
 
 const CONFIG_SECTION = "simpleExperiment";
 const KEY_ENABLED = "gitBackup.enabled";
@@ -87,6 +88,16 @@ function resolveWorkspaceRoot(vscode: VscodeLike): string {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || !folders.length) return "";
   return folders[0].uri.fsPath;
+}
+
+function sameRoot(a: string, b: string): boolean {
+  const left = path.resolve(a), right = path.resolve(b);
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+function isWorkspaceRepository(vscode: VscodeLike, inspection: GitBackupInspection): boolean {
+  const root = resolveWorkspaceRoot(vscode);
+  return Boolean(root && inspection.repoRoot && sameRoot(root, inspection.repoRoot));
 }
 
 function describeRemote(inspection: GitBackupInspection): string {
@@ -184,6 +195,11 @@ async function applyBackup(
     if (!granted) return;
   }
 
+  if (!isWorkspaceRepository(vscode, inspection)) throw new Error("项目或 Git 仓库已变化，未修改自动备份。");
+  const current = inspectGitBackup(resolveWorkspaceRoot(vscode), config.remote);
+  if (!isWorkspaceRepository(vscode, current) || !sameRoot(current.hookPath, inspection.hookPath) || current.remoteName !== inspection.remoteName)
+    throw new Error("Git 仓库或远端已变化，未修改自动备份。");
+
   const result = installBackupHook(inspection.repoRoot, inspection.remoteName);
   if (!result.changed) {
     if (interactive) void vscode.window.showInformationMessage(`SimpleExperiment：${result.reason}`);
@@ -224,7 +240,7 @@ export async function maybeAutoInstallGitBackup(context: ExtensionContextLike): 
   if (!root) return;
 
   const inspection = inspectGitBackup(root, config.remote);
-  if (!inspection.isGitRepo) return;
+  if (!inspection.isGitRepo || !isWorkspaceRepository(vscode, inspection)) return;
   if (inspection.hookInstalled) return;
 
   if (!inspection.hasRemote) {
@@ -254,7 +270,7 @@ export async function setupGitBackupCommand(): Promise<void> {
   const config = loadConfig(vscode);
   const inspection = inspectGitBackup(root, config.remote);
 
-  if (!inspection.isGitRepo) {
+  if (!inspection.isGitRepo || !isWorkspaceRepository(vscode, inspection)) {
     void vscode.window.showWarningMessage("SimpleExperiment：当前工作区不是 Git 仓库，无法配置自动备份。");
     return;
   }
@@ -271,6 +287,7 @@ export async function setupGitBackupCommand(): Promise<void> {
       "取消"
     );
     if (pick === "移除") {
+      if (!isWorkspaceRepository(vscode, inspection)) throw new Error("项目已变化，未移除自动备份。");
       await removeGitBackupCommand();
       return;
     }
@@ -288,7 +305,7 @@ export async function removeGitBackupCommand(): Promise<void> {
 
   const config = loadConfig(vscode);
   const inspection = inspectGitBackup(root, config.remote);
-  if (!inspection.isGitRepo) {
+  if (!inspection.isGitRepo || !isWorkspaceRepository(vscode, inspection)) {
     void vscode.window.showWarningMessage("SimpleExperiment：当前工作区不是 Git 仓库。");
     return;
   }
@@ -308,7 +325,7 @@ export async function showGitBackupStatusCommand(): Promise<void> {
   const config = loadConfig(vscode);
   const inspection = inspectGitBackup(root, config.remote);
 
-  if (!inspection.isGitRepo) {
+  if (!inspection.isGitRepo || !isWorkspaceRepository(vscode, inspection)) {
     void vscode.window.showInformationMessage("SimpleExperiment：当前工作区不是 Git 仓库，自动备份不适用。");
     return;
   }
@@ -322,6 +339,7 @@ export async function showGitBackupStatusCommand(): Promise<void> {
   ].filter(Boolean);
 
   const pick = await vscode.window.showInformationMessage(lines.join("\n"), "配置", "移除", "关闭");
+  if ((pick === "配置" || pick === "移除") && !isWorkspaceRepository(vscode, inspection)) throw new Error("项目已变化，未修改自动备份。");
   if (pick === "配置") await setupGitBackupCommand();
   if (pick === "移除") await removeGitBackupCommand();
 }

@@ -54,7 +54,7 @@ test("automatic startup propagates inspection and installation failures for visi
   const vscode = { workspace: { workspaceFolders: [{ uri: { fsPath: "C:/synthetic" } }],
     getConfiguration: () => ({ get: (key, fallback) => key === "gitBackup.verifyRemoteAccess" ? false : fallback }) }, window: {} };
   let inspectionError = true, installed = 0;
-  const backup = { inspectGitBackup() { if (inspectionError) throw Error("read denied"); return { isGitRepo: true, hookInstalled: false, hasRemote: true }; },
+  const backup = { inspectGitBackup() { if (inspectionError) throw Error("read denied"); return { isGitRepo: true, hookInstalled: false, hasRemote: true, repoRoot: "C:/synthetic", hookPath: "C:/synthetic/.git/hooks/post-commit", remoteName: "origin" }; },
     installBackupHook() { installed++; throw Error("write denied"); } };
   const setup = load("src/extension/GitBackupSetup.ts", { vscode, "../features/GitBackup": backup });
   await assert.rejects(setup.maybeAutoInstallGitBackup({ subscriptions: { push() {} } }), /read denied/);
@@ -62,6 +62,25 @@ test("automatic startup propagates inspection and installation failures for visi
   inspectionError = false;
   await assert.rejects(setup.maybeAutoInstallGitBackup({ subscriptions: { push() {} } }), /write denied/);
   assert.equal(installed, 1);
+});
+
+test("backup refuses a parent repository and a changed workspace", async () => {
+  let root = "C:/synthetic/child", writes = 0, release;
+  const vscode = { workspace: { get workspaceFolders() { return [{ uri: { fsPath: root } }]; },
+    getConfiguration: () => ({ get: (key, fallback) => key === "gitBackup.verifyRemoteAccess" ? true : fallback }) },
+    window: { showWarningMessage: () => new Promise(resolve => { release = resolve; }) } };
+  const backup = { inspectGitBackup: () => ({ isGitRepo: true, hasRemote: true, repoRoot: "C:/synthetic", hookPath: "C:/synthetic/.git/hooks/post-commit", remoteName: "origin" }),
+    checkRemoteAccess: () => ({ ok: false, stderr: "offline" }), installBackupHook() { writes++; } };
+  const setup = load("src/extension/GitBackupSetup.ts", { vscode, "../features/GitBackup": backup });
+  await setup.maybeAutoInstallGitBackup({ subscriptions: [] });
+  assert.equal(writes, 0);
+  root = "C:/synthetic";
+  const pending = setup.setupGitBackupCommand();
+  await new Promise(resolve => setImmediate(resolve));
+  root = "C:/other";
+  release("仍然安装");
+  await assert.rejects(pending, /项目或 Git 仓库已变化/);
+  assert.equal(writes, 0);
 });
 
 test("registered backup and GitHub commands return their asynchronous results", async () => {
