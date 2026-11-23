@@ -184,7 +184,7 @@ test('MCP Worker directory and batch variants retain targets and authorization',
 
 test('MCP exact-path downloads cannot select the project root',async()=>{
  const f=fixture();
- for(const paths of [[],[''],['.'],['./'],['/'],['work/..']])
+ for(const paths of [[],[''],['.'],['./'],['/'],['work/..'],['../outside'],['work/../../outside'],['/absolute/file'],['C:\\outside']])
   await assert.rejects(f.gateway.call('sftp_download_paths',{workerId:'w1',paths}),/MCP_PROJECT_PATH_REQUIRED/);
  assert.equal(f.calls.length,0);
 });

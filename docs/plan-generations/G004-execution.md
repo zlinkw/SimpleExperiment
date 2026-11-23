@@ -12,7 +12,7 @@ G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 activ
 
 ## 候选、失败与复验
 
-0.5.520 版本源同步后 write-agent-runtime exit0、compile 8/8 gates exit0/tree confirmed、input=end；原 receipt 在 `simple_cluster/reports/test-workflow/2026-11-22T18-17-42-383Z-84032-compile/run.json`，日志 `%TEMP%/g004-520-compile-20261123.log`。Panel 模块与三个真实内嵌 script 均 vm.Script 通过，src/dist 的 10890 搜索零命中。当时 compile 生成 dist 和原有脏文件保留；该阶段尚未 package/安装/发布。查询候选版本时 Python 元数据与 Electron Node 模式的 code.cmd 短暂重叠，均只读非测试但记为潜在单进程约束违规；一次 PowerShell 引号只读失败未启动 Python，已改正确读取。
+0.5.520 原 compile 8/8 gates exit0/tree confirmed、input=end，receipt `simple_cluster/reports/test-workflow/2026-11-22T18-17-42-383Z-84032-compile/run.json`；Panel模块及三真实script VM通过。生成物保留；该旧证不覆盖当前源码。原完整日志、10890搜索和只读进程短暂重叠及引号失败见 `fc571512:docs/plan-generations/G004-execution.md`。
 
 真实不利结果保留：B1 原断言失败、夹具污染致 20 秒 timeout，用户批准原预算一次复验 3/3 exit0；删除前 tsc exit2、71 emit，修正并删除后重验 exit0、emit2。首次大删除命令被平台 policy 拒且进程未创建；Get-Item 三处 Force 已移除，后按授权执行，平台未公开唯一命中原因。规划首次 0/1 因仍要求退休路径，修后 1/1；releaseAcceptance 首 0/1 因漏 onDemand，修后原预算复验 1/1。隐私测试首缺 capability 0/1、后 1/1；Worker 来源旧索引首 16/17 后 17/17、本地索引首 15/17 后 17/17、下载根路径两次 13/14 后 14/14；中立 RPC 7/8 后 8/8。候选补丁两次 CRLF exit1、一次 push 后 fetch TLS exit1，后按总控授权恢复。具体日志与其余失败见历史。
 
@@ -31,9 +31,9 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow、resultCollectionPerformance 与 freshResultHost 的精确结果、数量和边界见 coverage 与 Git `6afb2ed0:docs/plan-generations/G004-execution.md`。这些是替身/夹具，未证明真实删除、Worker 或 UI；freshResultHost 续接验证曾 20.389 秒超时，用户许可修复后原限额复验 1/1、7.513 秒，原日志和事件保留。旧shell/tmux/GPU/租约、automaticScopeContent等10项与旧job005/030/031、041/111/149/154/165/232/233/296/298逐项证据、skip和未知工具链同样见该版本及coverage，不重跑。
 
-本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 均 exit0，仅自建夹具，无真实 Worker 或 SFTP。静态命令包装识别修复及反例的原 G004 pattern 复验 1/1 exit0、8.662秒，日志 `%TEMP%/g004-520-static-wrapper-retest-20261123.log`；业务测试未重跑，原事件与日志保留，详见 `c2c60767:docs/plan-generations/G004-execution.md`。
+本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 及静态命令包装 pattern 1/1均exit0；仅夹具，无真实Worker。原日志和详情见 `c2c60767:docs/plan-generations/G004-execution.md`。
 
-总控审定旧67/68/69、91/222/225、226/227/252、141/340/341按各自受限历史范围继承，旧工具链或69根字节未知，未重跑或证明真实WSL/tmux/Worker；340仅继承现存30项。219/284原超时及用户例外、289唯一fresh原20秒1/1 exit0、4508ms均保留，精确计数及日志见Git `6afb2ed0:docs/plan-generations/G004-execution.md`。
+总控审定旧67/68/69、91/222/225、226/227/252、141/340/341按受限范围继承；旧工具链或69根字节未知，340仅现存30项。219/284超时及用户例外、289唯一fresh 1/1保留，精确事实见 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证真实WSL/tmux/Worker。
 
 历史 dry-run、219/284 用户例外、外层期限修复和脏树 planner 拒绝的逐项细节及原日志保留于 `c2c60767:docs/plan-generations/G004-execution.md`。旧选择不代表当前 build；未运行 planner 拒绝的三项。
 
@@ -94,3 +94,5 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 停止候选补保留显式远端 Worker 归属供后续人工重试；原单文件新12/12 exit0、3140ms，`%TEMP%/g004-stop-ui-identity-20261123.*.log`。源码候选及 Panel 未构建部署。
 
 SFTP server activate/save/delete 逐工具复核 schema、人工 modal 和同根代理；后两项仅复用原假对话/后端17/17日志 `%TEMP%/g004-520-mcp-sftp-routing-20261123.log`，activate仅源码。未变更服务器配置或删除任何真实记录。
+
+复核 `sftp_download_paths` 时发现 Host 原接受绝对路径，下游会剥前导斜杠改解释为项目相对路径；现于公开输入边界拒绝绝对、盘符及越界路径，后端原路径限制不变。关联 upload_files/workspace 的范围、授权和假后端逐项记录在coverage。原单文件17/17 exit0、816ms，日志 `%TEMP%/g004-mcp-download-path-validation-20261123.*.log`，仅自建夹具，未连接真实Worker或传输。一次压缩补丁未匹配、写前退出。

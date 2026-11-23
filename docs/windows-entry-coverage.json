@@ -11757,6 +11757,7 @@
           "name": "sftp_upload_files",
           "method": "upload.files",
           "oldEvidence": "projectTools[name=sftp_upload_files]",
+          "currentReview": {"status":"mock_scoped_effect_restricted","evidence":"严格schema、项目/Worker sync授权，McpHost realpath约束项目内精确文件并透传目标；%TEMP%/g004-mcp-download-path-validation-20261123.*.log 17/17 exit0，覆盖相对路径和越界拒绝。","boundary":"假后端与自建文件，不执行真实上传或更改共享配置。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11765,6 +11766,7 @@
           "name": "sftp_upload_workspace",
           "method": "upload.workspace",
           "oldEvidence": "projectTools[name=sftp_upload_workspace]",
+          "currentReview": {"status":"mock_scoped_effect_restricted","evidence":"同根及精确Worker sync授权后构造现有同步范围manifest，不裁剪远端；假后端测试覆盖目标、manifest和撤权拒绝，%TEMP%/g004-mcp-download-path-validation-20261123.*.log。","boundary":"只验证假manifest与调用，不上传真实工作区。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11773,6 +11775,7 @@
           "name": "sftp_download_paths",
           "method": "sync.downloadPaths",
           "oldEvidence": "projectTools[name=sftp_download_paths]",
+          "currentReview": {"status":"fixed_scoped_effect_restricted","evidence":"发现 Host 原仅拒绝项目根，绝对路径会被SFTP下游剥去前导斜杠并解释为相对路径；现明确拒绝绝对、盘符和越界路径，保留精确Worker/授权。原文件17/17 exit0，%TEMP%/g004-mcp-download-path-validation-20261123.*.log。","boundary":"假后端、自建夹具；SFTP下游仍核路径，不做真实下载；已安装520不含本次修复。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
