@@ -13663,6 +13663,7 @@
         },
         {
           "id": "noncommand:data-open-result-split",
+          "currentReview": {"status":"source_scoped","evidence":"表行提供tableKey，点击重置字段/勾选/搜索并展开拆表工具；当前目录找不到key时界面按现有可用表回退，显示实际来源。","boundary":"仅源码核对；未读真实结果、写文件或触发覆盖确认。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-open-result-split]",
           "oldStatus": "concluded_scoped",
@@ -13684,6 +13685,7 @@
         },
         {
           "id": "noncommand:data-result-split-toggle=all",
+          "currentReview": {"status":"source_scoped","evidence":"只勾选当前过滤后可见词条，同时保留其他已勾选项，生成时提交实际勾选值。","boundary":"仅源码核对；未读真实结果、写文件或触发覆盖确认。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-result-split-toggle=all]",
           "oldStatus": "concluded_scoped",
@@ -13691,6 +13693,7 @@
         },
         {
           "id": "noncommand:data-result-split-toggle=none",
+          "currentReview": {"status":"source_scoped","evidence":"只取消当前过滤后可见词条，同时保留其他已勾选项；Host核列和值属于所选表，同名输出需本人确认。","boundary":"仅源码核对；未读真实结果、写文件或触发覆盖确认。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-result-split-toggle=none]",
           "oldStatus": "concluded_scoped",

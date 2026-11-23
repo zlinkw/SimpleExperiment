@@ -53,7 +53,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 原 `synthetic/final.csv` 合法宽表两行因只按文件名选long误报0；现预览传文本及列映射，并只计含指标记录，保留后行有值场景。原文件及底层解析不变，细节见 `e9ed2a97:docs/plan-generations/G004-execution.md`。
 
-CSV宽/长/JSON回归6/6 `%TEMP%/g004-preview-formats-complete-20261123.*.log`；首夹具及维度误判各5/6 exit1，原日志和中间6/6见 `49e1cebd:docs/plan-generations/G004-execution.md`。520 Host仍旧实现。
+CSV宽/长/JSON原回归及两次首失败日志见 `18f587b2:docs/plan-generations/G004-execution.md`；520仍旧实现。
 
 后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
 
@@ -178,3 +178,5 @@ handoff按用户批准修复选定Worker确认、上传和标记，SFTP d4ed002�
 MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；假fs/传输3/3、假Gateway1/1 exit0，日志及真实效果限制见coverage，未安装。
 
 面板verifyAgentVersion/prepareAgents/startAll及对应invoke路线按旧实点适用和当前源码分别核对，未实测远端；见coverage。
+
+结果拆表入口及可见词条全选/取消逐ID核当前界面与Host校验，未写真实结果；见coverage。
