@@ -163,10 +163,12 @@ PLAN清理9项的列表、预览、观察、确认、执行和恢复边界见cov
 
 file_cleanup_preview/inspect/observe_batch 的节点、项目和配套观察契约见coverage；未观察真实文件。
 
-plan_run按workflow_submission接受边界修正前置权限复核；普通MCP/UI正路径1/1 exit0，`%TEMP%/g004-workflow-accept-normal-20261123.*.log`。误将入队作为接受的推断撤回；无撤权专项、真实Worker，详情见coverage。
+plan_run接受边界修正和普通MCP/UI 1/1原日志见 `4f8cb760:docs/plan-generations/G004-execution.md`；无撤权专项及真实Worker。
 
 file_cleanup状态、审核与执行6项详见coverage及 `df29de92:docs/plan-generations/G004-execution.md`；未操作真实目标。
 
 sftp_worker_sync/directory/batch按两个Worker、路径与配套消费者核源码；未执行真实传输，见coverage。
 
 sftp_server_import/download_scope/download_mapped的授权、保存范围及内存指标边界见coverage，未改配置或传输。
+
+result_collect按选定PLAN与整批发布、原任务归属和内存读取核源码；未查真实任务或写结果，见coverage。

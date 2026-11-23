@@ -11193,6 +11193,7 @@
         },
         {
           "name": "result_collect",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"results授权；选PLAN时只生成该PLAN报告而不覆盖全量导出，未选时可写汇总。主动核任务归属及声明，内存读取指标核字节与摘要，失败全unknown保留旧导出；项目/目标/归属变化阻断本次发布。","boundary":"仅源码及既有CSV定向假证据；未查询真实活动任务、结果或写汇总。"},
           "method": "results.list",
           "oldEvidence": "projectTools[name=result_collect]",
           "scope": "local_gateway_plus_worker_effect_restricted",
