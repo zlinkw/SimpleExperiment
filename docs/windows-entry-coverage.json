@@ -13123,6 +13123,7 @@
         },
         {
           "id": "panel:refreshJobArtifacts:1",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"job行传planId/jobIndex/commandId，刷新为verifyOnly；旧内存消费者验证0索引和身份4/4。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions entries: fake artifactSyncFromUi identity/verifyOnly 4/4 and prior notices",
           "oldStatus": "deferred",
@@ -13130,6 +13131,7 @@
         },
         {
           "id": "panel:refreshJobArtifacts:2",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"PLAN行传planIds，刷新为verifyOnly；源码只选完成协议2 job，缺失PLAN拒绝。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions entries: fake artifactSyncFromUi identity/verifyOnly 4/4 and prior notices",
           "oldStatus": "deferred",
@@ -13137,6 +13139,7 @@
         },
         {
           "id": "panel:retryJobArtifactSync:1",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"job行传planId/jobIndex/commandId，重试verifyOnly=false；旧内存消费者验证精确身份4/4。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions entries: fake artifactSyncFromUi identity/verifyOnly 4/4 and prior notices",
           "oldStatus": "deferred",
@@ -13144,6 +13147,7 @@
         },
         {
           "id": "panel:retryJobArtifactSync:2",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"PLAN行传planIds，重试为实际同步分支；源码限制完成协议2 job和勾选范围。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "disposition": "local_partial_evidence_real_effect_restricted",
           "reference": "panelCommandActions entries: fake artifactSyncFromUi identity/verifyOnly 4/4 and prior notices",
           "oldStatus": "deferred",

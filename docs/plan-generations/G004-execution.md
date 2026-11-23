@@ -112,3 +112,11 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 Agent端点按钮缺endpointId时原代码回退字符串hub，现明确拒绝并要求选择Worker；有ID仍传现有精确目标过滤。真实路由方法假部署 `%TEMP%/g004-agent-endpoint-explicit-20261123.{out,err}.log` 1/1 exit0；未启动或连接Agent，待build。
 
 只读规划器在47a1681d脏树列出build 316 job、compile/fullCheck、0按需（`%TEMP%/g004-build-plan-47a1681d-20261123.out.log`，exit0），后续HEAD已变，selection不可沿用。后续只读调用planG004Execution exit1，首拒`src/extension/legacy.ts`依赖漂移；按当前活跃identity+argv及eligible历史/直接条目只读比对，legacy有138条记录、PlanCleanup 64、Panel 23等记录摘要不同，条目可能多重依赖且互相重叠。该数量只识别需逐闭包复核，不能证明全部失效或允许批量重绑；未运行build矩阵、未改snapshot。旧MCP query改动包含项目路径核验与离线遥测处理，真实语义须按每个消费者审，已退役CLI不能复活。
+
+召回路径原缺陷：Panel声明只召回排队job，但旧协议2整Plan分支遍历全部job；旧returnPulledJobToLocal可把运行/完成job改pending并清原事实。确认后重读也未在首写/首停前核冻结job的Worker与command；后台processDistributedRecall在unknown后可能自动重复发送停止。原prequeueRecallLifecycle旧oracle期望同ID重发，不能当现行授权。候选增加Scheduler互斥内具名排队召回、取消围栏参与准入，旧端不走普通停止回退；旧协议未知请求不重发。纯假端Python抽函数 `%TEMP%/g004-queued-recall-scheduler-v1-20261123.{out,err}.log` 1/1、Host及持久队列 `%TEMP%/g004-queued-recall-host-v7-20261123.{out,err}.log` 12/12，均exit0；无真实Worker。原观察只看到取消围栏，不能区分普通停止；现候选在Scheduler窗口option记录原请求pending/completed并核完整身份后主动观察，Host纯假端v11 16/16及Python两函数假端v2 1/1均exit0；旧证明写失败和kill失败保持unknown。原native消费者三个精确case各1/1 exit0；旧协议消费者首v1 4/5 exit1因夹具仍假定已拒绝的项目提升，v2用显式已提升队列保留原projection断言后该case 1/1，v3新增原请求ID核对1/1，完整日志保留。源码已源审并同步 9412b48c，未build。
+
+提交取消与恢复入口等待中切项目可能继续写旧回执或用新根释放claim；候选绑定原项目并在发布前重核，假端 `%TEMP%/g004-plan-submission-project-v2-20261123.{out,err}.log` 3/3 exit0。已写回执不回滚，未访问真实项目或claim；源码已源审并同步 7659b4b9，未build。
+
+轻量归档复制可能在等待确认或远端回应期间切项目/Worker后继续新发送或下载；候选冻结项目与目标并在后续效果前重核，保留已发生的副本。真实方法假端 `%TEMP%/g004-archive-copy-fence-v2-20261123.{out,err}.log` 2/2 exit0；首v1 0/2 exit1为夹具缺makeOpId，原日志保留。未访问Worker、SFTP或真实文件；候选未提交、未build。
+
+总控对 ae39752c 至 bab13011 的共享SFTP配置、调度设置、Worker确认、隧道脚本、离线导入、端点及Git预览修复已完成源码复核；此前各定向日志按其原输入复用，真实外部效果仍未执行。
