@@ -167,6 +167,7 @@ test('majority native startup failure never changes command generations or autom
 });
 test('actual send rejects an unsafe historical attempt before any Worker POST',async()=>{
   const f=nativeFixture(),Provider=provider(['sendDistributedJob']),send=new Provider().sendDistributedJob;
+  f.p.captureProjectContext=()=>({root});f.p.projectContextIsCurrent=()=>true;
   const p=f.stored().plans[0],j=p.jobs[1];Object.assign(j,{attempt:2,outputDir:'runs/1/attempts/old',history:[{status:'failed',commandId:'old'}]});
   let posts=0;f.p.client.postWorkerAction=async()=>posts++;
   await assert.rejects(send.call(f.p,p,j,'a','0','new'),/HISTORICAL_ATTEMPT_READ_ONLY/);
@@ -211,7 +212,7 @@ test('late native receipt after a generation change cannot save or publish the o
 });
 test('G1 actual native RPC preserves mode, quota and explicit GPU admission while returning only unknown',async()=>{
   const Provider=provider(['sendDistributedJob']),p=new Provider(),F='f'.repeat(64);const sent=[];
-  Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,unifiedDomainState:()=>({active:false,blocked:""}),workerActionTargets:()=>[{id:'w',condaEnv:'env'}],enabledWorkerConfigs:()=>[{id:'w'}],
+  Object.assign(p,{captureProjectContext:()=>({root}),projectContextIsCurrent:()=>true,distributedQueueGeneration:0,distributedPlanStopEpoch:0,unifiedDomainState:()=>({active:false,blocked:""}),workerActionTargets:()=>[{id:'w',condaEnv:'env'}],enabledWorkerConfigs:()=>[{id:'w'}],
     schedulerSettings:()=>({}),lastWorkerProbes:{w:{capabilities:{endpoints,actionEndpoints:{'register-code-sync-proof':true}}}},
     lastWorkerTaskSnapshots:new Map([[root+'\u0000w',{capabilities:{taskLifecycle:2}}]]),
     lastCodeSyncState:{workerVersions:{w:{fingerprint:F,manifestDigest:F,codeSyncProofId:'a'.repeat(64)}}},

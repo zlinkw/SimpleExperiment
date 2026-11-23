@@ -40,6 +40,7 @@ function method(start, end, scope = {}) {
 }
 function host(queue = Queue.emptyDistributedQueue()) {
   const owner = { queue, distributedQueueGeneration: 0, context: { globalStorageUri: { fsPath: 'C:/storage' } },
+    captureProjectContext: () => ({ root }), projectContextIsCurrent: () => true,
     sent:[],lastWorkerTaskSnapshots:new Map([[root+'\u0000worker',{capabilities:{taskLifecycle:2}}]]),
     lastCodeSyncState: { fingerprint: 'code', workerVersions: { worker: { codeSyncProofId: 'proof' } } },
     lastWorkerProbes: { worker: { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1, gpuQuotaScheduling: 1, gpuMemoryBudgetScheduling: 1 }, actionEndpoints: { 'register-code-sync-proof': true } } } },

@@ -21,6 +21,7 @@ test('old Worker capability blocks before saving/submitting a formal job', async
   const Provider = vm.runInNewContext(ts.transpileModule('class Provider {' + methods.map(node => node.getText(ast)).join('\n') + '};Provider;',
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, { WorkflowBinding:require("../../dist/features/WorkflowWorkspaceBinding"), workspaceRoot:()=>path.resolve(__dirname,"../..") });
   const p = new Provider();
+  p.captureProjectContext = () => ({ root: path.resolve(__dirname, '../..') }); p.projectContextIsCurrent = () => true;
   p.unifiedDomainState = () => ({ active: false, blocked: "" }); // 块B：夹具根未登记 → 既有单机发送路径
   p.workerActionTargets = () => [{ id: 'old-worker' }];
   p.lastWorkerProbes = { 'old-worker': { capabilities: { endpoints: { declaredJobPaths: true } } } };
