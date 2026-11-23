@@ -49,7 +49,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 专用窗口重载后核实 520 PID45080、startedAt `2026-11-23T05:41:49.812Z`、loopback 19769，SFTP 0.2.120 同 PID/根已激活；默认稿件窗口未调用。原 preflight、health 和 OpenAPI 详情见 `52946c4d:docs/plan-generations/G004-execution.md`。
 
-稳定 MCP SDK 真实 tools/list 返回137项；project_authorization、action_catalog、panel_diagnostics、project_status、state_value 和 project_state 只读成功，launcher exit0/stderr空；完整响应及当时的状态、空任务选择、CSV失败见 `%TEMP%/g004-520-live-mcp-20261123.json`、`g004-520-live-mcp-state-20261123.json` 和 `52946c4d:docs/plan-generations/G004-execution.md`。未调用 Worker 或跨项目方法。
+真实MCP tools/list返回137项，项目授权、目录、面板、状态与单键只读成功；原响应 `%TEMP%/g004-520-live-mcp-20261123.json`、`g004-520-live-mcp-state-20261123.json`，完整事实见 `52946c4d:docs/plan-generations/G004-execution.md`；未调用Worker或跨项目。
 
 本人新控制许可前，面板 diagnostics 报 ready、运行/安装均 520、无 section failures，但 heartbeat 标记 document-hidden、render health unknown；这不是可见 UI 验收。现有 Computer Use 工具可枚举窗口，但其窗口读取流程和 silent-ui-screenshot 禁止仅为截图使用 Computer Use，且未找到项目现成非激活捕获入口，未切焦点、未截图或操作界面。真实 UI、Worker、远端及跨项目仍未测。
 
@@ -59,7 +59,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 总控一次工作区识别发现5个Plan；首次坐标未选中继续，期间stalled不能判定死锁，原继续按钮实际点击后识别成功。Escape退出侧栏最大化后已恢复；未改adapter、PLAN、Worker或授权。完整原事件ID及截图位置见 `49e1cebd:docs/plan-generations/G004-execution.md` 与总控rollout，未重跑识别。
 
-同一 45080 实例经真实稳定 MCP 只读回 `projectOnboardingCompleted=true`、status 520/offline_import；panel ready，heartbeat documentHidden=false、render health unknown（probe pending）、section failures 空。operation_list 返回 total 0，不能单独证明锁释放。新增完整响应 `%TEMP%/g004-520-after-ui-recognition-20261123.json`，launcher exit0、stderr空；未再次识别或清锁。真实 Worker、SSH、Agent、GPU、tmux、训练、删除和跨项目仍未测。
+45080实例识别后MCP回onboarding=true、520/offline_import，panel ready但render probe pending；operation_list空不能证明锁释放。响应 `%TEMP%/g004-520-after-ui-recognition-20261123.json`，exit0；未再次识别/清锁，真实Worker及远端未测。
 
 最终记录压缩首稿计算10940触发Python assert、写入前退出，文件未更改；外层因随后命令显示exit0，不当作Python成功。扩大语义压缩后UTF8写回及diff检查通过。总控审原MCP响应的exit0/isError=false及同实例识别true，本地验收完成，render探针未知/非标准CSV/Worker与跨项目等受限如上，不重打包、重装或后台保活。
 
@@ -120,6 +120,8 @@ task_list只复核当前项目归并、取消及unknown源码，禁止真实任�
 本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付。配套仓src commit `28087f3` 已普通推送抓取一致，真实handler内存替身8/8、原结算3/3 exit0，日志 `%TEMP%/g004-sftp-cancel-identity-final2-20261123.*.log`、`g004-sftp-cancel-settlement-final-20261123.*.log`；首复现2/4 exit1保留 `g004-sftp-cancel-identity-first-20261123.*.log`。源审前未build/package/安装，已装120仍有缺陷，未操作真实传输。一次执行文档压缩补丁未匹配、未写入。
 
 总控已审通过配套源diff；原transferRecovery精确消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-consumer-20261123.*.log`，verify-runtime exit0且核23文件 `%TEMP%/g004-sftp-verify-runtime-20261123.*.log`。未递版、组装或安装；package原全套尚须逐证据核可复用范围并审收。
+
+配套原mappedBatchDownload精确取消消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-mapped-consumer-20261123.*.log`；其SSH进程为注入替身、夹具保留，无真实连接。旧119现存56条原日志的测试文件与120逐项一致、通过数与120汇总一致；另13条119原日志缺失，120原逐项目录为空，仍需区分闭包变化与证据缺口。
 
 Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retention/backup/inspection源码片段与1e91d0d4逐段一致、其余依赖字节不变，复用原15/15及10/10，更新两条该次输入；不重跑旧清理替身。并非全部build依赖已对账。
 
