@@ -126,3 +126,5 @@ Agent单依赖更新后只读增量规划 %TEMP%/g004-build-evidence-after-agent
 本轮继续只读对账：c945e458逐项复审Plan code scope、远端结果检查、同步范围、隧道探测及完成提示的精确提取闭包；957ddb38复核更新器、精确停止旧证，并将草稿按钮及invoke明确标为退役历史，原日志保留，不重跑退役功能。覆盖中另限定Git覆盖仅旧预览取消、Plan校验/预演仅旧合成输入，未操作真实Worker或覆盖。
 
 后续执行批次和历史清除、tmux窗口、lease测试分别按精确提取片段及实际require闭包对照1e91d0d4，旧证与未变依赖的适用范围记coverage；不等于当前构建或真实Worker通过。只读对照工具首次因shell引号解析失败、再因git show默认缓冲不足退出，修正后源码比较完成；coverage字符串首次插入定位/JSON语法失败均在写入前中止，修正后复读UTF8与JSON。
+
+配套SFTP取消反向消费者再核：原 mappedBatchDownload.test.js 精确单项 `API cancel during the real SSH stream kills that one child` 1/1、exit0、400ms，完整stdout/stderr `%TEMP%/g004-sftp-mapped-cancel-consumer-20261123.{out,err}.log`。名称虽写real SSH，该测试注入假spawn/假传输流及内存账本，私有fixture保留；没有真实SSH、传输、删除或其他文件测试。配套整体69文件的旧逐项日志缺口仍未解决。
