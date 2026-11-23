@@ -627,10 +627,11 @@ const SAFE_TRANSFER_RETRY_COMMANDS = new Set([
     "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent",
     "downloadRemoteResult",
 ]);
+const RETIRED_DRAFT_COMMANDS = new Set(["runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts"]);
 const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
     ...SAFE_WEBVIEW_COMMANDS,
-].filter((command) => !API_INTERNAL_COMMANDS.has(command)));
+].filter((command) => !API_INTERNAL_COMMANDS.has(command) && !RETIRED_DRAFT_COMMANDS.has(command)));
 const COMMANDS_WITHOUT_UI_STATUS = new Set(["webviewNotice", "selectPlan", "selectExperiment", "selectLogRunKey", "openPlan", "status", "toggleLowTrafficMode"]);
 const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(["startAllConnections", "testAll", "snapshot"]);
 const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
@@ -2735,24 +2736,6 @@ export class RealtimeTunnelPanelProvider {
             "flow.update": async (params) => this.apiFlowUpdate(params),
             "server.testAll": async (params) => this.apiServerTestAll(params),
             "plans.filter": async (params) => this.apiPlansFilter(params),
-            "drafts.list": async (params = {}) => {
-                await this.refreshDraftPlans(params?.force === true);
-                return { ...this.draftPlanState };
-            },
-            "drafts.validate": async (params = {}) => await this.apiDraftValidate(params),
-            "drafts.promotionPreview": async (params = {}) => await this.apiDraftPromotionPreview(params),
-            "drafts.promote": async (params = {}) => {
-                return await this.apiDraftPromote(params);
-            },
-            "drafts.reject": async (params = {}) => await this.apiDraftReject(params),
-            "drafts.review": async (params = {}) => await this.apiDraftReview(params),
-            "drafts.cleanupCandidates": async (params = {}) => {
-                await this.refreshDraftPlans(params?.force === true);
-                return { candidates: this.draftPlanState.cleanupCandidates };
-            },
-            "drafts.cleanup": async (params = {}) => {
-                return await this.apiDraftCleanup(params);
-            },
             "plan.validate": async (params) => this.apiPlanValidate(params),
             "workflow.plan": async (params) => this.apiWorkflowPlan(params),
             "workflow.run": async (params) => this.apiWorkflowRun(params),
@@ -4573,6 +4556,8 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const command = stringField(params, "command");
         if (!command)
             throw new Error("invoke.command is required");
+        if (RETIRED_DRAFT_COMMANDS.has(command))
+            throw new Error("DRAFT_RETIRED：草稿功能已退役，请使用正式 PLAN 和专用配置。");
         if (!API_EXECUTABLE_COMMANDS.has(command))
             throw new Error(`Command not exposed by SimpleExperiment API: ${command}`);
         if (command === "testAll" && params.uiMode !== true)
@@ -4584,7 +4569,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 return await this.apiProjectPrepare(params);
             return await this.apiStartAllConnections(params);
         }
-        const deletionConfirmation = ["deleteArtifacts", "reconcileDeletions", "cleanupDrafts"].includes(command);
+        const deletionConfirmation = ["deleteArtifacts", "reconcileDeletions"].includes(command);
         if (API_CONFIRM_COMMANDS.has(command) && (params.confirm !== true || deletionConfirmation && params.pathConfirmed !== true)) {
             const preview: any = {
                 operation: command,
@@ -4592,14 +4577,6 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 command,
                 params: { ...params, confirm: undefined, ...(deletionConfirmation ? { pathConfirmed: undefined } : {}) },
             };
-            if (command === "cleanupDrafts") {
-                await this.refreshDraftPlans(true);
-                const root = workspaceRoot();
-                if (!root) throw new Error("需要先打开工作区。");
-                const requested = stringArrayField(params, "paths");
-                const selected = requested.length ? requested : (this.draftPlanState.cleanupCandidates || []).map((item) => item.path);
-                preview.targets = await this.draftCleanupConfirmationTargets(root, selected);
-            }
             throw confirmationRequired(preview);
         }
         if (command === "checkPluginUpdates")
@@ -7004,6 +6981,7 @@ return this.testTunnel(true);
             return;
         }
         const work = async () => {
+            if (RETIRED_DRAFT_COMMANDS.has(command)) throw new Error("DRAFT_RETIRED：草稿功能已退役，请使用正式 PLAN 和专用配置。");
             let scopedMessage = message;
             const leaseAction = hostOperationLeaseActionForUiCommand(command);
             return leaseAction
@@ -7017,6 +6995,7 @@ return this.testTunnel(true);
         await work();
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
+        if (RETIRED_DRAFT_COMMANDS.has(command)) throw new Error("DRAFT_RETIRED：草稿功能已退役，请使用正式 PLAN 和专用配置。");
         if (command === "answerRunConfirmation") { this.runConfirmation.answer(message); return; }
         if (command === "retryPlanSubmission") return this.resumePlanSubmission(String(message.operationId || ""));
         if (command === "cancelPlanSubmission") return this.cancelPlanRunSubmission(String(message.operationId || ""));
@@ -20128,7 +20107,6 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 this.localPlanMetadataActionUpdatedAt = Date.now();
                 this.localPlanMetadataKey = key;
                 this.localPlanMetadataFullRefresh = true;
-                void this.refreshDraftPlans().catch(() => undefined);
                 await this.persistProjectPlanSelectionState();
                 await this.persistProjectLocalPlanMetadataState();
             }

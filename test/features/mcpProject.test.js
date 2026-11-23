@@ -790,8 +790,9 @@ test('MCP plan build requires valid explicit seeds and its saved matrix matches'
 test('routine cleanup queries need no extra Codex prompt', async () => {
   const f = fixture();
   const config = require('../../scripts/mcp-codex-config.js').configuration(f.root, path.join(f.root, 'simpleex-mcp-launcher.cjs'));
-  for (const name of ['plan_run', 'cleanup_status', 'file_cleanup_execute', 'draft_review'])
+  for (const name of ['plan_run', 'cleanup_status', 'file_cleanup_execute'])
     assert.ok(config.includes('[mcp_servers.simple_experiment.tools.' + name + ']\napproval_mode = "approve"'));
+  assert.equal(config.includes('[mcp_servers.simple_experiment.tools.draft_review]'), false);
   assert.equal(config.includes('[mcp_servers.simple_experiment.tools.state_set]'), false);
   const stats = PROJECT_TOOLS.find(tool => tool.name === 'sftp_file_stats');
   assert.ok(stats.inputSchema.required.includes('paths'));
