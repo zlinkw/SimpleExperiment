@@ -11533,6 +11533,7 @@
         },
         {
           "name": "file_cleanup_status",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按token和消费项目根读取原请求，Host核冻结节点与当前节点一致；配套部分状态主动观察并可能保存完成证据。","boundary":"仅源码，状态查询并非一律零写；未查询真实目标。"},
           "method": "files.cleanup.status",
           "oldEvidence": "projectTools[name=file_cleanup_status]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11541,6 +11542,7 @@
         },
         {
           "name": "file_cleanup_check",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按token、index和消费项目核原目标；受管观察可将新证实的完成事实写入台账。","boundary":"仅源码，检查不是重复执行；未观察真实节点或写真实台账。"},
           "method": "files.cleanup.check",
           "oldEvidence": "projectTools[name=file_cleanup_check]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11549,6 +11551,7 @@
         },
         {
           "name": "file_cleanup_verify",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按token、index和原记录核完成状态或主动完成证明，不足返回未核实。","boundary":"仅源码；未验证真实路径、回执或操作。"},
           "method": "files.cleanup.verify",
           "oldEvidence": "projectTools[name=file_cleanup_verify]",
           "scope": "cleanup_or_agent_lifecycle_restricted",

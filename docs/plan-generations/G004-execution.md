@@ -164,3 +164,5 @@ PLAN清理9项的列表、预览、观察、确认、执行和恢复边界见cov
 file_cleanup_preview/inspect/observe_batch 的节点、项目和配套观察契约见coverage；未观察真实文件。
 
 plan_run按workflow_submission接受边界修正前置权限复核；普通MCP/UI正路径1/1 exit0，`%TEMP%/g004-workflow-accept-normal-20261123.*.log`。误将入队作为接受的推断撤回；无撤权专项、真实Worker，详情见coverage。
+
+file_cleanup_status/check/verify按原token、节点及观察可能落账的行为核源码，未查询真实目标；见coverage。
