@@ -91,7 +91,7 @@ SFTP服务器配置、下载路径、tree/inventory、file_stats、plan_logs及r
 
 MCP task_stop发送前重核授权和Worker快照、未知保留意图；假Gateway/Host 3/3及首两次exit1复现原日志见 `d1d816d2:docs/plan-generations/G004-execution.md`。未访问真实Worker。
 
-SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log` 仅证明透传；后续核已装120发现取消按operationId更新账本、却可按不相属transferId选另一传输，静态可达缺陷已升级总控，未修或实际取消。三次只读rg路径猜错/Windows通配符失败未改产品。
+SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log` 仅证明透传；后续核已装120发现取消按operationId更新账本、却可按不相属transferId选另一传输，静态可达缺陷当时升级总控；后由配套28087f3修复，未实际取消。三次只读rg路径猜错/Windows通配符失败未改产品。
 
 旧attempt文案仅旧/异常Agent可能触发，当前declared路径先走PlanRunHost.replace；未证创建或恢复机制，原分析见 `0f6ea82b:docs/plan-generations/G004-execution.md`。只读glob失败无产品修改。
 
@@ -188,3 +188,5 @@ plans/execution/results主导航逐ID核属性、区块状态与滚动链，未�
 sync/gpu/tmux主导航按属性和显示链核源码，未操作真实GPU、tmux或同步；见coverage。
 
 诊断、设置主导航及返回工作区状态恢复按源码逐ID核对；未点击用户窗口或改配置。
+
+计划识别、操作和列表导航逐ID核实际树锚及旧假DOM适用；本轮未点击或执行PLAN。

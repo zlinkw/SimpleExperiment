@@ -13442,6 +13442,7 @@
         },
         {
           "id": "navigation:plans:plans-detected",
+          "currentReview": {"status":"source_scoped","evidence":"资源树项目识别传plans/plans-detected，导航至对应data-anchor；计划操作/列表位置曾按旧假DOM锚解析覆盖。","boundary":"当前仅源码和旧限定证据；未实机点击或运行PLAN。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13449,6 +13450,7 @@
         },
         {
           "id": "navigation:plans:plans-actions",
+          "currentReview": {"status":"source_scoped","evidence":"资源树计划操作传plans/plans-actions，导航至对应data-anchor；计划操作/列表位置曾按旧假DOM锚解析覆盖。","boundary":"当前仅源码和旧限定证据；未实机点击或运行PLAN。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
@@ -13456,6 +13458,7 @@
         },
         {
           "id": "navigation:plans:plans-list",
+          "currentReview": {"status":"source_scoped","evidence":"资源树参数预览和计划列表传plans/plans-list，导航至对应data-anchor；计划操作/列表位置曾按旧假DOM锚解析覆盖。","boundary":"当前仅源码和旧限定证据；未实机点击或运行PLAN。"},
           "disposition": "prior_scoped_evidence",
           "reference": "nonCommandButtonCandidates[name=data-section-target]; g003CurrentTmuxPlaceholderNavigation / g003CurrentDiagnosticTreeRetest / g003CNavigationAdditional; PanelHtml.legacy.ts:8424-8437,8627-8749,9060",
           "oldStatus": "concluded_scoped",
