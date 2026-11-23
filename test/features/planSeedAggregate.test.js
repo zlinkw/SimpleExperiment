@@ -244,9 +244,9 @@ test("copy archive confirms exact targets and verifies the local Worker copy", a
     captureProjectContext: () => ({ root }),
     resolveSelectedPlanFile: (value) => value,
     filterResultsSummaryForPlan: (value) => value,
-    enabledWorkerConfigs: () => [{ id: "NWPU3", remotePath: "/data/qgking/zlk" }],
+    enabledWorkerConfigs: () => [{ id: "NWPU3", agentProjectDir: "/data/qgking/zlk" }],
     missingWorkerActionCapabilities: () => [],
-    mappedDownloadServerForSource: () => ({id: "NWPU3"}),
+    mappedDownloadServerForSource: () => ({id: "NWPU3", remotePath: "/data/qgking/zlk/MultiModal"}),
     simpleSftpApiCall: async (_method, params) => {
       for (const entry of params.entries) {
         const local = path.join(root, ...entry.localRelativePath.split("/"));

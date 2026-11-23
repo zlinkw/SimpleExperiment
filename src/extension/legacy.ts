@@ -20441,13 +20441,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const snapshotName = new Date().toISOString().replace(/[-:.]/g, "").replace("Z", "Z") + "_" + crypto.randomBytes(3).toString("hex");
         const archiveRelative = path.posix.join("archives", token, snapshotName);
         const localArchive = safeWorkspaceChildPath(root, archiveRelative);
+        const targetSnapshot = workerId => {
+            const worker = this.enabledWorkerConfigs().find(item => String(item.id || "") === workerId);
+            return JSON.stringify([worker, this.mappedDownloadServerForSource(workerId)]);
+        };
+        const frozenTargets = new Map(workers.map(workerId => [workerId, targetSnapshot(workerId)]));
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(context) || client !== this.client || workers.some(workerId => frozenTargets.get(workerId) !== targetSnapshot(workerId)))
+                throw new UiCommandCancelled("项目、连接或 Worker 目标已变化；未继续归档复制。");
+        };
         const workerTargets = workers.map((workerId) => {
-            const worker = this.enabledWorkerConfigs().find((item) => String(item.id || "") === workerId);
-            const configuredRoot = String(worker?.remotePath || worker?.remoteRoot || this.setupConfig.remotePath || "").trim();
-            const workDir = this.agentRuntimeDirs(configuredRoot).workDir;
-            if (!workDir || !workDir.startsWith("/"))
-                throw new Error(`${workerId} 的远端项目根目录未解析，已阻止归档。`);
-            return `${workerId}：${workDir}/${archiveRelative}/`;
+            const server = this.mappedDownloadServerForSource(workerId);
+            return `${workerId}：${String(server.remotePath).replace(/\/$/, "")}/${archiveRelative}/`;
         });
         const confirmation = await vscode.window.showWarningMessage([
             "【当前 Plan 轻量归档副本】",
@@ -20461,19 +20466,20 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         ].join("\n"), { modal: true }, "确认复制归档");
         if (confirmation !== "确认复制归档")
             throw new UiCommandCancelled("轻量归档已取消。");
-        if (!this.projectContextIsCurrent(context) || client !== this.client)
-            throw new UiCommandCancelled("工作区或连接已切换，轻量归档已取消。");
+        assertCurrent();
         const completed = [];
         for (const workerId of workers) {
+            assertCurrent();
             const opId = makeOpId("archive-plan-copy");
             const options = { topologyMode: enabledWorkers.length > 1 ? "worker_pool" : "single_worker", resultOwnerWorkerId: workerId, automaticBackup: false };
             let result = await client.postWorkerAction(workerId, "archive-plan-copy", { opId, operationId: opId, planFile, snapshotName, confirm: true, options });
+            assertCurrent();
             if (remoteActionPendingStatus(resultStatus(result))) {
                 for (let attempt = 0; attempt < 45 && remoteActionPendingStatus(resultStatus(result)); attempt += 1) {
                     await sleep(1000);
-                    if (!this.projectContextIsCurrent(context) || client !== this.client)
-                        throw new UiCommandCancelled("连接已切换；远端归档状态可在操作进度查看。");
+                    assertCurrent();
                     result = await client.getWorkerOperation(workerId, opId);
+                    assertCurrent();
                 }
             }
             if (!result || resultStatus(result) !== "completed")
@@ -20502,6 +20508,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 throw new Error(`${workerId} 没有可打包的 SFTP 目标，已停止轻量归档下载。请恢复该 Worker 的 SSH 配置后重试，不要逐文件下载。`);
             const archiveChunks = partitionMappedDownloadTransfers(mapped, MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES, MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES, 4 * 1024 * 1024);
             for (const chunk of archiveChunks) {
+                assertCurrent();
                 const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
                     localPath: root,
                     server,
