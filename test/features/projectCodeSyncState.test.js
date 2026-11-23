@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
 function loadHelpers() {
@@ -28,11 +29,11 @@ function loadHelpers() {
     },
   };
   vm.createContext(sandbox);
-  vm.runInContext(
-    slice +
-      "\nthis.exports = { PROJECT_CODE_SYNC_PATH, readProjectCodeSyncState, writeProjectCodeSyncState, normalizeCodeSyncState };",
-    sandbox
-  );
+  const code = ts.transpileModule(
+    slice + "\nthis.exports = { PROJECT_CODE_SYNC_PATH, readProjectCodeSyncState, writeProjectCodeSyncState, normalizeCodeSyncState };",
+    { compilerOptions: { target: ts.ScriptTarget.ES2022 } }
+  ).outputText;
+  vm.runInContext(code, sandbox);
   return sandbox.exports;
 }
 
