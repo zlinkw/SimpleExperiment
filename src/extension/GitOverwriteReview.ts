@@ -7,7 +7,8 @@ export async function reviewGitOverwrite(root: string, call: (method: string, pa
   const assertWorkspace = () => {
     if (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== root) throw Error("WORKSPACE_CHANGED：项目已变化；已执行的操作保留，请重新审核。");
   };
-  const preview = await previewGitOverwrite(root, call);
+  assertWorkspace();
+  const preview = await previewGitOverwrite(root, call, undefined, assertWorkspace);
   assertWorkspace();
   const panel = vscode.window.createWebviewPanel("simpleExperiment.gitOverwriteReview", "Git 工作区覆盖审核", vscode.ViewColumn.Active, { enableScripts: true });
   const nonce = randomBytes(16).toString("hex");

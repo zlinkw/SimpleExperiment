@@ -51,10 +51,11 @@ async function snapshot(root: string, run: HeadBindingRunner) {
   ]);
   return { branch: branch.trim(), head: head.trim(), upstream: upstream.trim(), target: target.trim(), index, status };
 }
-export async function previewGitOverwrite(root: string, call: FileCall, run = runGitBinary): Promise<GitOverwritePreview> {
+export async function previewGitOverwrite(root: string, call: FileCall, run = runGitBinary, assertCurrent = () => {}): Promise<GitOverwritePreview> {
   root = await fs.realpath(root);
   const actual = (await git(root, ["rev-parse", "--show-toplevel"], run)).trim();
   if (await fs.realpath(actual) !== root) throw Error("GIT_OVERWRITE_ROOT_MISMATCH");
+  assertCurrent();
   await git(root, ["fetch", "--all", "--prune"], run);
   const state = await snapshot(root, run);
   const tree = parseLsTreeZ(await git(root, ["ls-tree", "-r", "-z", "--full-tree", state.target], run));
@@ -76,6 +77,7 @@ export async function previewGitOverwrite(root: string, call: FileCall, run = ru
     try { await fs.lstat(absolute); deletes.push(relative); }
     catch (error: any) { if (error.code !== "ENOENT") throw error; }
   }
+  if (deletes.length) assertCurrent();
   const cleanup = deletes.length ? await call("files.cleanup.preview", { node: { id: "local", kind: "local", root }, consumerRoot: root,
     action: "delete", authorizationMode: "confirmed_paths", targets: deletes.map(relativePath => ({ relativePath, type: "file" })) }) : undefined;
   const preview = { root, ...state, writes, deletes, indexChanges, identities, cleanup };

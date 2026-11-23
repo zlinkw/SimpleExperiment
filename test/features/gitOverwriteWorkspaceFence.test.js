@@ -41,3 +41,22 @@ test('workspace change stops later Git or deletion effects at the next boundary'
   await assert.rejects(box.execute(preview, async method => { calls.push(method); current = false; return { token: 't', digest: 'd', confirmations: 2 }; }, undefined, check), /WORKSPACE_CHANGED/);
   assert.deepEqual(calls, ['files.cleanup.status']);
 });
+
+test('preview checks workspace before fetch after repository discovery', async () => {
+  const module = { exports: {} }, fakeFs = { realpath: async value => value };
+  vm.runInNewContext(compile(read('project/GitOverwrite.ts')), { module, exports: module.exports, process, Buffer, require(name) {
+    if (name === 'node:fs/promises') return fakeFs;
+    if (name === './BranchHeadBinding') return { runGitBinary: async () => { throw Error('unexpected'); }, parseLsTreeZ: () => new Map() };
+    return require(name);
+  } });
+  let current = true, switchOnDiscovery = true, cleanups = 0; const calls = [];
+  const run = async args => { calls.push(args[0]); if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') {
+    if (switchOnDiscovery) current = false; return { code: 0, stdout: '/a', stderr: '' }; }
+    return { code: 0, stdout: '', stderr: '' }; };
+  const check = () => { if (!current) throw Error('WORKSPACE_CHANGED'); };
+  await assert.rejects(module.exports.previewGitOverwrite('/a', async () => { cleanups++; }, run, check), /WORKSPACE_CHANGED/);
+  assert.deepEqual(calls, ['rev-parse']); assert.equal(cleanups, 0);
+  current = true; switchOnDiscovery = false; calls.length = 0;
+  await module.exports.previewGitOverwrite('/a', async () => { cleanups++; }, run, check);
+  assert.equal(calls.filter(command => command === 'fetch').length, 1); assert.equal(cleanups, 0);
+});
