@@ -61,7 +61,7 @@ test("failure notification links to the full operation log without duplicating l
     compactSensitiveText:s=>s, vscode:{window:{showErrorMessage:async (...args)=>{alerts.push(args);return '查看日志';}}} };
   const code=ts.transpileModule('class Host {'+methods.join('\n')+'}; this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
   vm.runInNewContext(code,sandbox); const host=new sandbox.Host();
-  Object.assign(host,{logOperationFact:x=>facts.push(x),showOperationLogFromUi:()=>shown.push(true),beginSimpleSftpCapabilityLaunch(){},finishPlanSubmissionProgress(){},recordActionError(){},postState(){},reportOperationNotice(){}});
+  Object.assign(host,{captureProjectContext:()=>({root:'/project'}),projectContextIsCurrent:()=>true,logOperationFact:x=>facts.push(x),showOperationLogFromUi:()=>shown.push(true),beginSimpleSftpCapabilityLaunch(){},finishPlanSubmissionProgress(){},recordActionError(){},postState(){},reportOperationNotice(){}});
   const message='请选择1至100个拆表值。'+'详情'.repeat(3000);
   await host.withUiCommandStatus('action-1','splitProjectResultTable',{},async()=>{throw new Error(message)}); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(facts.length,1); assert.equal(facts[0],`[action-1] splitProjectResultTable failed：${message}`); assert.equal(alerts.length,1); assert.equal(shown.length,1);
@@ -748,7 +748,7 @@ test("local toolbar commands wait for extension terminal status", async () => {
   vm.runInContext(extractConst(source, "LOCAL_COMMAND_RELEASES_AFTER_TRIGGER") + "\n" + extractFunction(source, "localCommandReleasesAfterTrigger"), context);
   const run = vm.runInContext(emitted, context);
   const statuses = [];
-  const host = { postUiCommandStatus: (_id, status) => statuses.push(status), beginSimpleSftpCapabilityLaunch: () => undefined };
+  const host = { captureProjectContext: () => ({ root: '/project' }), projectContextIsCurrent: () => true, postUiCommandStatus: (_id, status) => statuses.push(status), beginSimpleSftpCapabilityLaunch: () => undefined };
   let finish;
   const pending = run.call(host, "tmux-click", "fetchTmuxList", {}, () => new Promise((resolve) => { finish = resolve; }));
   await new Promise((resolve) => setImmediate(resolve));

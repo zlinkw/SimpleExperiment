@@ -26,7 +26,7 @@ const retired = ast.statements.find(n => ts.isVariableStatement(n) && n.declarat
 const Host = vm.runInNewContext(ts.transpileModule(`${retired}\nclass Host {${code}}; Host`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
 function fixture() {
   const h = new Host(), statuses = [];
-  Object.assign(h, { projectContextGeneration: 1, client: {}, panelLifecycleState: "ready", localOperations: {},
+  Object.assign(h, { projectContextGeneration: 1, captureProjectContext: () => ({ root: "C:/synthetic" }), projectContextIsCurrent: () => true, client: {}, panelLifecycleState: "ready", localOperations: {},
     extensionRuntimeVersionState: () => ({ reloadRequired: false }), beginSimpleSftpCapabilityLaunch() {},
     postUiCommandStatus: (_id, status) => statuses.push(status), finishPlanSubmissionProgress() {}, recordActionError() {}, postState() {},
     workerCodeSyncTargets: () => [{ id: "worker" }], mappedDownloadServerForSource: () => ({}),

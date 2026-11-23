@@ -21,7 +21,7 @@ function fixture() {
   const statuses = [], h = new Host();
   const client = { getGpu: async () => {}, getScheduler: async () => {}, getTraces: async () => {}, reconnect: async () => {}, connect: async () => {},
     diagnostics: () => ({ endpoints: [] }), resume() {} };
-  Object.assign(h, { client, projectContextGeneration: 1, panelLifecycleState: "ready", projectBootstrapPromise: Promise.resolve(),
+  Object.assign(h, { client, projectContextGeneration: 1, captureProjectContext: () => ({ root: "C:/synthetic" }), projectContextIsCurrent: () => true, panelLifecycleState: "ready", projectBootstrapPromise: Promise.resolve(),
     budget: { isPaused: () => false, resume() {} }, effectiveConnectionMode: () => "xshell", isRealtimeMode: () => true,
     extensionRuntimeVersionState: () => ({ reloadRequired: false }), beginSimpleSftpCapabilityLaunch() {},
     postUiCommandStatus: (_id, status) => statuses.push(status), finishPlanSubmissionProgress() {}, recordActionError() {}, postState() {},

@@ -74,3 +74,11 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 报告列表候选区分ENOENT与读取失败，保旧列表并显示可能过期及原错误；原context过期不发布。Host sync revision、Panel依赖和渲染model均包含列表与错误，文案改为更新latest并保留其他报告。full4 call_78d5f309ce324377b0df4e399b728c4d 4/4、1252.6868ms、literal exit0/no session/skip0；真实方法及Panel函数源码VM配fake，未执行真实检查/文件写，非外层模板真实渲染。事件及事后日志见coverage；三项许可先暂停以补渲染依赖，未运行或重试。首事后事件提取命令引号错误SyntaxError exit1，纠正后取得原事件；只读误通配os123和总控两误路径os2均已纠正。压缩本登记时PowerShell反引号使引用首字节误为控制字符，UTF8复读发现并立即纠正，原历史不变。此组与四域manifest保候选，Panel完整build及真实render VM/10890门禁前不得提交。
 
 结果拆表候选按原项目和结果目录守等待、逐目标及beforeRename，stat仅ENOENT视为不存在；已写文件与可能staging不撤回。full4 call_1ac40222d8f345ad8fcf881d98a7c1b6 4/4、1665.8815ms、literal exit0/no session/skip0；真实方法AST配fake catalog、FS、确认与writer，未运行真实StateStore/文件写/Worker，非批量原子或新dist。实际输入含未提交报告列表候选；原事件及事后日志见coverage。总控首次误猜两个源码路径os2，改真实StateStore和results路径核负责链。
+
+拆表scoped本地提交8b6cd237后，普通push首次exit1：TLS connect unexpected EOF；执行者立即停Git升级。总控仅准本次有界恢复：ls-remote exit0仍f064、HEAD 8b6/index空及upstream正确后，普通push一次exit0，fetch一次exit0，HEAD/origin/master/FETCH_HEAD均8b6cd237976d9aeb8d9dcb6291f75a08a2111078。首失败保留，此次不构成通用重试许可。
+
+拆表真实新dist消费者待编译后仅原dataset文件精确 `^active writer, catalog, opening and splitting bind dataset keys and the configured root$` 一次；总控已审其私有TEMP真实写入、staging flush/rename与named-pipe创建释放，fixture保留，不跑full或其他case。当前未运行或build。总控状态计划首次写后16205触发阈值exit1，归并后UTF8复读/diff-check通过，非测试失败。
+
+UI状态funnel准备批三fixture只补项目context接口，原断言不变；action正向41 call_29f28a31a4924c71ac8b3ac4c949216c 41/41、debug call_dc97c8a2dae041138e626008cc0275de 1/1、manual call_de97cfa059ce431a94756b2a177ded93 4/4，均literal exit0/no session/skip0，原事件和事后日志见coverage。运行时legacy 77c含尚未提交funnel/列表候选，之后生产已变；旧dist及fake限制保留，未执行退役草稿。coverage登记首两次误匹配重复call历史行而写前退出1，按精确callId筛选后成功。只读rg误用PowerShell大括号触发ParserError，改真实目录查询。总控计划首次16221触发阈值exit1且误报通过，归并后严格复读通过；非测试失败。实际funnel/PLAN通知候选及其他反向消费者尚未全部审核或同步。
+
+总控仅对上述三direct审核yield guard差异，当前legacy适用77c→847c，原77c执行快照和各事件保留；旧三identity仅历史。计划再写首16213触发阈值exit1，首压缩patch原文不符写前失败，纠正后严格复读通过，均非测试失败。
