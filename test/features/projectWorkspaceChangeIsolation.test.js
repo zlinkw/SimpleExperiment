@@ -283,19 +283,19 @@ test("opening a plan cannot select it in a replacement workspace", () => {
   assert.match(open, /const generation = this\.projectContextGeneration/);
   assert.match(open, /const root = workspaceRoot\(\)/);
   assert.ok([...open.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
-  assert.ok(open.indexOf("await openWorkspaceFile(file)") < open.indexOf("this.selectPlanFromUi"));
+  assert.ok(open.indexOf("await this.openWorkspaceFileForProjectContext(file, { generation, root })") < open.indexOf("this.selectPlanFromUi"));
 });
 
 test("opening configuration and result links preserves the selected PLAN", async () => {
   const body = methodBody("async openWorkspacePlanFromUi", "async refreshDraftPlans");
   const root = path.resolve("acceptance-project");
   const opened = [];
-  const open = new Function("workspaceRoot", "stringField", "path", "planDirSafe", "openWorkspaceFile",
+  const open = new Function("workspaceRoot", "stringField", "path", "planDirSafe",
     `return ({${body}}).openWorkspacePlanFromUi;`)(
-    () => root, (message, key) => message[key] || "", path, () => "experiments/plans",
-    async file => opened.push(file));
+    () => root, (message, key) => message[key] || "", path, () => "experiments/plans");
   const selected = "experiments/plans/acceptance.yaml";
   const host = {projectContextGeneration: 1, selectedPlan: selected,
+    async openWorkspaceFileForProjectContext(file) { opened.push(file); return true; },
     selectPlanFromUi(message) { this.selectedPlan = message.planFile; }};
   for (const file of ["config.yaml", "outputs/metrics.csv", "configs/base.yml", "experiments/plans/../../config.yaml"]) {
     await open.call(host, {file});
@@ -306,6 +306,27 @@ test("opening configuration and result links preserves the selected PLAN", async
     await open.call(host, {file});
     assert.equal(host.selectedPlan, file);
   }
+});
+
+test("opening a plan stops before displaying a file after a workspace switch", async () => {
+  const body = methodBody("async openWorkspacePlanFromUi", "async refreshDraftPlans");
+  const helper = methodBody("async openWorkspaceFileForProjectContext", "async openWorkspaceFolderForContinuation");
+  let root = path.resolve("project-a"), releaseStat, opened = 0, selected = 0;
+  const stat = new Promise(resolve => { releaseStat = resolve; });
+  const vscode = { workspace: { openTextDocument: async () => { opened++; } },
+    window: { showTextDocument: async () => { opened++; } }, Uri: { file: value => value }, ViewColumn: { Active: 1 } };
+  const host = new Function("workspaceRoot", "stringField", "path", "planDirSafe", "safeWorkspaceChildPath", "workspaceEditorUriForFile", "fs", "vscode",
+    `return ({${body},${helper}});`)(() => root, (message, key) => message[key] || "", path, () => "experiments/plans",
+    (base, file) => path.join(base, file), file => path.join(root, file), { stat: () => stat }, vscode);
+  host.projectContextGeneration = 1;
+  host.projectContextIsCurrent = context => context.generation === host.projectContextGeneration && context.root === root;
+  host.selectPlanFromUi = async () => { selected++; };
+  const pending = host.openWorkspacePlanFromUi({ file: "experiments/plans/a.yaml" });
+  root = path.resolve("project-b"); host.projectContextGeneration++;
+  releaseStat({ isFile: () => true, isDirectory: () => false });
+  await pending;
+  assert.equal(opened, 0);
+  assert.equal(selected, 0);
 });
 
 test("output adapter generation cannot continue in a replacement workspace", () => {

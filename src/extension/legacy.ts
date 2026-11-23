@@ -19990,7 +19990,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return;
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
-        await openWorkspaceFile(file);
+        if (!await this.openWorkspaceFileForProjectContext(file, { generation, root }))
+            return;
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         // Config and result links share this opener. Only PLAN YAML changes the

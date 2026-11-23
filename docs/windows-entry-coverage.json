@@ -12404,6 +12404,7 @@
         },
         {
           "id": "panel:openPlan:1",
+          "currentReview": {"status":"source_fixed_pending_build","evidence":"面板 file/planFile 经 handleMessageCore 到 openWorkspacePlanFromUi；普通 invoke 同一 handler。仅相对项目目录内 YAML 更新 PLAN 选择，相关配置/结果文件只打开不改变选择；空路径无动作。现改为复用项目上下文绑定的文件打开方法，异步 stat 或打开文档期间切项目停止后续显示/选择。","boundary":"%TEMP%/g004-open-plan-project-guard-20261123.out.log 定向 3/3 exit0，含假异步 stat 中切项目与配置/结果不改变 PLAN；未操作真实编辑器、其他项目或符号链接。源码待本阶段 build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openPlan]",
           "oldStatus": "concluded_scoped",
@@ -14874,6 +14875,7 @@
         },
         {
           "name": "openPlan",
+          "currentReview": {"status":"source_fixed_pending_build","evidence":"面板 file/planFile 经 handleMessageCore 到 openWorkspacePlanFromUi；普通 invoke 同一 handler。仅相对项目目录内 YAML 更新 PLAN 选择，相关配置/结果文件只打开不改变选择；空路径无动作。现改为复用项目上下文绑定的文件打开方法，异步 stat 或打开文档期间切项目停止后续显示/选择。","boundary":"%TEMP%/g004-open-plan-project-guard-20261123.out.log 定向 3/3 exit0，含假异步 stat 中切项目与配置/结果不改变 PLAN；未操作真实编辑器、其他项目或符号链接。源码待本阶段 build。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
