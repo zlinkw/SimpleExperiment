@@ -11899,6 +11899,7 @@
         },
         {
           "name": "result_show",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "历史受控 queryProject 测试1/1 exit0，原事件 archived_sessions/rollout-2026-11-22T18-37-44-01a202d5-5126-7e32-954f-3761f4630e53.jsonl，call_ec7ce44d24974963a4a6d464150e00a1；RPC为替身。", "boundary": "需results权限和精确ID，缺失报错；保留seed 0与来源。未实际查询Worker或真实结果。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=result_show]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11907,6 +11908,7 @@
         },
         {
           "name": "metric_show",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "历史受控 queryProject 测试1/1 exit0，原事件 archived_sessions/rollout-2026-11-22T18-37-44-01a202d5-5126-7e32-954f-3761f4630e53.jsonl，call_ec7ce44d24974963a4a6d464150e00a1；RPC为替身。", "boundary": "需results权限和精确ID，数值0保留，歧义报错；未实际查询Worker或真实结果。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=metric_show]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11915,6 +11917,7 @@
         },
         {
           "name": "experiment_results",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-query-context-20261123.log 原18/18 exit0，含run-a与缺失ID，项目RPC替身。", "boundary": "读取实验身份并关联主动查询结果；未执行真实Worker或活动结果查询，不证明其他身份分支。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_results]",
           "scope": "local_gateway_plus_worker_effect_restricted",
