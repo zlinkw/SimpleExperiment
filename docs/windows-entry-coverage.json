@@ -12781,6 +12781,7 @@
         },
         {
           "id": "panel:showLogHistory:1",
+          "currentReview": {"status":"controlled_scoped","evidence":"按operationId及可选Plan唯一定位记录，读取脱敏尾部最多50行；未记录尾部提示，用户选行后复制。","boundary":"原假宿主工作流日志 g004-520-workflow-navigation-20261123.log 的相关范围；未读取真实任务日志或写真实剪贴板。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=showLogHistory]",
           "oldStatus": "concluded_scoped",
@@ -12788,6 +12789,7 @@
         },
         {
           "id": "panel:openFullLog:1",
+          "currentReview": {"status":"controlled_scoped","evidence":"按所选操作唯一定位，要求Worker与项目内日志路径，内存读取并脱敏；缺身份、读取失败报错，切换项目后不显示文档。","boundary":"原 g004-520-workflow-navigation-20261123.log 7/7 exit0 含缺对象、切项目和假读取失败；未请求真实Worker/任务日志。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openFullLog]",
           "oldStatus": "concluded_scoped",
@@ -14883,6 +14885,7 @@
         },
         {
           "name": "openFullLog",
+          "currentReview": {"status":"controlled_scoped","evidence":"按所选操作唯一定位，要求Worker与项目内日志路径，内存读取并脱敏；缺身份、读取失败报错，切换项目后不显示文档。","boundary":"原 g004-520-workflow-navigation-20261123.log 7/7 exit0 含缺对象、切项目和假读取失败；未请求真实Worker/任务日志。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15245,6 +15248,7 @@
         },
         {
           "name": "showLogHistory",
+          "currentReview": {"status":"controlled_scoped","evidence":"按operationId及可选Plan唯一定位记录，读取脱敏尾部最多50行；未记录尾部提示，用户选行后复制。","boundary":"原假宿主工作流日志 g004-520-workflow-navigation-20261123.log 的相关范围；未读取真实任务日志或写真实剪贴板。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
