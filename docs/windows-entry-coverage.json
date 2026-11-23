@@ -11844,6 +11844,7 @@
         },
         {
           "name": "sftp_worker_sync",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按两个明确enabled Worker及paths构造source/destination与relativePaths；sync grant产生确认因子，配套校验项目内路径、非同目标和1–5000文件。","boundary":"仅源码，未访问服务器或传输；大文件/远端终态未测。"},
           "method": "sync.serverToServerFpsync",
           "oldEvidence": "projectTools[name=sftp_worker_sync]",
           "scope": "companion_proxy_real_downstream_scoped",
@@ -11852,6 +11853,7 @@
         },
         {
           "name": "sftp_worker_directory",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按两个Worker及relativePath构造目录同步；配套要求计划子目录且拒绝同目标，正常分支返回deletedStale:false。","boundary":"仅源码；未实际同步或删除，不能用作远端效果证据。"},
           "method": "sync.serverToServer",
           "oldEvidence": "projectTools[name=sftp_worker_directory]",
           "scope": "companion_proxy_real_downstream_scoped",
@@ -11860,6 +11862,7 @@
         },
         {
           "name": "sftp_worker_batch",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按两个Worker及relativePaths构造批量请求，配套校验非空、上限5000、项目内路径和非同目标后复用传输。","boundary":"仅源码，未启动真实同步或核实际远端终态。"},
           "method": "sync.serverToServerBatch",
           "oldEvidence": "projectTools[name=sftp_worker_batch]",
           "scope": "companion_proxy_real_downstream_scoped",

@@ -147,7 +147,7 @@ experiment_list/summary/tree按输入合并、过滤与树结构逐项复核，�
 
 experiment_active/overview/health按源及原合成观察/告警证据逐项复核，真实活动查询仍受限，见coverage。
 
-实验历史日志、诊断和配置原可从记录指向项目外本地文件；现复用产物路径规范及实际路径边界，项目外、父目录和junction拒绝。假RPC路径1/1 `%TEMP%/g004-experiment-path-boundary-20261123.*.log`，原本地、假远端产物及合法历史消费者4/4 `%TEMP%/g004-experiment-path-consumers-20261123.*.log`，均exit0；未读取真实用户文件或查询Worker，待build。
+实验历史路径边界修复与假RPC、消费者结果和完整日志见 `c7e26c95:docs/plan-generations/G004-execution.md`；未读真实用户文件或Worker，待build。
 
 result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义证据见coverage；未查询真实活动结果。
 
@@ -168,3 +168,5 @@ plan_run按workflow_submission接受边界修正前置权限复核；普通MCP/U
 file_cleanup_status/check/verify按原token、节点及观察可能落账的行为核源码，未查询真实目标；见coverage。
 
 file_cleanup_review/execute/settle按源码核人工确认、原请求身份与未知回执；未打开审核页或触真实文件，见coverage。
+
+sftp_worker_sync/directory/batch按两个Worker、路径与配套消费者核源码；未执行真实传输，见coverage。
