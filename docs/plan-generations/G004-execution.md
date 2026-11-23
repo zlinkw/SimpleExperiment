@@ -159,8 +159,6 @@ Plan验证的项目与授权边界修复、假Host及原消费者结果和完整
 
 Agent inspect/ensure/stop/restart/migrate逐入口核身份、授权、确认及假生命周期证据，见coverage；未执行真实Agent、迁移、SSH或tmux。
 
-cleanup_list/status/cancel按源码区分本地列表、可能观察并写状态、暂停意图；未调用真实清理或路径查询，见coverage。
+PLAN清理9项的列表、预览、观察、确认、执行和恢复边界见coverage；先前逐组记录见 `b8b7e155:docs/plan-generations/G004-execution.md`。未触真实路径或清理。
 
-cleanup_preview/continue/recheck 的PLAN范围、续建条件及可能的观察/状态写入按源码记录于coverage；未访问真实路径或执行清理。
-
-cleanup_resume/execute/restore_preview 的确认、续接与回执边界按源码记录于coverage，未触实际目标。
+file_cleanup_preview/inspect/observe_batch 的节点、项目和配套观察契约见coverage；未观察真实文件。

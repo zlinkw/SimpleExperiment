@@ -11497,6 +11497,7 @@
         },
         {
           "name": "file_cleanup_preview",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"Gateway按location与已启用Worker构造节点并绑定消费项目；配套预览限制目标类型和数量、冻结token及digest，删除预览采用confirmed_paths。","boundary":"仅按源码核对；不等于人工确认、已执行或真实路径检查。"},
           "method": "files.cleanup.preview",
           "oldEvidence": "projectTools[name=file_cleanup_preview]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11505,6 +11506,7 @@
         },
         {
           "name": "file_cleanup_inspect",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按location、节点及相对目标由配套检查，Host传当前消费项目根并核项目与Worker配置。","boundary":"仅源码；未观察真实节点及文件。"},
           "method": "files.cleanup.inspect",
           "oldEvidence": "projectTools[name=file_cleanup_inspect]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11513,6 +11515,7 @@
         },
         {
           "name": "file_cleanup_observe_batch",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按项目节点和观察轮发送精确目标；未指定并发时Host填1，配套声明允许1或2并提供逐目标结果。","boundary":"仅源码；未执行真实目录或tmux查询。"},
           "method": "files.cleanup.observeBatch",
           "oldEvidence": "projectTools[name=file_cleanup_observe_batch]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
