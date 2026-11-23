@@ -1,6 +1,6 @@
 # G004 执行登记
 
-本文件cap12000/90%=10800。本次压缩前完整记录见 `55b48068:docs/plan-generations/G004-execution.md`，更早见 `8f04bd1f`、`e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
+本文件cap12000/90%=10800。本次压缩前完整记录见 `17692f55:docs/plan-generations/G004-execution.md`，更早见 `55b48068`、`8f04bd1f`、`e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
 
 ## 当前边界与历史交付
 
@@ -27,15 +27,7 @@
 
 服务器队列/手动派发/替换、传输/同步/后台清理及Git覆盖围栏已按原项目和身份审定，假端结果、首失败、日志与非真实效果完整见 `60c8b277:docs/plan-generations/G004-execution.md` 及coverage；包装非direct，final fresh和新dist消费者仍待批准。
 
-总控更新plan时首次候选16267字符触发写前断言退出1，外层后续diff-check显示0；文件未写。缩短后16183字符并UTF8复读通过，原事实保留。
-
-SFTP共享配置读取和发布围栏假端v1 3/3、v2 4/4、v3 5/5及消费者1/1，原日志见 `33b70559`。仅ENOENT作缺省，发布前比对文本；检查与rename非不可分割事务，未触真实配置或Worker。
-
-原setupWorkDirectoryWorkflow静态消费者夹具仍要求已退役Hub文案；按当前Worker唯一入口更新等价检查后，纯源码文件 `%TEMP%/g004-sftp-profile-original-consumer-v3-20261123.{out,err}.log` 3/3 exit0。它不执行Agent、项目配置或Worker操作，也不证明外部效果。
-
-调度配置与Worker删除确认均经假配置及原消费者定向验证；同步与详细日志见 `d766909a:docs/plan-generations/G004-execution.md`，未触真实设置、Worker或共享配置。异步保存可能部分写入，不宣称回滚。
-
-资源树tmux文案和Panel探针待build及真实内嵌脚本VM；隧道脚本与离线导入项目围栏各假端2/2，Agent按钮缺endpointId拒绝假端1/1，原日志见33b70559；未触真实脚本、网络或Agent。
+配置读取、Worker删除确认、setupWorkDirectory及隧道/离线入口假端验证、原日志、失败与限制见 `17692f55:docs/plan-generations/G004-execution.md` 及coverage；配置检查与rename非原子，异步保存可能部分写入，无真实Worker或配置效果。Panel仍待build及真实脚本VM。总控plan首次16267触发写前断言、后缩短并复读的事实保同历史。
 
 47a1681d旧build规划316项、0按需，日志 `%TEMP%/g004-build-plan-47a1681d-20261123.out.log` exit0；planG004Execution首拒legacy漂移exit1。legacy 138、PlanCleanup 64、Panel 23为重叠的依赖漂移导航，不能批量重绑或判通过；逐闭包核旧MCP查询，CLI保持退役。
 
@@ -95,3 +87,5 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 索引只读AST核验首次因Node默认stdout缓冲不足出现ENOBUFS、git show被终止，未修改索引；增大读取缓冲后重新核验。
 
 结果汇总围栏准备批：planArchiveRefreshAndSettings精确错误case call_69ee9ab99b47429485ca328ca73adc73 1/1、614.1091ms、literal exit0/no session/skip0；真实方法AST取尚未提交候选，fake update抛原错误，日志从原事件事后提取。overview旧dist消费者只做node --check exit0，待新dist后精确回归，不冒实际效果。新focused/manifest与生产候选仍未提交或运行；manifest首次误以sourceScript全文查找而写前断言退出1，核实际四个结构化entries后登记，保原slot脏项。
+
+结果汇总生产候选：context/client绑定手动和自动发布、同owner共享及异owner等待原请求，旧timer和错误不污染新项目，catalog等待后重核；已发布文件不冒撤回。新focused原full4 call_f6ca9fc55c6d4d168d84c6636f65424b 4/4、1122.7508ms、literal exit0/no session/skip0；事后日志、事件与执行输入见coverage。私有TEMP真实写PLAN/表格、staging rename/flush和named-pipe协调，fixture保留；无真实Worker/删除/Python。输出事件SHA首次消息手抄caf0错误，原事件复核纠正为cb0，未改原事件。只读rg使用Windows通配一次失败，改用glob后成功。旧overview待新dist，不冒完整结果域/新build；总控仅六组已审旧证legacy适用更新，原执行快照保留。

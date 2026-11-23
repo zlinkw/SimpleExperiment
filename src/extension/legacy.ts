@@ -24542,6 +24542,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return resultCollectionHost(this).refreshAutomatic();
 }
     async rebuildProjectResultTablesFromUi(options: { planFiles?: string[]; title?: string } = {}) {
+        const context = this.captureProjectContext(), client = this.client;
         const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: options.title || "更新结果汇总", cancellable: true }, async (progress, token) => {
             const abort = new AbortController();
             const listener = token.onCancellationRequested?.(() => abort.abort());
@@ -24550,6 +24551,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             catch (error) { if (abort.signal.aborted) return { status: "cancelled", cancelled: true, notificationShown: true }; throw error; }
             finally { listener?.dispose(); }
         });
+        if (!this.projectContextIsCurrent(context) || this.client !== client) return result;
         if (result.cancelled) { void vscode.window.showInformationMessage("本次结果查询已取消；其他入口仍在使用的查询可以继续，已有导出文件保留。"); return result; }
         const message = result.current ? (result.scope === "selected_plans" ? "所选 PLAN 查询完成（未覆盖整批导出）：" : "结果已更新：") + result.completed + "/" + result.expected + " 个 job；未完成或待核实 " + result.missing.length + "。"
             : "本轮无法核实服务器结果；保留原导出文件，它不是本轮查询结果。";
@@ -25759,8 +25761,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.applyOfflineResultsSummaryFromBundle(this.offlineBundle); this.postState(); return { ok: true };
         }
         if (this.lowTrafficMode && !manualRetry) return { ok: false, reason: "低流量模式未刷新，请先手动刷新结果" };
-        try { await resultCollectionHost(this).update(); this.lastError = undefined; }
-        catch (error) { this.lastError = errorMessage(error); this.recordActionError({ command: "refreshResults", message: this.lastError }); this.postState(); return { ok: false, reason: this.lastError }; }
+        const context = this.captureProjectContext(), client = this.client;
+        const isCurrent = () => this.projectContextIsCurrent(context) && this.client === client;
+        try { await resultCollectionHost(this).update(); if (!isCurrent()) return { ok: false, reason: "项目已切换，旧项目结果未发布到当前界面。" }; this.lastError = undefined; }
+        catch (error) { const reason = errorMessage(error); if (!isCurrent()) return { ok: false, reason }; this.lastError = reason; this.recordActionError({ command: "refreshResults", message: reason }); this.postState(); return { ok: false, reason }; }
         this.postState();
         return { ok: true };
 }

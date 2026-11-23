@@ -24,27 +24,35 @@ export class ResultCollectionHost {
   private lastProgress?: ResultReadProgress;
   private automaticController?: AbortController;
   private automaticRequest?: Promise<any>;
+  private automaticContext?: { context: any; client: any };
   private again = false;
+  private againContext?: { context: any; client: any };
+  private requestContext?: { context: any; client: any };
   private timer?: ReturnType<typeof setTimeout>;
   private seen = new Set<string>();
   private scope = "";
+  private scopeClient: any;
   private visibleScope = "";
+  private visibleClient: any;
   constructor(private readonly h: any) {}
   private automaticAllowed() { return !this.h.panelDisposed && this.h.lowTrafficMode !== true && this.h.effectiveTrafficPolicy?.().displayAutoRefresh !== false; }
   suspendAutomatic() {
     if (this.timer) clearTimeout(this.timer);
-    this.timer = undefined; this.again = false; this.visibleScope = "";
+    this.timer = undefined; this.again = false; this.againContext = undefined; this.visibleScope = ""; this.visibleClient = undefined;
     this.automaticController?.abort();
   }
   refreshAutomatic(): Promise<any> {
     if (!this.automaticAllowed()) return Promise.resolve(undefined);
-    if (this.automaticRequest) return this.automaticRequest;
+    const context = this.h.captureProjectContext(), client = this.h.client;
+    if (this.automaticRequest && this.automaticContext && this.h.projectContextIsCurrent(this.automaticContext.context)
+        && this.automaticContext.client === client) return this.automaticRequest;
     const controller = new AbortController(); this.automaticController = controller;
+    this.automaticContext = { context, client };
     const run = this.update(controller.signal, { automatic: true }).catch(error => {
       if (controller.signal.aborted) return undefined;
       throw error;
     }).finally(() => {
-      if (this.automaticController === controller) { this.automaticController = undefined; this.automaticRequest = undefined; }
+      if (this.automaticController === controller) { this.automaticController = undefined; this.automaticRequest = undefined; this.automaticContext = undefined; }
     });
     this.automaticRequest = run; return run;
   }
@@ -52,15 +60,28 @@ export class ResultCollectionHost {
     if (!this.automaticAllowed()) return;
     const context = this.h.captureProjectContext();
     const key = context.root + ":" + context.generation;
-    if (this.visibleScope === key) return;
-    this.visibleScope = key;
-    if (this.request) return;
-    void this.refreshAutomatic().catch((error: any) => this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) }));
+    const client = this.h.client;
+    if (this.visibleScope === key && this.visibleClient === client) return;
+    this.visibleScope = key; this.visibleClient = client;
+    if (this.request) {
+      if (!this.requestContext || !this.h.projectContextIsCurrent(this.requestContext.context) || this.requestContext.client !== client) {
+        this.again = true; this.againContext = { context, client };
+      }
+      return;
+    }
+    void this.refreshAutomatic().catch((error: any) => {
+      if (this.h.projectContextIsCurrent(context) && this.h.client === client) this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
+    });
   }
   observe(snapshot: any) {
     if (!this.automaticAllowed() || snapshot.queryComplete !== true || snapshot.capabilities?.resultCollection !== 1) return;
-    const scope = this.h.captureProjectContext().root || "";
-    if (scope !== this.scope) { this.scope = scope; this.seen.clear(); }
+    const context = this.h.captureProjectContext(), client = this.h.client;
+    const scope = JSON.stringify([context.root, context.generation]);
+    if (scope !== this.scope || client !== this.scopeClient) {
+      this.scope = scope; this.scopeClient = client; this.seen.clear();
+      if (this.timer) clearTimeout(this.timer);
+      this.timer = undefined;
+    }
     const completed = (snapshot.tasks || []).filter((task: any) => task.observation?.result?.verified === true
       && task.observation.result.runId === task.commandId && task.observation.result.status === "completed"
       && (!task.observation.tmux || task.observation.tmux.dead === true));
@@ -69,11 +90,13 @@ export class ResultCollectionHost {
     if (!fresh.length) return;
     fresh.forEach((key: string) => this.seen.add(key));
     this.again = true;
+    this.againContext = { context, client };
     if (this.timer || this.request) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      if (!this.automaticAllowed() || this.h.captureProjectContext().root !== scope) return;
-      void this.refreshAutomatic().then((report: any) => { if (!report?.current) fresh.forEach((key: string) => this.seen.delete(key)); }).catch((error: any) => {
+      if (!this.again || !this.automaticAllowed() || !this.h.projectContextIsCurrent(context) || this.h.client !== client) return;
+      void this.refreshAutomatic().then((report: any) => { if (this.h.projectContextIsCurrent(context) && this.h.client === client && !report?.current) fresh.forEach((key: string) => this.seen.delete(key)); }).catch((error: any) => {
+        if (!this.h.projectContextIsCurrent(context) || this.h.client !== client) return;
         fresh.forEach((key: string) => this.seen.delete(key));
         this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
       });
@@ -122,27 +145,31 @@ export class ResultCollectionHost {
   async update(signal?: AbortSignal, options: ReadOptions = {}): Promise<any> {
     if (signal?.aborted) throw cancelled(signal);
     if (options.automatic && !this.automaticAllowed()) return undefined;
-    const context = this.h.captureProjectContext();
+    const context = this.h.captureProjectContext(), client = this.h.client;
     const key = JSON.stringify([context.root, context.generation, [...new Set(options.planFiles || [])].sort()]);
     if (this.request) {
-      if (this.requestKey === key && !this.requestController?.signal.aborted) return this.subscribe(this.request, signal, options.onProgress);
+      if (this.requestKey === key && this.requestContext?.client === client && !this.requestController?.signal.aborted) return this.subscribe(this.request, signal, options.onProgress);
       await this.waitFor(this.request.then(() => undefined, () => undefined), signal);
       const next = this.h.captureProjectContext();
-      if (next.root !== context.root || next.generation !== context.generation) throw Error("项目已变化，取消等待中的结果查询。");
+      if (next.root !== context.root || next.generation !== context.generation || this.h.client !== client) throw Error("项目已变化或连接已切换，取消等待中的结果查询。");
       return this.update(signal, options);
     }
-    this.again = false;
+    this.again = false; this.againContext = undefined;
     const controller = new AbortController();
+    this.requestContext = { context, client };
     this.requestController = controller; this.lastProgress = undefined;
     const run = this.collect(controller.signal, options.planFiles).finally(() => {
-      if (this.request === run) { this.request = undefined; this.requestController = undefined; }
+      if (this.request === run) { this.request = undefined; this.requestController = undefined; this.requestContext = undefined; }
       // New completions request a separate refresh; they cannot keep the current
       // user's request open through an unbounded sequence of full collections.
-      if (this.again && !this.timer && !controller.signal.aborted && this.automaticAllowed()) {
+      const pending = this.againContext;
+      if (this.again && pending && !this.timer && this.h.projectContextIsCurrent(pending.context) && this.h.client === pending.client
+          && (!controller.signal.aborted || !this.h.projectContextIsCurrent(context) || this.h.client !== client) && this.automaticAllowed()) {
         this.timer = setTimeout(() => {
           this.timer = undefined;
-          if (!this.automaticAllowed()) return;
+          if (!this.again || !this.automaticAllowed() || !this.h.projectContextIsCurrent(pending.context) || this.h.client !== pending.client) return;
           void this.refreshAutomatic().catch((error: any) => {
+            if (!this.h.projectContextIsCurrent(pending.context) || this.h.client !== pending.client) return;
             this.seen.clear();
             this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
           });
@@ -155,7 +182,7 @@ export class ResultCollectionHost {
   }
   private async collect(signal?: AbortSignal, selection?: string[]) {
     this.report({ message: "读取本机 PLAN 声明…" });
-    const h = this.h, context = h.captureProjectContext(), root = context.root;
+    const h = this.h, context = h.captureProjectContext(), root = context.root, client = h.client;
     if (!root) throw Error("请先打开当前实验项目。");
     // Sync destinations carry transport identity. The selected task environment
     // belongs to execution targets (including the global Conda fallback).
@@ -184,7 +211,7 @@ export class ResultCollectionHost {
     const binding = key();
     const signals = [signal, context.signal, retryRequestSignal()].filter(Boolean) as AbortSignal[];
     const requestSignal = signals.length ? AbortSignal.any(signals) : undefined;
-    const current = () => !requestSignal?.aborted && h.projectContextIsCurrent(context) && key() === binding
+    const current = () => !requestSignal?.aborted && h.projectContextIsCurrent(context) && h.client === client && key() === binding
       && (() => { const latest = ownerMap(); return [...readOwners].every(([key, value]) => latest.get(key) === value); })();
     const check = () => { if (!current()) throw Error("结果查询已取消或项目/服务器配置已变化。"); };
     const retryRead = async <T>(read: () => Promise<T>, attempts = 3): Promise<T> => {
@@ -447,6 +474,7 @@ export class ResultCollectionHost {
     const { results: _records, tables: _tables, jobs: _jobs, columnMappingPreviews: _previews, ...brief } = report;
     if (!scoped) h.resultSyncReport = brief;
     if (published) await h.refreshLocalResultCatalogForProject(context);
+    check();
     timing.totalMs = Date.now() - started;
     h.postState?.(); return report;
   }
