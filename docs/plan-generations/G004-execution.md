@@ -77,7 +77,7 @@ CSV宽/长/JSON回归6/6 `%TEMP%/g004-preview-formats-complete-20261123.*.log`�
 
 同根45080 SFTP本地状态与配置只读成功；target.show缺配置及首身份检查失败、敏感日志与边界见 `49e1cebd:docs/plan-generations/G004-execution.md`。未改配置或访问远端。
 
-停止候选保留显式Worker供人工重试；12/12 exit0 `%TEMP%/g004-stop-ui-identity-20261123.*.log`，Panel未构建部署。
+停止候选保留显式Worker，假端12/12及完整日志见 `0acec74b:docs/plan-generations/G004-execution.md`；Panel未构建部署。
 
 SFTP服务器配置、下载路径、tree/inventory、file_stats、plan_logs及remote_directories逐ID事实、假后端日志、失败及授权边界见coverage和 `49e1cebd:docs/plan-generations/G004-execution.md`；未访问真实Worker、改grant或传输/删除。
 
@@ -155,6 +155,8 @@ project_connect在异步隧道准备期间撤销MCP授权原仍可能启动；�
 
 server_test源码范围见coverage，未真实探测。原runner只读dry-run当前build选择316个作业、compile/fullCheck、0 onDemand；受源码变更影响，旧direct 144、legacy 59及fresh 1条快照存在至少一处漂移（含计划外及可能重叠），须逐调用链核适用，不是已运行/通过数；不批量刷新哈希，不启动矩阵。
 
-Plan验证在异步刷新后原可能继续使用切换后的项目状态，授权撤销也可能跨同步等待；现绑定原项目，并在同步的实际等待边界及远端预检前复核调用方授权。假Host围栏2/2、原多Worker路由1/1、准备切项目1/1均exit0，日志 `%TEMP%/g004-plan-validation-sync-fence-20261123.*.log`、`g004-plan-validation-worker-routing-20261123.*.log`、`g004-plan-validation-prepare-switch-20261123.*.log`；先前验证初版1/1日志保留 `g004-plan-validation-auth-project-20261123.*.log`。未启动真实同步或Worker，待build。
+Plan验证的项目与授权边界修复、假Host及原消费者结果和完整日志名见 `0acec74b:docs/plan-generations/G004-execution.md`；未启动真实同步或Worker，待build。
 
 Agent inspect/ensure/stop/restart/migrate逐入口核身份、授权、确认及假生命周期证据，见coverage；未执行真实Agent、迁移、SSH或tmux。
+
+cleanup_list/status/cancel按源码区分本地列表、可能观察并写状态、暂停意图；未调用真实清理或路径查询，见coverage。

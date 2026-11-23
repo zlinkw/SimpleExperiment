@@ -11416,6 +11416,7 @@
         },
         {
           "name": "cleanup_list",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按本项目操作存储列举合法ID记录，已完成且无待处理节点的永久删除记录不再列出；list不逐项扫描远端。","boundary":"仅源码审阅，未读取或修改真实清理记录，不证明路径当前存在。"},
           "method": "plans.cleanup.list",
           "oldEvidence": "projectTools[name=cleanup_list]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11424,6 +11425,7 @@
         },
         {
           "name": "cleanup_status",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"按精确operationId读取；未完成永久删除或受管执行可主动观察远端状态，完成后更新本地索引/记录，旧轮次不得覆盖更新的记录。","boundary":"并非一律零写入；未查询真实路径、tmux或修改真实记录。"},
           "method": "plans.cleanup.status",
           "oldEvidence": "projectTools[name=cleanup_status]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
@@ -11456,6 +11458,7 @@
         },
         {
           "name": "cleanup_cancel",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"要求sync项目授权及精确operationId；先走status观察，再标记本地取消并将未完成操作保存为paused。","boundary":"不证明远端正在执行的破坏操作已结束；未调用真实取消或改清理记录。"},
           "method": "plans.cleanup.cancel",
           "oldEvidence": "projectTools[name=cleanup_cancel]",
           "scope": "cleanup_or_agent_lifecycle_restricted",
