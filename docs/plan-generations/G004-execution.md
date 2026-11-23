@@ -109,7 +109,7 @@ task_list只复核当前项目归并、取消及unknown源码，禁止真实任�
 
 Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和 0a662506:docs/plan-generations/G004-execution.md；此前 runner 255/256 等原证不等于当前 build。固定 actionLifecycle 包装已按原事件、原日志和外层退出核验，首轮和负例各1/1，历史草稿断言仅为既有事实。source变化须逐项复核，不能批量改快照。
 
-配套SFTP 28087f3 已同步；取消身份8/8、结算3/3、两个各1/1受控消费者与 verify-runtime 23文件exit0及初次2/4失败的日志见coverage和旧记录。120历史包汇总69文件466通过，逐文件原目录现空；119现存56条对应日志、另13条缺逐项原日志，闭包待审；未打包安装发布新版本。
+配套120历史包汇总69文件466通过，逐文件原目录现空；119现存56条对应日志、另13条缺逐项原日志，闭包待审；未打包安装发布新版本。
 
 ## 当前补充调查
 
@@ -136,3 +136,5 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 配套包历史证据进一步核对：agentLifecycle 与 agentPythonResolution 的测试、agent-lifecycle.js及其读取的Python源从119到当前28087f3无变化；120汇总分别记1及12通过，但逐项原日志缺失，历史工具链及执行细节不补造。当前未运行Agent、Python解析或WSL。
 
 MCP resource_available 原将明确过期、离线或degraded的缓存GPU状态按空闲判可用；现返回unknown。真实查询方法配假RPC 1/1 `%TEMP%/g004-resource-stale-gateway-20261123.*.log`，源码函数1/1 `%TEMP%/g004-resource-degraded-20261123.*.log`，均exit0；首次补丁未匹配、未写入。缺状态或只有旧时间戳仍不能证明新鲜；未查询真实GPU、任务或Worker，待构建。
+
+诊断复制、操作日志、面板恢复三个命令及配置说明入口的注册和Host消费者逐ID源码复核；真实剪贴板、窗口和重新识别均未操作，原证和边界见coverage。

@@ -14099,6 +14099,7 @@
         },
         {
           "id": "vscode:simpleExperiment.copyPanelDiagnostics",
+          "currentReview": {"status":"source_scoped","evidence":"命令注册直接调用Host诊断序列化、写剪贴板并提示可能含路径和版本；同bootstrap复制入口。","boundary":"未触真实剪贴板或公开诊断内容，剪贴板错误按原调用传播。"},
           "disposition": "prior_scoped_evidence",
           "reference": "registered/contributed/independent[name=simpleExperiment.copyPanelDiagnostics]",
           "oldStatus": "concluded_scoped",
@@ -14106,6 +14107,7 @@
         },
         {
           "id": "vscode:simpleExperiment.showOperationLog",
+          "currentReview": {"status":"source_scoped","evidence":"命令注册调用Host惰性创建并显示操作日志输出通道，已有通道复用，显示保留焦点。","boundary":"只审源码，未打开真实输出通道，不证明历史日志完整性。"},
           "disposition": "prior_scoped_evidence",
           "reference": "registered/contributed/independent[name=simpleExperiment.showOperationLog]",
           "oldStatus": "concluded_scoped",
@@ -14113,6 +14115,7 @@
         },
         {
           "id": "vscode:simpleExperiment.restorePanel",
+          "currentReview": {"status":"source_scoped_pending_panel_build","evidence":"命令注册调用Host；无view时聚焦，有view先走已有重载与渲染器恢复，再依状态聚焦；源码假计时器测试含视图替换及恢复边界。","boundary":"只审源码与既有测试内容，不称本轮测试或真实窗口恢复通过；当前Panel改动待build。"},
           "disposition": "prior_scoped_evidence",
           "reference": "registered/contributed/independent[name=simpleExperiment.restorePanel]",
           "oldStatus": "concluded_scoped",
@@ -14285,6 +14288,7 @@
         },
         {
           "name": "simpleExperiment.copyPanelDiagnostics",
+          "currentReview": {"status":"source_scoped","evidence":"直接注册Host copyPanelDiagnosticsFromUi，同bootstrap诊断复制。","boundary":"未操作真实剪贴板；序列化内容可能含本机路径。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.copyPanelDiagnostics]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14292,6 +14296,7 @@
         },
         {
           "name": "simpleExperiment.showOperationLog",
+          "currentReview": {"status":"source_scoped","evidence":"直接注册Host showOperationLogFromUi，惰性创建/复用输出通道并显示。","boundary":"未打开真实通道，不证明历史内容完整。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.showOperationLog]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14299,6 +14304,7 @@
         },
         {
           "name": "simpleExperiment.restorePanel",
+          "currentReview": {"status":"source_scoped_pending_panel_build","evidence":"直接注册Host restorePanelFromUi；现有假时钟测试覆盖无响应恢复、视图替换及重载门禁。","boundary":"仅源码及现有测试内容，未重复执行或触碰真实窗口；当前Panel候选未build。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.restorePanel]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14327,6 +14333,7 @@
         },
         {
           "name": "simpleExperiment.openSetupGuide",
+          "currentReview": {"status":"source_scoped","evidence":"注册Host openSetupGuide，与面板相同；先打开说明，已识别项目直接结束，未识别项目由用户选择后进入配置、选项目或识别。","boundary":"历史0.5.492点击及假宿主12/12见对应panel条目；未重放识别或修改配置。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.openSetupGuide]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14924,6 +14931,7 @@
         {
           "name": "openSetupGuide",
           "route": "handleMessageCore_case",
+          "currentReview": {"status":"source_scoped","evidence":"面板命令走Host openSetupGuide，与VS Code命令共用；先显示说明，仅用户选择后可进入设置、工作区或识别流程。","boundary":"只引用原0.5.492点击和假宿主证据；本轮未重放识别或配置。"},
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
         {
