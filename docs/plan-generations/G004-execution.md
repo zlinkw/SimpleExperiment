@@ -44,3 +44,7 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 总控审三direct f65bb/ae4dad/d508d各一项源依赖适用，保旧Python、fakeDOM及旧dist范围，未新运行。审sourceJob149的8个未执行TS漂移及实际九项dist闭包，补列三个当前字节与pre-run 5a3相同但运行时未单独冻结的dist，不冒运行时已知；原私有TEMP/fork IPC/CAS/utimes及可能自有child SIGTERM仅历史。总控首次相对模块解析误判与未登记snapshot断言exit1均纠正，非测试。
 
 总控审sourceJob252九项依赖当前条件适用，含未读取的ledger Lifecycle测试文件本身；保原f735快照、历史隔离WSL/tmux socket和精确窗口关闭，不冒当前运行或完整ledger通过。总控复核482ad7首两次结构化脚本字段假设错误exit1，第三次按真实字段核对通过，非测试。
+
+总控审planBatchPhysicalPipeline原2/2八项依赖当前条件适用，保私有队列写及两次rename、无真实删除和fake Worker；纠正旧basis：saveQueue/withQueueWriteResource与385b相同，不与1e91逐字相同，新增可选context guard在原夹具未传或恒真。总控首误断言与1e91相同exit1及截断组合读取均纠正，非测试失败。19个active旧full测试字节漂移逐identity核；首次按stem漏.test后缀得空结果，已按精确basename纠正，不据空结果通过。
+
+总控将currentSubmissionTruth/formalJobPreflightApi两个原full direct因测试字节变化降当前eligible=false，保历史；仅准最终输入冻结后runner各一次原20秒full8/full7串行，尚未运行。前者保私有TEMP receipt/atomic rename并将LOCALAPPDATA绑定每作业私有根；后者实际Python child仅api/api-environment两个AST抽函数和私有TEMP资产，原spawnSync 10秒/windowsHide/status0，不跑训练/tmux或性能变体。runner原有每作业环境沙箱仍须按实际执行记录确认。首次只读Windows glob误用os123已纠正，非测试失败。
