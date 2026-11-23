@@ -13943,6 +13943,7 @@
         },
         {
           "id": "aux:src/extension/SftpCleanupReview.ts:confirm:1",
+          "currentReview": {"status":"source_reviewed_external_effect_restricted","evidence":"现行审核页 move 单阶段：显示完整路径，按当前 token、digest、节点和 exactTargets 确认；McpHost scopedFileCall 绑定当前项目及节点。旧受控用例只实测 delete，未将其扩称 move 实测。","boundary":"确认页不发 execute；未移动文件，真实外部效果受限。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/SftpCleanupReview.ts,line=30,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13950,6 +13951,7 @@
         },
         {
           "id": "aux:src/extension/SftpCleanupReview.ts:confirm:2",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"test/features/mcpProject.test.js 的 file review keeps both human phases 旧受控证据覆盖 delete 第一次确认、精确目标和禁止跳阶段；审核页源码自 f66d3694 未变。","boundary":"假 VS Code/后端，只确认不执行；没有真实删除或服务器操作。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/SftpCleanupReview.ts,line=30,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13957,6 +13959,7 @@
         },
         {
           "id": "aux:src/extension/SftpCleanupReview.ts:confirm:3",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"同一旧受控用例覆盖第二次确认、重复阶段拒绝和整个点击链无 execute；当前审核页源码自 f66d3694 未变。","boundary":"仅原假后端输入；不代表真实文件删除。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/SftpCleanupReview.ts,line=30,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13964,6 +13967,7 @@
         },
         {
           "id": "aux:src/extension/GitOverwriteReview.ts:confirm:1",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"test/features/gitOverwrite.test.js 的 Git review requires two ordered human phases 旧受控用例检查首次确认、未执行与错误阶段；审核页及该测试自 f66d3694 未变。","boundary":"假 Git/文件接口；旧实窗仅到预览后取消，未实际覆盖。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/GitOverwriteReview.ts,line=46,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
@@ -13971,6 +13975,7 @@
         },
         {
           "id": "aux:src/extension/GitOverwriteReview.ts:confirm:2",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"同一旧受控用例检查第二次确认后调用假 execute、完整路径与取消；当前审核页和测试自 f66d3694 未变。","boundary":"假执行回调不证明真实 Git 覆盖或文件删除；这些效果未触及。"},
           "disposition": "cleanup_or_overwrite_restricted_prior_controlled_evidence_only",
           "reference": "g004U04RemainingInventory.auxiliaryButtonActions[source=src/extension/GitOverwriteReview.ts,line=46,name=confirm]; confirmationPayloadVariants",
           "oldStatus": "deferred",
