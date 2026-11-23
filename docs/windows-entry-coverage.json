@@ -11858,6 +11858,7 @@
         },
         {
           "name": "experiment_active",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"loadExperiments聚合后选running任务及有running子项的workflow并附来源和命令快照；原合成Worker观察1/1 exit0 %TEMP%/g004-520-mcp-worker-observation-20261123.log，使用自建loopback及假RPC。","boundary":"未查询真实Worker或活动任务；历史合成观测不代表当前状态。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_active]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11875,6 +11876,7 @@
         },
         {
           "name": "experiment_overview",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"一次项目聚合生成summary、active、alerts和health快照；原mcpHealthEvidence合成项目和假RPC直接通过，原事件及适用审查在g004IncrementalCoverage。","boundary":"未查询真实活动任务；告警取决于输入及当前观察。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_overview]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11883,6 +11885,7 @@
         },
         {
           "name": "experiment_health",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"按聚合状态生成health、stalled、缺进度及近期失败告警；原mcpHealthEvidence合成项目和假RPC直接通过，原事件及适用审查在g004IncrementalCoverage。","boundary":"未查询真实活动任务或GPU，不将历史快照当实时健康。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_health]",
           "scope": "local_gateway_plus_worker_effect_restricted",
