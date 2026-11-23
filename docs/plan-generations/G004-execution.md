@@ -78,4 +78,4 @@ automaticScopeContent 8/8 exit0；Host 为 VM 提取，Worker/index 为替身，
 
 tunnelClient 13/13 exit0；仅自建随机端口回环 HTTP 服务器并关闭，Python 限时提取响应写入函数，Worker 响应为替身；无真实远端或用户状态。原日志、事件及依赖见 coverage，待总控终审。
 
-latestResultExportDarwinLock 误运行 onDemand 项，7/7 exit0；Windows 上以替身验证平台分支和锁目录判断，并在自建临时目录运行；macOS 原生 O_EXLOCK 与 POSIX 权限效果未测。日志、事件及依赖见 coverage，eligible=false，不计入 active 覆盖。
+latestResultExportDarwinLock 7/7 exit0；Windows 上以替身验证平台分支和锁目录判断，并在自建临时目录运行；macOS 原生 O_EXLOCK 与 POSIX 权限效果未测。此前错误称该项为 onDemand，复核真实 planEntry 确认其精确 identity+argv 属 active，现更正并登记原单次证据，未重跑。日志、事件及依赖见 coverage，待总控终审。
