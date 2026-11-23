@@ -1296,6 +1296,8 @@ test("execution section redraws when only the stop-clear feedback changes", () =
 
 test("handleMessage posts the real stop-clear outcome for failed, cancelled, and completed", async () => {
   const dist = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const retiredStart = dist.indexOf("const RETIRED_DRAFT_COMMANDS = "), retiredEnd = dist.indexOf("const API_EXECUTABLE_COMMANDS", retiredStart);
+  assert.ok(retiredStart >= 0 && retiredEnd > retiredStart);
   const messageStart = dist.indexOf("async handleMessage(message) {");
   const messageEnd = dist.indexOf("async handleMessageCore(message, command = getSafeCommand(message)) {", messageStart);
   const coreStart = dist.indexOf("async handleMessageCore(message, command = getSafeCommand(message)) {");
@@ -1341,6 +1343,7 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     compactSensitiveText: (value, max = 240) => String(value || "").slice(0, max),
     uiCommandWatchdogMs: () => 0,
     beginSimpleSftpCapabilityLaunch: () => undefined,
+    captureProjectContext: () => ({ root: "/fixture" }), projectContextIsCurrent: () => true,
     finishPlanSubmissionProgress: () => undefined,
     recordActionError: () => undefined,
     actionErrorSuggestion: () => "",
@@ -1353,7 +1356,7 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     vscode: { window: { showInformationMessage: () => Promise.resolve(undefined), showErrorMessage: () => Promise.resolve(undefined) } },
   };
   vm.createContext(context);
-  vm.runInContext(`class Host { ${methods} }\nthis.provider = Object.assign(new Host(), this);`, context);
+  vm.runInContext(`${dist.slice(retiredStart, retiredEnd)}\nclass Host { ${methods} }\nthis.provider = Object.assign(new Host(), this);`, context);
   for (const outcome of ["failed", "cancelled", "completed"]) {
     await context.provider.handleMessage({ command: "stopAndClearPlan", clientActionId: "act-" + outcome, outcome });
   }

@@ -21,6 +21,7 @@ function asFunction(text, signature, replacement) {
 const constants = [
   sliceBetween("const uiActionCommands = new Set([", "const SAFE_WEBVIEW_COMMANDS = new Set(["),
   sliceBetween("const SAFE_WEBVIEW_COMMANDS = new Set([", "const API_INTERNAL_COMMANDS"),
+  sliceBetween("const RETIRED_DRAFT_COMMANDS = new Set([", "const API_EXECUTABLE_COMMANDS"),
   sliceBetween("const COMMANDS_WITHOUT_UI_STATUS = new Set(", "const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER"),
   sliceBetween("const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set(", "const DEBUG_MODE_BLOCKED_UI_COMMANDS"),
   sliceBetween("const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([", "const UI_LAYOUT_SECTION_KEYS"),
@@ -167,6 +168,7 @@ function createHost(overrides = {}) {
       return operation();
     },
     finishPlanSubmissionProgress() {},
+    captureProjectContext: () => ({ root: "/fixture" }), projectContextIsCurrent: () => true,
     withSafeTransferRetry(_command, _message, work) { return work(); },
     runActionCommand(command) {
       calls.actions.push(command);

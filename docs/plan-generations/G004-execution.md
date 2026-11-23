@@ -27,7 +27,7 @@
 
 配置读取、Worker删除确认及隧道/离线入口假端原验证、失败和限制见 `17692f55:docs/plan-generations/G004-execution.md` 及coverage；配置检查与rename非原子，异步保存可能部分写入，无真实Worker或配置效果。Panel仍待build及真实脚本VM，plan阈值首失败保同历史。
 
-47a1681d旧build规划316项exit0，执行规划首拒legacy漂移exit1；依赖漂移为重叠导航，不能批量重绑或判通过。原日志、细分计数见 `c8912955:docs/plan-generations/G004-execution.md`。
+47a1681d旧build规划exit0、执行规划首拒legacy漂移exit1；不能批量重绑。详见 `c8912955:docs/plan-generations/G004-execution.md`。
 
 召回路径原身份和排队围栏已同步 `9412b48c`；原验证、首失败、日志及未知回执限制见 `d766909a:docs/plan-generations/G004-execution.md`，不重发未知请求，未运行真实Worker或build。
 
@@ -77,7 +77,7 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 
 拆表scoped本地提交8b6cd237后，普通push首次exit1：TLS connect unexpected EOF；执行者立即停Git升级。总控仅准本次有界恢复：ls-remote exit0仍f064、HEAD 8b6/index空及upstream正确后，普通push一次exit0，fetch一次exit0，HEAD/origin/master/FETCH_HEAD均8b6cd237976d9aeb8d9dcb6291f75a08a2111078。首失败保留，此次不构成通用重试许可。
 
-拆表真实新dist消费者待编译后仅原dataset文件精确 `^active writer, catalog, opening and splitting bind dataset keys and the configured root$` 一次；总控已审其私有TEMP真实写入、staging flush/rename与named-pipe创建释放，fixture保留，不跑full或其他case。当前未运行或build。总控状态计划首次写后16205触发阈值exit1，归并后UTF8复读/diff-check通过，非测试失败。
+拆表新dist消费者仅原dataset精确case一次；私有TEMP真实写入、flush/rename与named-pipe，fixture保留，未运行。精确pattern及plan阈值首失败见 `01e4dae1:docs/plan-generations/G004-execution.md`。
 
 UI状态funnel准备批三fixture只补项目context接口，原断言不变；action正向41 call_29f28a31a4924c71ac8b3ac4c949216c 41/41、debug call_dc97c8a2dae041138e626008cc0275de 1/1、manual call_de97cfa059ce431a94756b2a177ded93 4/4，均literal exit0/no session/skip0，原事件和事后日志见coverage。运行时legacy 77c含尚未提交funnel/列表候选，之后生产已变；旧dist及fake限制保留，未执行退役草稿。coverage登记首两次误匹配重复call历史行而写前退出1，按精确callId筛选后成功。只读rg误用PowerShell大括号触发ParserError，改真实目录查询。总控计划首次16221触发阈值exit1且误报通过，归并后严格复读通过；非测试失败。实际funnel/PLAN通知候选及其他反向消费者尚未全部审核或同步。
 
@@ -92,3 +92,5 @@ UI状态funnel和PLAN通知候选按原项目绑定晚到状态及延后交互�
 Speed实测工作树23f48e15，索引LF归一后121b3e83，归一文本相同；非同字节。coverage首次JSON全量格式化已发现并按HEAD原格式修复，第一次脚本因空格格式假设退出1且未写入，纠正后精确更新。
 
 第四准备批Notice三处host与ResultSync前三处fixture/session接口补齐；node --check各exit0，未运行旧dist。ResultSync其他槽逻辑保留工作树不纳本批；新dist后Notice全文件与ResultSync既有全文件范围才可执行，后者含私有目录真实写/rename。只读git rev-parse首次未引用upstream触发PowerShell ParserError exit1，引用后确认三HEAD及upstream一致，非Git变更失败。
+
+第五准备批PanelMessageDispatch及PlanStopClear从真实dist提取退役命令常量并补原context接口；两文件node --check exit0，原权限/取消/停止断言保留，未运行旧dist。新dist后按已准full21及stop-clear精确1执行，非已完成编译或真实面板验证。
