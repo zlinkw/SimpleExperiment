@@ -121,8 +121,10 @@ task_list只复核当前项目归并、取消及unknown源码，禁止真实任�
 
 总控已审通过配套源diff；原transferRecovery精确消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-consumer-20261123.*.log`，verify-runtime exit0且核23文件 `%TEMP%/g004-sftp-verify-runtime-20261123.*.log`。未递版、组装或安装；package原全套尚须逐证据核可复用范围并审收。
 
-配套原mappedBatchDownload精确取消消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-mapped-consumer-20261123.*.log`；其SSH进程为注入替身、夹具保留，无真实连接。旧119现存56条原日志的测试文件与120逐项一致、通过数与120汇总一致；另13条119原日志缺失，120原逐项目录为空，仍需区分闭包变化与证据缺口。
+配套mappedBatchDownload精确取消消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-mapped-consumer-20261123.*.log`；SSH为注入替身，无真实连接。旧119现存56条日志的测试文件及通过数与120一致；另13条119原日志缺失、120逐项目录为空，仍需核闭包。
 
 Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retention/backup/inspection源码片段与1e91d0d4逐段一致、其余依赖字节不变，复用原15/15及10/10，更新两条该次输入；不重跑旧清理替身。并非全部build依赖已对账。
 
-继续核hostOperationLeaseIntegration及automaticScopeContent：受测租约方法/命令集/标签或refreshSyncScopeMetadata与1e91d0d4一致，其余记录依赖不变，分别复用原4/4、8/8。配套仓120 tag对应修复前基线2284921，原package汇总69文件466通过，但原 `%TEMP%/run-YUG9Ru` 目录现为空；119另有56条同名日志，版本间6文件变化需逐项审依赖，不能冒充当前全量通过。一次只读PowerShell tag引号错误及旧日志路径不存在未改产品。
+hostOperationLeaseIntegration及automaticScopeContent受测方法等与1e91d0d4一致，其余依赖不变，复用4/4、8/8。配套120 tag为2284921，原package汇总69文件466通过，`%TEMP%/run-YUG9Ru`现为空；119与120间6文件变化须逐项审，不能冒充当前全量通过。一次只读tag引号错误及旧日志路径不存在未改产品。
+
+planCodeScope及remoteResultInspectionWorkflow所测源码片段与1e91d0d4一致，其余依赖不变，复用12/12、15/15受控旧证，不重跑Python或远端替身。
