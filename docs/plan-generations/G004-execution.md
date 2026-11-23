@@ -127,4 +127,4 @@ Agent单依赖更新后只读增量规划 %TEMP%/g004-build-evidence-after-agent
 
 后续执行批次和历史清除、tmux窗口、lease测试分别按精确提取片段及实际require闭包对照1e91d0d4，旧证与未变依赖的适用范围记coverage；不等于当前构建或真实Worker通过。只读对照工具首次因shell引号解析失败、再因git show默认缓冲不足退出，修正后源码比较完成；coverage字符串首次插入定位/JSON语法失败均在写入前中止，修正后复读UTF8与JSON。
 
-配套SFTP取消反向消费者再核：原 mappedBatchDownload.test.js 精确单项 `API cancel during the real SSH stream kills that one child` 1/1、exit0、400ms，完整stdout/stderr `%TEMP%/g004-sftp-mapped-cancel-consumer-20261123.{out,err}.log`。名称虽写real SSH，该测试注入假spawn/假传输流及内存账本，私有fixture保留；没有真实SSH、传输、删除或其他文件测试。配套整体69文件的旧逐项日志缺口仍未解决。
+配套SFTP取消反向消费者再次执行：先前 0f6ea82b 已有同一精确单项有效1/1（g004-sftp-cancel-mapped-consumer-20261123.*.log），本次未先核到该记录，属于重复验证。原 mappedBatchDownload.test.js 精确单项 `API cancel during the real SSH stream kills that one child` 1/1、exit0、400ms，完整stdout/stderr `%TEMP%/g004-sftp-mapped-cancel-consumer-20261123.{out,err}.log`。名称虽写real SSH，该测试注入假spawn/假传输流及内存账本，私有fixture保留；没有真实SSH、传输、删除或其他文件测试。配套整体69文件的旧逐项日志缺口仍未解决。
