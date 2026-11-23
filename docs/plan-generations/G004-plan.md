@@ -4,13 +4,13 @@
 
 用户持续要求剩余单项目现行按钮、界面功能与MCP全部查清，确有问题修完，复用有效证据，最后统一构建、试行发布、每目标版本一次安装，用户Reload后真实受限UI/MCP验收。跨项目延期，真实Worker效果受限。0.5.520已交付，但其后render、CSV、停止路由及现行入口修复尚未新build/交付，整代未结案；工具目录和覆盖计数不证明全部按钮及真实功能均通过。
 
-本计划由总控独占；逐ID事实、原日志/失败/许可/未知在G004-execution.md及windows-entry-coverage.json。完整前文可取 `3f4b9925:docs/plan-generations/G004-plan.md`，更早8f04bd1f及其引用，不另建tracker/交付报告。cap18000/90%=16200，execution cap12000/90%=10800，触阈值整体语义压缩。接续4首候选16590写前断言exit1、未写；本次集中归并已完成机制及重复流程，原证据不改。
+本计划由总控独占；逐ID事实、原日志/失败/许可/未知在G004-execution.md及windows-entry-coverage.json。压缩前文取 `cee2e38d:docs/plan-generations/G004-plan.md`，更早3f4b9925/8f04bd1f及其引用，不另建tracker/交付报告。cap18000/90%=16200，execution cap12000/90%=10800，触阈值整体语义压缩。接续4首候选16590写前断言exit1、未写；归并已完成机制/历史细节，原证据不改。
 
 ## 唯一角色、租约与保护
 
 总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续4》01a2097a-adcb-79d0-8f41-03248c4dda31/local，resolved/turn均Sol/high/default、match/continue。旧总控01a2040c在10次压缩、第五次后峰300413自然交班，明确释放plan/README/最终审查，无在途；新总控已完整读交班，核旧turn completed/idle及coverage/execution/scripts无旧rollout引用后归档成功，未改证据。更早交权见43efb031/e8bc27fe；tier只记录，轮换不重置任务/授权。
 
-唯一执行01a208e7-87fc-7e11-a447-1fb563eacb24/local，Terra/high/default、match/continue，持全部产品/测试/execution/coverage及两仓串行Git。总控只持plan/README、协调/最终审查，已审diff交执行同步。报送目的地已更新，不索ack/重派/加代理。依全局事件协调：总控无独立待办、完整派单/通道明确且仅等交包时角色空闲；执行有工作须继续，不循环wait/催进度，未知在途先核结果不重放。
+唯一执行现为01a209da-8e0d-7381-b4e5-e2d6c9c8d768/local，Terra/high/default、resolved/turn match/continue，已完整读材料并实核两仓。旧01a208e7在7次压缩、第五次后峰300656自然交班，明确释放全部产品/测试/execution/coverage及两仓串行Git、无在途；总控更新本指针后同范围独占移交新执行。总控仍只持plan/README、协调/最终审查。不索普通ack/重派/加代理；依全局事件协调，总控无独立待办且仅等完整包时角色空闲，执行有工作继续。旧turn完成及rollout引用安全核后才归档不删，路径不能伪造成新证据。
 
 普通Windows原工作区，非Pi/自制容器。SE D:/GitRepo/MCP/zlk-cluster-orchestrator，master→origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；接班8f04bd1f。SFTP D:/GitRepo/MCP/simple-sftp，origin=https://github.com/zlinkw/SimpleSFTP.git，接班1ed121738969d8ec5a79693910e4463e993ecff8、tracked clean。用户长期授权SFTP代码修复，无需重询；仅本轮相关配套/消费者/回归和统一试行，不扩SFTP全功能审计。
 
@@ -52,7 +52,7 @@ R519 A1–A6/B1–B4/C1–C3、U01–03的20修复及U04原43中39单项目已�
 
 offline_import/lowTraffic有效，5配置1启用/五类grant无workers、原PLAN experiments/plans/ui_u01_empty_515.yaml/空选择/experiments/results与offline-fixture两行跨518→519→520保留，无重配重授。onboarding原false且无adapter不是丢失，后实点识别变true。四RESOURCE_CONFLICT仅证lease活跃，operations空不证明死锁/释放，不清锁重放。
 
-用户准专用窗口电脑控制/截图，遵silent-ui-screenshot/computer-use；原node_repl/@oai/sky窗口87954600，最小化首拒后还原，图像/树保原事件，未存删截图。搜索/清除实点，导航146越窗失败不算通过；识别一次，首坐标未中/等待stalled、通知755继续、Escape变布局后998恢复，末可选通知未点不妨完成。无adapter/PLAN/Worker/grant变更。TEMP/g004-520-after-ui-recognition-20261123.json证onboarding=true/status520/offline_import、panel ready/visible/sectionFailures空；render-health-probe-pending仍未知，任务/GPU/tmux/输出未核。Host仍520。synthetic/final.csv合法宽格式被filename-only误选long得0，generic_wide得2，旧“不标准”判断撤回并修产品。
+用户准专用窗口电脑控制/截图，遵两UI技能；旧窗口87954600图像/树及最小化拒绝、越窗失败、首点击未中/stalled、通知后识别和布局恢复均保cee2e38d/原事件，不冒通过、不存删截图。搜索/清除/识别实点，无adapter/PLAN/Worker/grant变更。TEMP/g004-520-after-ui-recognition-20261123.json证onboarding=true/status520/offline_import、panel ready/visible/sectionFailures空；render-health-probe-pending仍未知，任务/GPU/tmux/输出未核。Host仍520。合法宽CSV被filename-only误选long得0，generic_wide得2，旧“不标准”判断撤回并修产品。
 
 ## 当前修复状态与完整包审查
 
@@ -64,7 +64,7 @@ CSV4d7df6d2/8ed64825修预览原text/映射、metric/value/alias/0及无指标�
 
 暂存槽候选修人工一次隔离确认后隐式永久删及自动expiry删除：先reserve原source/token/node/root/paths，隔离后实际parent preview、两次完整永久路径确认，admit→delete原token→matching delete-fast receipt ack/close/settle；取消unsent可再审，prePOST失效unadmit，已尝试unknown只查原status，ended/openfalse可恢复settle。自动expiry只读发现提示能力0/2，不自动隔离/确认/删除。SFTP后端实核parent双确认/原token/有效期，已源审并同步1ed12173；auth3/3、原假expiry3/3、batch精确10安全case通过，无5000项或真实效果。SE state真实方法＋假存储/后端v4 10/10，尚未提交；stagedSlotDeleteReview新文件与manifest域须随源码同批，不能stage缺文件的manifest中间HEAD。固定历史Process包装13284446已审，只核原call/字节/事件不任意eval；未锚定1/1不冒最终锚定argv。
 
-已源审同步的Git同根repo.add/备份root-hook-remote（0a1eb56f/82e3093b）、覆盖等待、archive同mapped根b61c0e09、Plan恢复仅ENOENT missing0b6b4b4e、模板发布前原项目围栏fedd8bc9/7dfd6db5，以及提交取消/恢复7659b4b9/b2b25d81、失败重排e8bc27fe、共享SFTP config/调度整组校验/Worker删除重核/隧道离线endpoint等ae39752c至bab13011，均按execution原闭包/首失败/日志适用，不重跑；未真实产品Git/Worker/删除/build。
+相邻Git同根备份/覆盖/archive、Plan恢复仅ENOENT、模板发布前原项目围栏、提交取消恢复/失败重排、共享SFTP config/整组校验/Worker删除重核/动态endpoint等已审同步组，精确提交与首失败见cee2e38d本段及execution；只按原闭包/日志适用，不重跑或冒真实产品Git/Worker/删除/build。
 
 工作流接受点是本机workflow_submission started:true，不是enqueue；只在接受前重核experiment/sync/agents，已有op resume不改。已接受工作不因撤权自动取消，不插共享WorkerPreparation/后续效果/tick，不新增caller授权账本，旧拒专项不重放。五类文档不恢复Worker绑定。
 

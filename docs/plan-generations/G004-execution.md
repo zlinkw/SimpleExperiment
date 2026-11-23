@@ -21,7 +21,9 @@ B1首次失败与20秒timeout、TS首exit2、删除首policy拒绝进程未启�
 
 输出模板项目围栏 `fedd8bc9`/`7dfd6db5` 假端4/4；首2/3失败及审核页5个确认变体见历史记录 `d70e1b40`/`3a916416`。未build或真实删除。
 
-隔离永久删除 `0275a980` 仅原身份/回执结清，丢回执不因文件缺失认结束；跨Host未知与旧版已抹身份限制保留。假service v9 11/11、v11 12/12及缓存消费者v1/v2各1/1 exit0；v10首11/12因错误码断言失败，v1至v10原日志见8f04bd1f及coverage。无真实删除或build；planRunIsolateRerun仅已准精确case待新dist，其他fixture未跑。
+隔离永久删除 `0275a980` 和暂存槽保护原身份、节点/根/路径/类型及双确认；未知回执不因文件缺失认结束，旧版抹除身份不可恢复，SFTP尚无已证原执行器完成查询。自动过期仅只读提示。SFTP源码 `1ed12173`，auth v5 3/3、expiry v1 3/3、batch parent v1精确10/10；SE候选未提交，真实state假端v4 10/10，隔离假service v9 11/11、v11 12/12及消费者v1/v2各1/1，v10首11/12错误码断言失败；日志及原限制见 `cee2e38d:docs/plan-generations/G004-execution.md` 和coverage。无真实删除/build。resultSync与slot两消费者及planRunIsolateRerun精确case仅获准新dist后运行，不跑其他world。两次误路径只读失败保留。
+
+服务器队列、手动派发与替换审核绑定原项目/client及batchId，保原回执与共享只读；源审后假端dispatch v3和正常各2/2、replacement 4/4、snapshot autofallback 6/6、completed 17/17，日志TEMP/g004-{dispatch-context-v3,dispatch-normal-v1,plan-run-context-v1,snapshot-autofallback-v1,snapshot-completed-v1}-20261124；dispatch v1参数错误、v2缺AbortController为1/2保留。传输/同步/后台清理假端isolated 2/2、profile 5/5、upload v2 1/1、code sync v2 2/2、SFTP caller v2 3/3；code sync v1缺fake首1/2、upload及caller旧输入均保留，prepare/path各2/2。原日志、调用和六批提交及误写命令事实见 `cee2e38d:docs/plan-generations/G004-execution.md`；包装非direct，最终按批准fresh，manual11及mode3待新dist，无真实外部效果。
 
 Git覆盖项目围栏假端v2 3/3、v1 2/2；日志与边界见 `33b70559`，无真实覆盖或删除。
 
@@ -47,10 +49,6 @@ SFTP共享配置读取和发布围栏假端v1 3/3、v2 4/4、v3 5/5及消费者1
 
 停止请求原先发送后迟到可能修改新项目状态，且200ms延迟保存可在切换时丢失意图。当前候选固定原项目/client，在发送前等待原有localOperations持久化队列排干并复核，保存失败或切换零POST；已发结果未知不重发、不清新项目缓存。纯VM假端 `%TEMP%/g004-stop-context-v4-20261123.{out,err}.log` 14/14 exit0；v2首13/14 exit1为夹具reply尚未初始化，显式等待假POST后v3 14/14，后补single-flight竞态得v4。无真实Worker或跨项目效果；待当前build。
 
-暂存槽：人工隔离后永久删除另经完整路径双确认；自动过期只做当前identity/lane只读发现，提示人工。SFTP新请求验证实际parent双确认、节点/根、原token与目标及有效期；旧未知不因目标缺失认定结束。`%TEMP%/g004-sftp-slot-auth-v5-20261123.{out,err}.log` 3/3、原假回收三case旧v1 3/3、原batchDelete精确10个假transport安全case `%TEMP%/g004-sftp-batch-parent-v1-20261123.{out,err}.log` 10/10均exit0；未运行5000项或真实删除。删除发送只同步返回receipt；丢回执后无已证原执行器结束查询，保留unknown供原token查询、不重发，目标不存在不等于结束。
-
-SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请求核查，双确认后admit再发送；已证发送前失效unadmit，已发送未知保留，持久ended重建后settle。真实state方法+假存储/假端 `%TEMP%/g004-stage-review-v4-20261123.{out,err}.log` 10/10 exit0，包括两Host冲突、重启、取消及项目漂移；SFTP源码经总控源审、node --check与UTF8/diff检查后普通推送并fetch一致 `1ed121738969d8ec5a79693910e4463e993ecff8`；SE候选未提交。两者均未build、安装或实际远端执行。原resultSync消费者已按新链调整，含私有fixture rename及保留行为；总控已准新dist后按原限额一次，当前未运行。一次误在SFTP cwd只读SE路径exit1，无写入；另一处误路径rg亦未触产品。
-
 43efb031旧build规划316项/0按需exit0，真实planG004Execution因legacy漂移exit1；两日志 `%TEMP%/g004-build-plan-43efb031-slot-20261123.{out,err}.log` 与 `g004-build-plan-evidence-43efb031-20261123.{out,err}.log` 保留，旧计划不代表当前build。SFTP 73项旧日志及闭包未齐。一次rg脚本通配路径错误未写文件。
 
 2026-11-23：总控批准首次新编译后原20秒各运行一次 resultSyncFailureVisibility 与 jobArtifactStagedSlotIdentity；当前仍未build。stage review已加入既有latest-artifacts域；当前只读规划build 317、package 369，build为package子集，新runner case仅在package。原stage v4测试后仅stop do/while改动不在其两项提取方法；覆盖登记当前适用冻结、原事件及测试时整文件hash未知。固定历史Process包装验证器及纯内存定向case `%TEMP%/g004-runner-stage-wrapper-v1-20261123.log` 1/1 exit0，已审并普通推送fetch一致 `13284446377496a930658112d9a1ab7d3750c6fd`。该次case的未锚定pattern与最终package规划的锚定argv不同；后者仅登记最终冻结后的fresh候选，不冒称已跑。未运行build或部署。
@@ -69,11 +67,7 @@ SFTP cleanupExplicitTarget经总控效果审查后原单文件VM假端1/1、exit
 
 重排项目/client及源码查询排队发送围栏经总控源审并同步 `dde958c5`；假查询 `%TEMP%/g004-plan-source-client-v1-20261124.log` 1/1（call_b6f46d70a51a450c80cdb956c852b0bf）、重排精确五项 `%TEMP%/g004-requeue-context-v3-20261124.log` 5/5（call_53a2ad914c394a96988a26aac48ef2ad）均exit0；v1 3/3及v2 5/5只对应旧输入，源审两次因新边界暂缓；未运行旧Production/Coverage整文件，未实际删除、访问Worker或build。
 
-服务器队列、手动派发与替换审核候选绑定原项目/client及batchId，保共享只读工作和已受理原回执；等待后递归、lane出队及发送边界防止转用新client。总控审核后假端：dispatch新增v3及正常各2/2、replacement 4/4、共享snapshot autofallback 6/6和completed 17/17，均exit0无超时；日志 `%TEMP%/g004-{dispatch-context-v3,dispatch-normal-v1,plan-run-context-v1,snapshot-autofallback-v1,snapshot-completed-v1}-20261124.{out,err}.log`。dispatch v1启动参数错误exit1，v2缺AbortController为1/2 exit1，原日志保留。总控指针f53cf057及计划7fd0c72b独立推送核一致。
-
 send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，均exit0且无超时，日志 `%TEMP%/g004-send-{handoff,truth,identity,proof,native}-v1-20261124.{out,err}.log`；仅源码VM/假端，非整文件或新dist。sync上传、后台清理及实际SFTP发送围栏已源审；后续源码变化不自动继承旧测试。
-
-获准假端：isolated2/2、profile5/5、upload结构v2 1/1、code sync v2 2/2、SFTP caller最终v2 3/3，均exit0未超时，日志 `%TEMP%/g004-{isolated-context-v1,profile-fence-v1,upload-branches-v2,code-sync-context-v2,sftp-caller-context-v2}-20261124.{out,err}.log`；code sync首v1因fake缺rememberCodeSyncWarmProof为1/2 exit1，修后通过；upload结构v1及SFTP caller v1只属旧输入。prepare/path消费者各精确2/2 exit0，日志 `%TEMP%/g004-{preparation-consumer,path-consumer}-v1-20261124.{out,err}.log`。源审后传输、同步、清理、替换、fixture、派发六批依次普通推送并fetch一致874afe1a、d468b90a、095a1fb8、9ddfea37、eab4c1f4、5ca4c0ca。四新测试包装非runner direct，最终冻结后各按既有runner fresh一次；manual11及mode3待新dist，未build/实际外部效果。一次误写pwsh可执行名exit1、两次rg通配符误用exit1/2，均未写入。
 
 
 替换隔离E批绑定原调用方至预览、确认、实际隔离发送和索引发布；原已接受回执先保存，同ID观察串行，过期调用者不取消其他观察。假端 `%TEMP%/g004-plan-cleanup-context-v1-20261124.{out,err}.log` 8/8、exit0，真实源码/内存fake，不证明真实删除或生产持久化CAS；非managed及fast delete/restore/history未宣称通用caller闭包。源码经总控审并推送fetch一致 `16ade9d3f488ef4dc9e639736ed980ee04afaeb8`，仍未build。最终冻结后按既有runner原单文件fresh一次，旧Process包装不伪装direct。索引补丁生成v1因检查误识别hunk头写前exit1，v2正常check/apply；保留原现场，未改Git历史。coverage两次branch行选择写前exit1（路径错、匹配17而非11），限定currentTargetedEvidence后11行成功；只读rg通配与不存在脚本错误亦无产品影响。
@@ -87,3 +81,6 @@ send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，�
 证据登记一次因误写 SimpleSftpProgressWait 路径在写前退出1；核实际 `src/core` 后修正，JSON解析通过，未改业务文件。
 
 MCP旧证撤回：总控漏核optionalApi的live.output错误分支，Active/Persisted/Health/Failure/Inspect/History/LogsConfig及QuerySchema旧direct降历史ineligible，原call/日志保留。fake仅对live.output返回-32601，七原单文件依次6/4/6/6/6/9/1项通过、同步 `8d356e69`，QuerySchema 4/4同步 `b11a66a3`，均exit0且无真实网络/Worker/删除。Active与Query为literal direct；六项串行循环调用真实通过但parser不支持，最终冻结后各runner fresh一次。选行两次重复匹配、对象路径及PowerShell花括号错误，另本记录压缩两候选触阈值10806/10823，均写前失败，已纠正。
+
+
+接替：旧执行实核turn结束并已释放，先归档后发现原rollout路径失效（coverage八引用；读ENOENT exit1），立即反归档恢复原路径及事件，旧chat保持未归档；不得改绑或重算证据。新Terra/high/default match/continue，总控唯一指针已更新。panelMessageDispatch真实常量slice候选首次因误判CRLF写前assert退出1，按原LF修正未测试；另五同因消费者待补并交审。coverage更新脚本两次因末行JSON带数组结束符解析失败，均写前退出；修正后五旧direct仅按审定闭包更新legacy适用摘要，保原事件和限制。projectCodeSyncState新16bbee 7/7为literal direct、fixture 0df10641，旧d287属于已撤回94d9；维持15最终fresh。
