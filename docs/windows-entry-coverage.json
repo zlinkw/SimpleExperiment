@@ -12488,6 +12488,7 @@
         },
         {
           "id": "panel:checkPluginUpdates:1",
+          "currentReview": {"status":"source_and_prior_evidence_scoped","evidence":"面板、普通invoke及命令面板均进入配套更新检查；运行中检查合并，主Bootstrap先处理原未完成事务，再查询两插件稳定Release并发布状态；请求失败可见，限流标记未知，安装为独立动作。invoke的manual由输入决定。","boundary":"复用 g004-520-extension-updates-20261123.log 7/7 合成版本及旧实际更新客户端对520/483/118不降级证据；本轮未发起检查或安装。检查可更新本机通知及事务状态，不能称纯只读；旧fallback分支不代表活动Bootstrap。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=checkPluginUpdates]",
           "oldStatus": "concluded_scoped",
@@ -14207,6 +14208,7 @@
       "commandAliasScopeIndex": [
         {
           "name": "simpleExperiment.checkPluginUpdates",
+          "currentReview": {"status":"source_and_prior_evidence_scoped","evidence":"面板、普通invoke及命令面板均进入配套更新检查；运行中检查合并，主Bootstrap先处理原未完成事务，再查询两插件稳定Release并发布状态；请求失败可见，限流标记未知，安装为独立动作。invoke的manual由输入决定。","boundary":"复用 g004-520-extension-updates-20261123.log 7/7 合成版本及旧实际更新客户端对520/483/118不降级证据；本轮未发起检查或安装。检查可更新本机通知及事务状态，不能称纯只读；旧fallback分支不代表活动Bootstrap。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.checkPluginUpdates]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14595,6 +14597,7 @@
         },
         {
           "name": "checkPluginUpdates",
+          "currentReview": {"status":"source_and_prior_evidence_scoped","evidence":"面板、普通invoke及命令面板均进入配套更新检查；运行中检查合并，主Bootstrap先处理原未完成事务，再查询两插件稳定Release并发布状态；请求失败可见，限流标记未知，安装为独立动作。invoke的manual由输入决定。","boundary":"复用 g004-520-extension-updates-20261123.log 7/7 合成版本及旧实际更新客户端对520/483/118不降级证据；本轮未发起检查或安装。检查可更新本机通知及事务状态，不能称纯只读；旧fallback分支不代表活动Bootstrap。"},
           "route": "invoke_special",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
