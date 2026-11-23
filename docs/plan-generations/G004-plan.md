@@ -4,13 +4,13 @@
 
 2026-11-22用户最新要求：复用已查证据，把剩余单项目界面、按钮、功能及MCP逻辑一次查清修完；先迁出MCP共用逻辑，再彻底退役业务CLI入口/专用代码。所有可独立完成的源码、必要消费者、测试和文档先做到可审，最后集中列出确需本人确认的精确删除、测试退役/替代及复验事项，再统一验收交付。不得因单项发现或普通测试失败停整批，不逐项发版；单项目正常后才处理跨项目延期。这是原G004一个完整业务批次，内部每组≤3强相关问题、≤8非生成源/测试/文档文件，验证后scoped FF提交，不把完整目标缩成一组或巨型提交。
 
-本轮0.5.520源码、最终增量package、试行发布及一次安装已完成，精确凭据见末节。2026-11-23本人已报告重载，明确继续新版本单项目界面与MCP验收、复用有效证据，真实Worker及跨项目限制不变，完成后统一汇报。当前只确认磁盘520，尚须实核重载后的Host/项目身份、稳定MCP入口及实际界面；不把本人重载报告等同新UI验收通过，不重复build/package/安装。
+本轮0.5.520源码、最终增量package、试行发布及一次安装已完成，精确凭据见末节。2026-11-23本人已报告重载，明确继续新版本单项目界面与MCP验收、复用有效证据，真实Worker及跨项目限制不变，完成后统一汇报。专用520 Host与真实稳定MCP已实核，安全本地只读调用通过；本人随后允许原生快照及直接控制电脑，总控已做实际面板/计划筛选及本地识别，新增MCP事实已读回true，本阶段规定的安全本地验收完成，最终结果及受限项见末节。不重复build/package/安装。
 
 本计划集中语义压缩于30a5d6e0后；完整此前计划可从Git 30a5d6e0同路径读取，原调查/修法/失败不被抹除。进一步原材料见59041060、89498eff同计划及下列现行证据；不另建tracker或重复报告。plan cap18000/90%=16200，execution cap12000/90%=10800；接近阈值整体压缩，保留未决与真实失败。
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。总控同步本次阶段边界后一次完整派单，释放API/MCP/UI/必要测试、execution/coverage及scoped Git给该执行者；总控不并发操作同一实例。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。执行已交6f829e1d及最终读回完整包，全部API/MCP/UI/检查租约释放，无在途；总控独占最终文档核验与scoped Git同步，结束后两角色空闲，不后台保活。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
 
 总控无独立待办、仅等完整包/必要决定时按全局事件协调合法结束本轮，不能轮询/催进度；执行者仍有授权可做工作不得套用空闲。必要消息默认无回执。未知在途动作先核归属与结果，不重放。当前原仓是普通Windows工作区，非Pi/自制容器/项目管理器，不触发worktree PR。master追踪origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；逐组检查diff、UTF8、必要验证后精确stage，普通commit/push/fetch核HEAD一致。remote前进、认证/hooks/同步失败停相关Git升级，不amend/rebase/reset/merge/force/改remote，不stage日志、夹具、无关未跟踪资产。0aa6b27c push后fetch TLS unexpected EOF exit1，经总控精确一次恢复fetch exit0核一致，非通用重试许可。
 
@@ -28,26 +28,9 @@
 
 已有真实本机合成history CLI list/show/metric/compare/experiment results/CSV export exit0，0/中文逗号/转义及history/current=false正确；合法精确ID含|经PowerShell→cmd在shim前被解释，exit255，同ID经Node成功。用户随后退役CLI，停止C4 ID编码/shell/EXE修复，该历史证据不冒MCP result_list/export真实成功。后者主动results.list会查启用Worker，未运行。选择按钮状态的一项假设性证据已撤回：selectExperiment在COMMANDS_WITHOUT_UI_STATUS，直接套withUiCommandStatus所得completed不是可达行为；真实公开invoke先于持久化结算返回是独立有效缺陷。
 
-## R519统一修复及有效证据
+## R519修复与复用入口
 
-全部下列组已在用户原完整修复授权内，源修及各精确测试/提交见execution/coverage，完整旧逐组修法见30a5d6e0本计划。不能凭局部通过宣告全部单项目或新安装通过。
-
-|组|最终机制与必要保留|
-|---|---|
-|A1 流程状态|flow_state仅ENOENT缺失，坏JSON/EACCES可见，写前读校验、失败保留并可重试；真实apiAdvanceFlow如远端已完成而事实保存失败准确提示，不诱使重放。b4ccc6e3，11/11。|
-|A2 布局|save/reset先目标项目持久成功并核上下文，后清旧workspace布局/动作键；失败不清旧、可显式重试，全局布局/明确清除保留。0f5ece5c，13/13、3/3、20/20。|
-|A3 Git hook|仅ENOENT空；其他读错不覆盖；未闭合插件标记拒绝并保留未知尾部，正常完整块保留用户逻辑。42609fd3，3/3内存fs，无真实hook。|
-|A4 指标|默认不合并AP/AUPRC、F1与macro/micro/weighted等不同语义，保留合法同义、split、0/空与用户显式metricAliases有意映射；真实长宽/JSON消费者。50727e7a，6/6。|
-|A5 默认解析|未传preset按当前长/宽/JSON内容契约选择，不固定首long空成功；显式/自定义预设及错误保留，合法空表/0有效，不按文件名猜。930cd685，8/8及8/8。|
-|A6 历史错误|历史目录/文件、registry坏JSON/EACCES可见，ENOENT仍缺失；0f932734。业务CLI已弃用的无消费者读取不另造MCP history。|
-|B1 本地识别|本人在精确单根完成有效本地扫描/PLAN及既有确认后保存完成事实，输出/服务器/Agent/运行准备另行保留；合法空PLAN有效，无根/多根/取消/失败不成功，不自动造adapter。c973e9f5基本识别已修；末尾通知脱离租约改动已按用户特批原20秒复验3/3，首失败/超时保留。MCP project_bootstrap集成准备及额外权限不改成新纯本地模式，不扩U07。|
-|B2 持久化回执|公开两选择及必要调用方等保存后成功，失败传回；save/generate/archive文件已成功而选择失败须准确提示，不回滚重复写；后台有可见失败。51f0e689，46/46、13/13、20/20，首44/45夹具失败保留。不为已撤回面板completed点加包装。|
-|B3 刷新恢复|用户GPU/Scheduler/trace刷新、restart/resumeStream/resumeNetwork等待真实结果，未执行/离线/失败不completed；后台原容错/lastError和导入失败回滚保留，不自动重连轮询。60b1e8a7，4/4、16/16、14/14。|
-|B4 调试包|缺包/取消/失败不记completed，正常安全暂存/归属/复制保留。9d6a3916，1/1假端口。|
-|C1 invoke|14原本地handler不误进远端map，保留allowlist、确认/权限、版本、资源租约、withSafeTransferRetry，远端map仍原路径；54两选择/更新特判、Hub退役不恢复。485e5c70，47/47。具体14动作原表在30a5d6e0，coverage保留逐项集合。|
-|C2 设置|set/reset受支持global按真实target，不落错workspaceFolder，projectAdapterRules限workspaceFolder及敏感键限制保留；worker_configure描述可编辑已配置disabled目标，执行仍仅enabled。get/list原始VSCode契约不换成共享有效Worker值，未证差异不计丢配置；bootstrap说明真实副作用。65a09c01/4caddba6，48/48、49/49。|
-|C3 Promise|Git三个配置/状态及两个GitHub命令返回原handler Promise，确认/错误不变。8c8c874c，4/4，首3/4夹具失败保留。|
-|C4 停止|CLI已被本人撤销，不再修shell参数/编码结果ID，不恢复argv、终端输出或EXE。|
+A1流程状态、A2布局持久化顺序、A3 Git hook读错保护、A4指标语义、A5自动解析、A6历史错误、B1本地识别、B2选择持久化回执、B3刷新恢复、B4调试包、C1十四本地invoke路由、C2配置target及禁用Worker编辑、C3五Git命令Promise均已交520；C4 CLI修法由本人撤销。各最终机制、commit、首失败和精确适用范围完整见Git `6f14818d:docs/plan-generations/G004-plan.md`同节及现execution/coverage，不以局部测试替代真实Host/UI/Worker。此前selectExperiment套withUiCommandStatus的推断已撤回；真实公开invoke未等待选择持久化是独立成立缺陷。B1原3/3只合成验证，当前真实识别结果见末节。
 
 ## MCP迁出、能力边界与源审决定
 
@@ -71,23 +54,14 @@ Artifacts规范本机root/每级目录/manifest/链接，保留相对绝对、�
 
 39源码路径精确批准含仓内simpleex.cmd和旧借CLI的MCP包装，不含新launcher/resolver、旧dist、全局shim、安装目录、原测试或临时目录。删除准入与实际成功过程见“当前收尾”；产品删除仍保两页双确认/节点路径类型/根父及./直接子项。B1原首失败后夹具未恢复导致20秒timeout，TEMP/g004-r519-b1-lease-before-ff08.log保留；用户批准改后原文件原20秒唯一复验已3/3，未重放真实识别/清锁/Worker。末尾可选通知脱离外层租约，项目核对及失败记录/postState保留，识别/选择/确认仍等待。
 
-## 集中交付门禁与历史复用
+## 交付及历史证据边界
 
-最终源码包应包含各组真实diff/提交、共享接口反向消费者、源提取/VM依赖、必要回归和全部首失败/退出码、受影响入口状态、外部/原生UI精确未测。完成授权内工作、审定上述具体候选后一次集中用户确认，再处理获批动作与验证；不能先问一个再补一个。源修完整且规定检查通过后才开放集中递版/交付。
+520已完成规定build/包完整性、源同步、不可变试行tag与两资产、隔离下载、实际ReleaseClient及唯一安装；精确事实在末节，不为本轮UI/MCP验收重跑。后续只有新的实际源修才重新确定受影响检查及版本交付；不重写原receipt，不减少coverage/timeout/退休边界。权威Latest仍483/118，不提升、不降级SFTP120、不部署Worker。
 
-按build-test-delivery与docs/release-delivery.md核未用patch/tag，同步package/lock/runtime，稳定输入后dry-run核当前矩阵/真实按需复用；runner无法组合旧有效证据时报实际缺口裁决，不沿用516–518全重跑特批。不伪造receipt/删失败或减覆盖求绿。一次集中package内build、max-parallel1/cancel-stdin，失败收完整日志/自然结算/真实exit及lock；Panel模块与实际生成scripts VM、10890业务零命中均必要。实际VSIX版本/Windows兼容/闭包/源字节/秘密/README/SHA通过后，scoped FF源码push/fetch、精确不可覆盖tag、既有GitHub同字节prerelease=true/latest=false；重读远端tag/asset/digest/隔离下载及真实ReleaseClient。权威483/118不变，SFTP120既有兼容包复用不降级。install:latest每目标版本仅一次、同版跳过、不force/降级，核磁盘/MCP稳定入口后停面板，待本人Reload才做新Host实机，不自动部署Worker。
+历史U01–03修复20交516，非按钮数；U04原43为39单项目交517＋02/05/06/07跨项目4延期；撤回20/33–36/40–44共10项，U44/U45/54/55/56的首失败、配置授权及实点见895038f2和Git `6f14818d`同计划/coverage。519 source/tag6932321534f3b0c2df3b1983bfede2f88f7b868f；原341项/13门禁及唯一安装Reload、516–518首包及VM/WSL失败/退出未知、514坏SHA、并发中止与用尽的owner删除许可均保留该计划与execution/coverage引用，不借此重跑或扩权。原vsce ls超时以实际ZIP等价裁决，不称原命令通过；原独立runtime退出未知保留。旧无根workspaceState首次迁移来源和owner写前中断歧义仍未知，不跨profile搬权限/连接或冒当前就绪。
 
-必要真实界面遵循silent-ui-screenshot整个宿主/交互/截图不抢焦点；当前未证hidden/offscreen非激活原生操作能力，不能用假DOM/静态HTML冒实际UI，也不因隔离profile或hidden console就新开可见Electron。复用实际用户截图/旧有效实点；确有新UI缺口给最小方案和限制，不造产品capture框架。临时截图TEMP/CodexUiCaptures/ui-32hex.png，无精确删除许可保留。
+J01未修：Host GIT_CONFIG_COUNT10/KEY全有而VALUE0/5缺、传递环节未知，不sanitize/注入/改全局Git或重启稿件。旧CLI --version API_WORKSPACE_MISMATCH exit2不重放。平台旧cybersecurity risk触发未公开，无Daybreak/扫描/专项重放或换工具模型绕限。所有失败和未测不能被新局部成功覆盖。
 
-历史有效证据索引：U01–03修复20交516，非按钮数；U04原43=39单项目交517＋02/05/06/07跨项目4延期，撤回20/33–36/40–44共10项。原39分组13/17/9、U44/U45/54/55/56的首失败/修正/配置授权及旧UI实点见895038f2、Git 7bf49ba8同计划与coverage；只按未变条件复用，不重放01/08授权/Agent专项，不把跨项目延期或旧CLI成功当新MCP/Worker通过。
-
-519持久化/提示/迁移的首失败及改后证据完整见Git 7bf49ba8同计划、f6c3339f/eab27339/19234b6a/5a3ca8f6及coverage，不再逐轮列重复计数。旧无根workspaceState首次迁移来源和owner写前中断歧义仍未知，不跨profile搬权限连接、不拿历史事实冒当前就绪。
-
-519原试行发行/唯一安装及本人Reload已完成，source/tag6932321534f3b0c2df3b1983bfede2f88f7b868f。其唯一341项/13门禁receipt、VSIX身份/SHA/下载、原VM/闭包/客户端误预期SFTP Latest120而实118的首exit1与修后exit0，完整见Git 7bf49ba8同计划及coverage。519旧包/资产/日志保留，不代本轮迁出新矩阵；219/284超20秒事实以本轮本人精确例外处理，不回写原记录。
-
-516/517/518原首包失败、特批全包、独立VM/WSL失败及退出未知、514坏SHA/并发中止、用尽的owner精确删除许可等完整证据保留在Git 7bf49ba8同计划及现execution/coverage，不重跑求绿或扩为通用豁免。vsce ls30秒ETIMEDOUT原exit1以实际ZIP等价裁决、原独立runtime核验退出未知不能记原命令通过；首夹具及路径归一假缺均留原日志。更早原计划4edd1da5与执行10c0689e/b7c0b42c/f72d0066/c37827c8/eab27339/4bde7f49/89498eff可取回。
-
-J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未知；不sanitize/注入/改全局Git或重启稿件。旧CLI --version API_WORKSPACE_MISMATCH exit2不重放。平台旧systemError cybersecurity risk触发未公开，无Daybreak/扫描/重放或换工具模型聊天绕限，自然接替与绕限无关。所有原失败/未测/真实未知不能被新局部通过覆盖。
 ## 当前收尾：集中批准后连续实施
 
 完整审批/39路径/迁移及失败过程见基线0ee444be、审核5886c9e2、Git 11c076f8/97d723e1/cb44bd81/7bf49ba8同计划和现execution/coverage。本人“同意1、2、3，按清单执行…复用有效证据…统一验收交付，不要再因局部问题停下整批任务”已实际执行，不恢复旧待审批，不扩删除/远端效果。
@@ -116,10 +90,20 @@ packageContentPolicy尾部扫尾改保留fixture，原12/12；releaseAcceptance�
 
 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.520 实际prerelease=true/draft=false/latest=false，远端git refs tag直接指向7bf49ba8；VSIX与UTF8同名sha两资产名称/大小/digest、隔离下载及manifest一致。实际ReleaseClient确认482可见483、520不降级、SFTP120不降118；权威Latest483/118实测不变。总控本机无local tag，首次git rev-parse v0.5.520^{}报unknown revision（组合命令后续只读使外层exit0），该查询不算通过；后真实GitHub refs API核tag commit，不创建本地tag或force。
 
-唯一npm run install:latest exit0，TEMP/g004-520-install-20261123.log，安装前519/无520，安装后code与磁盘package.json均520，保留DEP0169 warning。simpleex-mcp.cmd→稳定launcher/resolver与已装bin字节相同，520 dist/mcp/server.cjs存在；未运行动态resolver连接旧Host，未使用退役simpleex查版本。安装后停止面板操作，用户须本人Developer: Reload Window。真实Worker/SSH/Agent/tmux/GPU/训练/永久删除、新UI均未验；未自动部署Agent。交付阶段完成，UI及原外部/跨项目延期保留，不能以本包覆盖总数冒所有真实功能通过。
+唯一npm run install:latest exit0，TEMP/g004-520-install-20261123.log，安装前519/无520，安装后code与磁盘package.json均520，保留DEP0169 warning。simpleex-mcp.cmd→稳定launcher/resolver与已装bin字节相同，520 dist/mcp/server.cjs存在；未运行动态resolver连接旧Host，未使用退役simpleex查版本。安装当时停止面板操作、等待本人Reload，新UI当时未验；其后本人重载与当前UI结果见末节。真实Worker/SSH/Agent/tmux/GPU/训练/永久删除未验，未部署Agent；不能以包覆盖总数冒所有真实功能通过。
 
 执行完整收包及原失败保存在现execution/coverage、cb44bd81等原Git历史；无新增报告。总控仅同步本计划/README与执行者补齐的实际交付记录；该文档提交不改变已发布不可变tag/VSIX，也不触发再build/package/安装。后续仅根据本人重载/真实反馈接续适用工作，不后台保活或自动重放。
 
-## 重载后单项目验收阶段
+## 重载后单项目验收阶段（派单历史，已完成）
 
 基线f9d37425，已发布520及原凭据不改。唯一Terra先核实际发现/Host版本及上述专用根，发现其他稿件窗口不调用。读取匹配实例health/capabilities/OpenAPI后，以真实稳定MCP入口核握手、工具目录和经源码审定的本地只读工具；状态/授权/选择/配置持久化按519实机证据比较，不发送潜在Worker查询。真实界面沿silent-ui-screenshot，须证明不抢焦点的现有机制，不能用VM/静态HTML充当原生UI；没有能力先报具体缺口，不启动可见宿主或造截图框架。依现coverage逐项复用、补当前Host/UI缺口；不重跑完整测试或远端效果。执行完整交包包含真实输入、身份、证据、失败/受限与仍待验项后释放同实例租约，总控仅补必要最终缺口并统一交付。新真实问题在原授权内有界查修，不因局部阻塞停止其余可做项。
+
+## 520实际界面最终核验
+
+本人先许可只读窗口快照，后明确“也允许你直接控制电脑”，覆盖本阶段不激活/不输入限制；Worker/跨项目红线未变。总控重读silent-ui-screenshot与computer-use，使用支持的node_repl/@oai/sky，只选唯一专用窗口87954600，未控制稿件窗。初次只读快照因minimized被拒，后按新增授权还原并取得真实520原生图像/可访问树；没有新capture框架、静态替代、保存或删除截图文件。图像直接保留在原工具事件。
+
+实点计划搜索ui_u01_empty_515：只显示一个匹配、批量已选0、当前PLAN不变；清除搜索恢复。隐藏导航element146点击报outside window bounds(-39,498)，未执行该导航，之后仅拖主列滚动条定位。真实面板显示本机任务0及GPU/tmux未查询/未核实、待同步/待检测和输出缺cases/experiments，未冒运行就绪或查询Worker。
+
+B1真实流程只点识别一次。源码核确认同当前PLAN仅本机扫描/持久化，不触Worker/不改变选择触发结果查询。出现5个Plan确认通知；首坐标点击未选中“继续”，通知收进通知中心、流程仍等本人选择，期间真实出现stalled提示，保留不算死锁。总控从实际通知树选element755“继续”后立即显示“本地工作区已识别”，黄色未识别横幅消失、识别按钮恢复；末尾可选“打开实验准备”通知未点击即完成，验证通知不再占外层租约。没有生成adapter/PLAN或变更Worker/grant。Escape退出通知同时退出辅助侧栏最大化，随后按实际控件998恢复原全宽面板；未改编辑器文件。最终同一45080实例经稳定MCP实际读回projectOnboardingCompleted=true、status520/offline_import，launcher exit0/stderr空；panel ready、documentHidden=false、sectionFailures空，但render-health-probe-pending仍unknown，不冒探针通过。operation_list total0不单独证明锁释放；原完整响应TEMP/g004-520-after-ui-recognition-20261123.json。结合真实按钮恢复和最终通知未点击时的完成事实核本地识别，不重跑原合成3/3、不再次识别/清锁。
+
+本次验收结论：专用520 Host、真实稳定MCP握手/137工具目录、经审定本地只读调用、配置授权保留及实际面板/计划筛选/本地识别均在上述范围通过。复用361既有覆盖，不称137工具或全部物理按钮都实点。synthetic/final.csv当前不符合标准指标列、预览未解析；render health探针未知均保留。真实Worker、SSH/Agent/GPU/tmux/训练/永久删除/跨项目及原受限功能未验，J01未修；不因本地验收提升Latest或再安装。本阶段无需本人再次重载。

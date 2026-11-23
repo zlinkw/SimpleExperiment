@@ -1,12 +1,12 @@
 # G004 执行登记
 
-本轮压缩前完整执行事实见 Git `6f14818d:docs/plan-generations/G004-execution.md`；更早完整事实见 Git `f66d3694:docs/plan-generations/G004-execution.md`；更早完整事实见 Git `cb44bd81:docs/plan-generations/G004-execution.md`；此前完整事实见 Git `f36cb6a3:docs/plan-generations/G004-execution.md`；更早全文历史在 Git `18dd5614:docs/plan-generations/G004-execution.md`，更早 T1–T7、逐项命令和失败分别见 `1e91d0d4`、`32d16ac4`、`48f7e339`、`67f67de4`、`c04f2dd7`；原 receipt、日志、事件、输入与逐项边界以 `docs/windows-entry-coverage.json` 为准。本次为达到 12000 字符上限的 90% 阈值而整体语义压缩；历史授权、失败、未测与现场不因压缩消失。
+完整压缩前事实见Git `6f829e1d:docs/plan-generations/G004-execution.md`；该版本保留6f14818d、f66d3694、cb44bd81、f36cb6a3、18dd5614及更早T1–T7完整原材料引用。逐项receipt/日志/事件/输入以docs/windows-entry-coverage.json为准；历史授权、失败、未知和现场均不因压缩消失。本文件cap12000/90%=10800。
 
 ## 当前目标与边界
 
 G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 active（125 历史、235 直接、1 新运行）、6 onDemand 未运行。用户批准 219/284 的本任务历史超时例外，原时长分别 20857.309/20119.841ms，不重跑、不放宽未来 20 秒。
 
-不触碰真实 Worker、服务器、SSH、tmux、GPU 或用户配置；新阶段仅授权不抢焦点的现有单项目 UI 检查。真实传输/清理、active results、跨项目和新 UI 未测。模拟缺失不证明永久删除。原 26 个脏 dist 中，仅包内 20 项已验证并获准同步，其他 6 项、历史资产及夹具保留。
+不触碰真实 Worker、服务器、SSH、tmux、GPU 或用户配置；新阶段仅授权不抢焦点的现有单项目 UI 检查。真实传输/清理、active results与跨项目未测；本次实际本地UI范围见末节。模拟缺失不证明永久删除。原 26 个脏 dist 中，仅包内 20 项已验证并获准同步，其他 6 项、历史资产及夹具保留。
 
 519 专用根重载后项目识别 false→false、缺 adapter，未重配重授；不能称现场完成状态丢失。519 的 341/341、13 gates、试行包及一次安装/Reload 属旧版本，不证明新源码或新 Host。用户曾批准 49 份旧 CLI 测试迁移、50 精确旧路径排除、39 旧源码删除和 B1 单次复验；原旧测试与 Git 历史保留，302 索引和 27 外部引用见 coverage，退休差异不冒业务等价。39 源码经逐项安全预检及直接父目录验证删除，六组提交 `690be905`、`4d003cdc`、`b7d6ce0b`、`3382fcbd`、`4a43d1fc`、`fd593cca`；不重复删除。
 
@@ -24,11 +24,11 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 历史 job 187/189/240、七项删锁 264/265/267/268/269/271/274 已由总控人工继承；原 passed/0/tree confirmed 和日志保留，精确旧 Node/架构未知，不称本轮真实删除通过。总控另批准 runner 旧 default job 255–263、266、270、272、273、275–283、285–287、290、291 共 27 项逐 identity+argv 继承：旧 body/fixture 未变，新增 G004 分支不作用其输入，输入指纹改动不改变原场景比较行为；原日志和当前依赖冻结，未知旧 Node/架构不补造，不覆盖新 G004 或 job 289。原先包含的 job 284 经总控复核原日志总耗时 20119.841ms，超过 20 秒，后经用户明确批准仅本任务历史继承，不重跑；原历史 passed/0/tree 保留。
 
-总控审定 Git 旧场景中 job 300–308、313、315–323 共 19 项可继承：原 test 与其加载的 project/feature 闭包相对 `5a3ca8f6` 无 diff，改动的 BranchPlanDispatch import 非这些 pattern 调用；原私人临时 Git 夹具、原 passed/0/tree 和日志保留，当前依赖冻结，历史 Node、架构及 Git 版本未知。另外 job 325、331、332、334–339 共 9 项，Git/PR 闭包相同；后六项 UI 夹具提取的九个 legacy 方法与旧源逐 AST 文本相同，其余 legacy 变化不在测试方法内。原 receipt 和日志保留，历史 Node/Git/TypeScript 未知。本轮未重跑 Git 夹具，也不冒充真实 GitHub 或远端 Worker 验证；其他 pattern 继续逐项审定。
+旧 Git 和 UI 夹具的逐项历史适用性、闭包、原 receipt 与未知工具链见 coverage 和 `6f829e1d:docs/plan-generations/G004-execution.md`；本轮未重跑夹具，不证明真实远端或 Worker。
 
 520 后合成验证的逐项名称、数量、日志与输入详见 `afb3ec5c`、`ae5b7746`、`f18078f9`、`b6f86b14`、`806d47d2`、`7d91ba1b`、`50c2a865`、`c04f2dd7` 和 coverage，均仅按各项真实边界报告。专门核准的 mcpProject 43/43 使用假授权/Agent/Worker、独立工作区和回环/stdio，不代表真实生命周期/撤权；ProjectOps 历史 SDK 闭包仍未知。SFTP CleanupFileApi 的 5/5 为内存 store/fs 与假端口，不证实际持久化或删除；公开字段合成凭据不证真实后端秘密输出。
 
-formalJobPreflightProgress/Structure/Environment 各 1/1、Failure/Rejections 各 1/1、Api 7/7 为总控审核的函数提取及自建夹具；api-environment 实际启动本机解释器 shell/loader 探针，已装 torch 时可能 CPU import，邻近检查未发现 torch 且未冻结该缺席；启动前三个 NVJITLINK/Conda 变量未设置，未接科研 Conda、未训练。Python 3.14.6/PyYAML 6.0.3 为邻近观测，旧工具链未知。
+formalJobPreflight 原单项合成结果和本机解释器探针边界保留于 coverage 与 `6f829e1d:docs/plan-generations/G004-execution.md`；未训练或接科研 Conda。
 
 接替后合成回归的逐项名称、数量、日志和真实效果边界见 coverage 与 `6f14818d:docs/plan-generations/G004-execution.md`；仅按原函数提取、VM、替身与夹具范围复用，未证明真实 Worker、tmux、网络、UI 或删除。
 
@@ -43,15 +43,7 @@ freshResultHost 26/26 exit0、10.091 秒；输出跨 exec 和同 session 的 wri
 
 automaticScopeContent 8/8、tunnelClient 13/13、latestResultExportDarwinLock 7/7、hostOperationLeaseIntegration 4/4、planCodeScope 12/12、cacheCleanupPanel 10/10、metricsDownloadEndToEnd 18/18、pluginLogRetention 15/15、resourceLeaseCompatibility 1/1 和 resultCandidateMetadataExclusion 4/4 均为本轮限定合成回归，原日志、事件、依赖和真实效果边界见 coverage 与 `cb44bd81:docs/plan-generations/G004-execution.md`；此前 latestResultExport 被误称 onDemand，已更正为 active，未重跑。
 
-总控审定旧 job 232 gitOverwrite 可继承，原 4/4、exit0/tree confirmed、11.600 秒，私有本地 Git 夹具和假删除回调，当前闭包与原日志冻结。旧 Node/架构/Git 未知；当前夹具缺 git-dir/common-dir/index 前置核实，未获准重跑，不代表真实用户仓库覆盖或删除已验证。
-
-总控审定旧 job 296/298 可继承，原各 3/3 exit0/tree confirmed；296 是 pwsh mutex 夹具，298 为单 Node 内 VM 写入及未监听的 API 状态发布。历史工具链未知，本轮未重跑。
-
-总控审定旧 job 111/149/154 可继承，原 8/8、5/5、19/19 exit0/tree confirmed；仅为隔离多进程和迁移夹具历史，工具链未知，本轮未重跑或删除。
-
-总控审定旧 job 005/030/031 继承原 Windows 记录，分别为 9/9、1/1、0 pass/1 skip；031 原平台跳过不证明 POSIX 功能。固定端口及双 fork 仅历史，本轮未重跑；旧工具链未知，原日志与当前依赖已冻结。
-
-总控审定旧 job 041/165/233：041 原 5/5 仅证明隔离 APPDATA 的 SFTP 发现文件缺失分支和假全成功拒绝；165 原 5 pass/1 skip，未验证 Linux inotify；233 原 3/3，D:/project 是 VM 身份，自建 temp 保存队列。旧工具链未知，不重跑。
+旧 job 005/030/031、041/111/149/154/165/232/233/296/298 的逐项历史来源、计数、平台 skip、夹具边界与未知工具链保留于 coverage 和 `6f829e1d:docs/plan-generations/G004-execution.md`；未重跑。
 
 本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 均 exit0；后者发现文件环境限自建夹具，均无真实 Worker 或 SFTP。原事件采用静态字面量命令变量包装，旧 G004 核验器不识别；经总控裁决仅增加该完整包装的静态识别及反例，不执行 JavaScript。原精确 G004 pattern 单次复验 1/1 exit0，8.662 秒，日志 `%TEMP%/g004-520-static-wrapper-retest-20261123.log`；业务测试未重跑，原事件与日志保留。
 
@@ -87,4 +79,14 @@ job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4
 
 通过已安装稳定 launcher/resolver，真实 SDK stdio 握手及 tools/list 返回 137 项；本地只读 project_authorization、action_catalog、panel_diagnostics、project_status、state_value（低流量、onboarding、setup）和 project_state 均返回成功，两次 launcher 均 exit0/stderr 空。完整响应在 `%TEMP%/g004-520-live-mcp-20261123.json` 和 `%TEMP%/g004-520-live-mcp-state-20261123.json`；未调用 Worker 或跨项目方法。实际 167 action、五类 grant 无 workers 字段，offline_import、低流量 enabled/effective、5 Worker 配置中1启用、原 PLAN `experiments/plans/ui_u01_empty_515.yaml`、空任务选择、`experiments/results`、离线两条合成结果均读回；onboarding 仍 false，不能称丢失完成状态。检测预览的 synthetic/final.csv 未解析出标准记录，原信息保留，不冒充结果通过。
 
-面板 diagnostics 报 ready、运行/安装均 520、无 section failures，但 heartbeat 标记 document-hidden、render health unknown；这不是可见 UI 验收。现有 Computer Use 工具可枚举窗口，但其窗口读取流程和 silent-ui-screenshot 禁止仅为截图使用 Computer Use，且未找到项目现成非激活捕获入口，未切焦点、未截图或操作界面。真实 UI、Worker、远端及跨项目仍未测。
+本人新控制许可前，面板 diagnostics 报 ready、运行/安装均 520、无 section failures，但 heartbeat 标记 document-hidden、render health unknown；这不是可见 UI 验收。现有 Computer Use 工具可枚举窗口，但其窗口读取流程和 silent-ui-screenshot 禁止仅为截图使用 Computer Use，且未找到项目现成非激活捕获入口，未切焦点、未截图或操作界面。真实 UI、Worker、远端及跨项目仍未测。
+
+## 用户授权后的真实界面与识别
+
+用户先授权只读快照，后明确允许直接控制电脑；总控激活专用 VS Code 窗口 87954600 并观察真实 520 面板，同根、原 PLAN、低流量开，Worker/GPU/tmux 显示未查询或未核实。计划搜索 `ui_u01_empty_515` 后仅一个匹配、批量选中0、当前 PLAN 不变，随后清空搜索。资源树导航 element 146 点击因坐标越窗失败，未成功操作；随后用滚动条回顶部。
+
+总控核源码边界后仅点一次工作区识别，提示已发现5个 Plan。首次坐标点击未选中继续按钮；等待期间出现 stalled 提示，不能据此判定死锁。通知中心对原继续按钮 element 755 实际点击后出现本地工作区已识别、黄色横幅消失且识别按钮恢复，未再点最终可选通知或重跑识别。Escape 还退出辅助侧栏最大化，总控随后用 element 998 恢复原全宽布局。未改 adapter、PLAN、Worker 或授权。原截图内联，完整事件见总控 rollout `01a2040c-d282-7d92-9542-abcdc0689d37`：失败 `call_b6b1cc14073a4379a34eb71c1279d99a`、通知 `call_ce52cfc3cf994c67b99dbbc4a67536af`、继续 `call_6170ac73209349e7b29ca28a840b40bd`、布局恢复 `call_2ce6b8d367b4476cbaf1117eba34d4c9`；不另造截图文件。
+
+同一 45080 实例经真实稳定 MCP 只读回 `projectOnboardingCompleted=true`、status 520/offline_import；panel ready，heartbeat documentHidden=false、render health unknown（probe pending）、section failures 空。operation_list 返回 total 0，不能单独证明锁释放。新增完整响应 `%TEMP%/g004-520-after-ui-recognition-20261123.json`，launcher exit0、stderr空；未再次识别或清锁。真实 Worker、SSH、Agent、GPU、tmux、训练、删除和跨项目仍未测。
+
+最终记录压缩首稿计算10940触发Python assert、写入前退出，文件未更改；外层因随后命令显示exit0，不当作Python成功。扩大语义压缩后UTF8写回及diff检查通过。总控审原MCP响应的exit0/isError=false及同实例识别true，本地验收完成，render探针未知/非标准CSV/Worker与跨项目等受限如上，不重打包、重装或后台保活。
