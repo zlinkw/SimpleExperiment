@@ -11886,6 +11886,7 @@
         },
         {
           "name": "result_list",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-query-context-20261123.log 原18/18 exit0；queryProject真实函数和本地RPC替身。", "boundary": "只接受active_query/current=true，保留身份与时间；历史或连接失败可见。未查询真实Worker。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=result_list]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11894,6 +11895,7 @@
         },
         {
           "name": "metric_list",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-query-context-20261123.log 原18/18 exit0；queryProject真实函数和本地RPC替身。", "boundary": "从已核实结果汇总有限数值指标名；仅合成AP/AUPRC，不证明其他数据或Worker。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=metric_list]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11929,6 +11931,7 @@
         },
         {
           "name": "result_export",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-query-context-20261123.log 原18/18 exit0；queryProject真实函数和本地RPC替身。", "boundary": "精确ID输出CSV/JSON内容，返回空path，0值和CSV转义在合成输入覆盖；未保存用户文件或查询真实Worker。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=result_export]",
           "scope": "local_gateway_plus_worker_effect_restricted",
