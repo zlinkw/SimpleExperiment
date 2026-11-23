@@ -201,6 +201,10 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   coverage.jobs = [row, approvedFresh, { ...directJob, eligible: false }];
   const acceptedPlan = runner.planG004Execution(ws, plan, coverage);
   assert.equal(acceptedPlan.length, 2);
+  const buildPlan = { ...plan, entry: "build", jobs: [job, directJob], phases: { compile: plan.phases.compile } };
+  assert.equal(runner.planG004Execution(ws, buildPlan, coverage).length, 2, "build uses only its reviewed subset");
+  assert.throws(() => runner.planG004Execution(ws, buildPlan, { ...coverage, jobs: [row] }), /plan and reviewed job identities differ/);
+  assert.throws(() => runner.planG004Execution(ws, { ...buildPlan, entry: "package" }, coverage), /plan and reviewed job identities differ/);
   assert.throws(() => runner.verifyG004CompiledInputs(ws, plan, coverage, acceptedPlan), /ENOENT/);
   fs.mkdirSync(path.join(ws, "dist"), { recursive: true });
   fs.writeFileSync(path.join(ws, "dist", "output.js"), "compiled fixture\n");
@@ -218,6 +222,10 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const toolchain = { node: process.version, platform: process.platform, arch: process.arch, executable: process.execPath, executableSha256: sha(process.execPath) };
   const state = { root: ws, plan, receipt: { jobs: [inherited, fresh, direct], gates: [gate, assembleGate], toolchain }, g004CoveragePath: coveragePath, g004CoverageSha256: sha(coveragePath), cancelled: false };
   assert.deepEqual(runner.verifyG004Aggregate(state), { inherited: 1, direct: 1, fresh: 1 });
+  const buildState = { ...state, plan: buildPlan, receipt: { ...state.receipt, jobs: [inherited, direct], gates: [gate] } };
+  assert.deepEqual(runner.verifyG004Aggregate(buildState), { inherited: 1, direct: 1, fresh: 0 });
+  assert.throws(() => runner.verifyG004Aggregate({ ...buildState, receipt: { ...buildState.receipt, jobs: [inherited] } }), /missing or extra/);
+  assert.throws(() => runner.verifyG004Aggregate({ ...buildState, receipt: { ...buildState.receipt, gates: [] } }), /gate missing or duplicate/);
   assert.throws(() => runner.verifyG004Aggregate({ ...state, receipt: { ...state.receipt, jobs: [inherited] } }), /missing or extra/);
   assert.throws(() => runner.verifyG004Aggregate({ ...state, receipt: { ...state.receipt, jobs: [inherited, { ...fresh, treeStatus: "unknown" }, direct] } }), /not settled/);
   assert.throws(() => runner.verifyG004Aggregate({ ...state, receipt: { ...state.receipt, jobs: [{ ...inherited, sourceInputFingerprint: "current" }, fresh, direct] } }), /inherited provenance/);
@@ -306,6 +314,7 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
     candidate: { state: "validated" }, selection: state.plan.selection, onDemandJobs: [], coverageCounts: { inherited: 1, direct: 1, fresh: 1 }, launchedCount: 1 };
   fs.writeFileSync(compositePath, JSON.stringify(composite));
   assert.equal(runner.validateG004ReceiptForAssemble(compositePath, "package", state.plan, "current", "artifact", ws).ok, true);
+  assert.equal(runner.validateG004ReceiptForAssemble(compositePath, "build", state.plan, "current", "artifact", ws).ok, false);
   assert.equal(runner.validateReceiptForAssemble(compositePath, "package", state.plan, "current", "artifact").ok, false, "legacy single-run validation must continue rejecting composite receipts");
   assert.equal(runner.validateG004ReceiptForAssemble(compositePath, "package", state.plan, "changed", "artifact", ws).ok, false);
   assert.equal(runner.validateG004ReceiptForAssemble(compositePath, "package", state.plan, "current", "changed", ws).ok, false);

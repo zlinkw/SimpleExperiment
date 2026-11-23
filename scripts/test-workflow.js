@@ -1144,7 +1144,7 @@ function planG004Execution(root, plan, coverage) {
   const reviewed = new Map(coverage.jobs.map(j => [key(j), j]));
   const deferred = plan.onDemandJobs.map(j => ({ ...j, identity: jobIdentity(root, j.file) }));
   const all = [...plan.jobs, ...deferred], allKeys = new Set(all.map(key));
-  if (reviewed.size !== coverage.jobs.length || allKeys.size !== all.length || reviewed.size !== all.length || all.some(j => !reviewed.has(key(j)) || reviewed.get(key(j)).file !== j.file)) throw new Error("G004 plan and reviewed job identities differ");
+  if (reviewed.size !== coverage.jobs.length || allKeys.size !== all.length || (plan.entry !== "build" && reviewed.size !== all.length) || all.some(j => !reviewed.has(key(j)) || reviewed.get(key(j)).file !== j.file)) throw new Error("G004 plan and reviewed job identities differ");
   const active = new Set(plan.jobs.map(key));
   const activeCoverage = { ...coverage, jobs: coverage.jobs.filter(j => active.has(key(j))), currentTargetedEvidence: (coverage.currentTargetedEvidence || []).filter(j => active.has(key(j))) };
   const inherited = [...inspectG004LegacyEvidence(root, plan, activeCoverage), ...inspectG004DirectEvidence(root, plan, activeCoverage)];
@@ -1298,7 +1298,7 @@ async function main() {
   }
 
   if (opts.g004Incremental) {
-    if (opts.entry !== "package" || path.resolve(opts.root) !== ROOT_DEFAULT || opts.manifest || opts.only.length || opts.domains.length || state.maxParallel !== 1) fail("G004 incremental mode requires this repository's package plan and max-parallel 1");
+    if (!["build", "package"].includes(opts.entry) || path.resolve(opts.root) !== ROOT_DEFAULT || opts.manifest || opts.only.length || opts.domains.length || state.maxParallel !== 1) fail("G004 incremental mode requires this repository's build or package plan and max-parallel 1");
     const coveragePath = path.join(opts.root, "docs", "windows-entry-coverage.json");
     const coverage = JSON.parse(fs.readFileSync(coveragePath, "utf8")).g004IncrementalCoverage;
     state.g004Inherited = planG004Execution(opts.root, plan, coverage);
@@ -1507,7 +1507,9 @@ async function main() {
       state.phaseTimes.push({ phase: phaseName, wallMs: nowMono() - t0 });
     }
     if (state.g004Inherited) {
-      if (artifactFingerprint(opts.root) !== state.g004TestArtifact) throw new Error("G004 tested artifacts changed during assemble");
+      if (inputFingerprint(opts.root) !== startFingerprint || artifactFingerprint(opts.root) !== state.g004TestArtifact) throw new Error("G004 source or tested artifacts changed before completion");
+      const currentPlan = planEntry(manifestFile.file, manifest, opts.root, opts.entry, opts);
+      if (planHash(currentPlan) !== state.receipt.fullCheckPlanHash || testSelection.decisionMatchesReceipt(plan.selection, currentPlan.selection)) throw new Error("G004 plan or selection drift before completion");
       state.receipt.coverageCounts = verifyG004Aggregate(state);
     }
     return await writeReceiptAndRelease(0);
