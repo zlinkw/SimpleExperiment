@@ -76,7 +76,7 @@ test('runtime reads overlap synchronization but readiness waits for both; worksp
   await syncStarted.promise; assert.deepEqual(ready, []);
   version.resolve(); await work; assert.deepEqual(ready, ['fast']);
   host.projectContextIsCurrent = () => false;
-  await assert.rejects(run.call(host, {root:'changed'}, [], () => {}, id => ready.push(id)), /工作区已切换/);
+  await assert.rejects(run.call(host, {root:'changed'}, [], () => {}, id => ready.push(id)), /项目或连接已变化/);
   assert.deepEqual(ready, ['fast']);
 });
 
@@ -143,7 +143,9 @@ test('real enqueue rechecks H20 after background probe loss but still rejects an
 });
 
 test('stopping or replacing the queue during a capability recheck cannot send a task', async () => {
+  const context={root:'project',signal:new AbortController().signal};
   const host={taskLifecycleProtocol:2,client:{},distributedQueueGeneration:1,
+    captureProjectContext:()=>context,projectContextIsCurrent:value=>value===context,
     unifiedDomainState:()=>({active:false,blocked:""}), // 块B：夹具根未登记 → 既有单机发送路径
     submissionWorkerProbes:async()=>{host.distributedQueueGeneration++;return {};}};
   const send=method('sendDistributedJob',{workspaceRoot:()=> 'project'});
