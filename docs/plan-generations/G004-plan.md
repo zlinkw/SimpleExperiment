@@ -22,7 +22,7 @@
 
 专用根C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f。519当时Host PID29888、默认profile，经health/capabilities/status/state核身份；PID仅当时证据。用户未重配重授，518有基线的offline_import、低流量enabled/effective、5配置/1启用Worker、五类统一项目grant且无workers字段、PLAN experiments/plans/ui_u01_empty_515.yaml、空任务选择、resultCsvDir=experiments/results、原offline-fixture两行均读回。早先默认发现属于稿件窗，未请求该实例；用户打开正确窗后专用Host阻塞解除。原onboarding=false且当前仍false，合成根无experiments/simple_project.yaml，不能冒称true升级恢复；同根/profile true/false/reset只有限定src+Memento 3/3证据。
 
-用户报告人工反复点击仍“未识别”，截图同时有独立PLAN输出门槛。本地识别流程只在代码分发写完成事实的可达缺口已修源码B1，不将其当升级丢true。四次bootstrapProject RESOURCE_CONFLICT证明其时首操作同PID/根持资源、心跳更新；operations空和08:39注册快照无条目均不证明首次流程已完成/死锁。实际withHostOperationLease/bootstrap配假租约对话的重复点击冲突、取消/异常/正常结束释放2/2及1/1，519资源租约14/14可复用。真实首次卡在哪个对话未观察，不重复点击/清锁/自动重载；末尾可选通知持外层lease是另有源码及受控证据的B1待验修复，不推断此前所有冲突皆同根因。
+用户报告人工反复点击仍“未识别”，截图同时有独立PLAN输出门槛。本地识别流程只在代码分发写完成事实的可达缺口已修源码B1，不将其当升级丢true。四次bootstrapProject RESOURCE_CONFLICT证明其时首操作同PID/根持资源、心跳更新；operations空和08:39注册快照无条目均不证明首次流程已完成/死锁。实际withHostOperationLease/bootstrap配假租约对话的重复点击冲突、取消/异常/正常结束释放2/2及1/1，519资源租约14/14可复用。真实首次卡在哪个对话未观察，不重复点击/清锁/自动重载；末尾可选通知脱离外层lease已按用户特批原20秒复验3/3，不推断此前所有冲突皆同根因。
 
 完整调查唯一入口coverage.g004U04RemainingInventory.g004Reload519LocalAudit，执行摘要G004-execution.md。300原有限逻辑ID处置206旧证条件复用、11当前问题关联、14跨项目未开、26本地部分/真实效果受限、17本轮本地/真实效果受限、1 Agent受限、25清理覆盖受限；不是通过数，11不是根因数。执行边界132本地或混合、79外部/安全/共享设置、14跨项目、75旧延期外部/清理/生命周期。89旧延期逐ID为14跨项目/27本地部分/22补验或复用/1 Agent/25清理。137 MCP另分33本地或混合/49本地网关加Worker受限/23清理Agent/32伴随SFTP下游，含问题，非通过。45命令=42贡献+3 legacy，实际action_catalog167；与300/137重叠不相加，动态物理按钮实例总数未知。源码定位/schema/目录/旧状态不冒实际执行，逐项producer、消费者、条件及证据引用保留，不能重置137或既有211有限结论。
 
@@ -40,7 +40,7 @@
 |A4 指标|默认不合并AP/AUPRC、F1与macro/micro/weighted等不同语义，保留合法同义、split、0/空与用户显式metricAliases有意映射；真实长宽/JSON消费者。50727e7a，6/6。|
 |A5 默认解析|未传preset按当前长/宽/JSON内容契约选择，不固定首long空成功；显式/自定义预设及错误保留，合法空表/0有效，不按文件名猜。930cd685，8/8及8/8。|
 |A6 历史错误|历史目录/文件、registry坏JSON/EACCES可见，ENOENT仍缺失；0f932734。业务CLI已弃用的无消费者读取不另造MCP history。|
-|B1 本地识别|本人在精确单根完成有效本地扫描/PLAN及既有确认后保存完成事实，输出/服务器/Agent/运行准备另行保留；合法空PLAN有效，无根/多根/取消/失败不成功，不自动造adapter。c973e9f5基本识别已修；末尾通知持租约候选尚未验，见下节。MCP project_bootstrap集成准备及额外权限不改成新纯本地模式，不扩U07。|
+|B1 本地识别|本人在精确单根完成有效本地扫描/PLAN及既有确认后保存完成事实，输出/服务器/Agent/运行准备另行保留；合法空PLAN有效，无根/多根/取消/失败不成功，不自动造adapter。c973e9f5基本识别已修；末尾通知脱离租约改动已按用户特批原20秒复验3/3，首失败/超时保留。MCP project_bootstrap集成准备及额外权限不改成新纯本地模式，不扩U07。|
 |B2 持久化回执|公开两选择及必要调用方等保存后成功，失败传回；save/generate/archive文件已成功而选择失败须准确提示，不回滚重复写；后台有可见失败。51f0e689，46/46、13/13、20/20，首44/45夹具失败保留。不为已撤回面板completed点加包装。|
 |B3 刷新恢复|用户GPU/Scheduler/trace刷新、restart/resumeStream/resumeNetwork等待真实结果，未执行/离线/失败不completed；后台原容错/lastError和导入失败回滚保留，不自动重连轮询。60b1e8a7，4/4、16/16、14/14。|
 |B4 调试包|缺包/取消/失败不记completed，正常安全暂存/归属/复制保留。9d6a3916，1/1假端口。|
@@ -65,7 +65,7 @@ Artifacts规范本机root/每级目录/manifest/链接，保留相对绝对、�
 
 ## 已批准退役、删除与B1复验的边界
 
-本节旧候选/待审批全文见Git c08b61af同计划；用户先前已一次明确批准，当前事实以下文“当前收尾”及execution最新尾为准，不恢复旧等待。coverage.g004CliRetirementIndex逐302旧CLI用例、g004ExternalCliReferences最终27外部项、g004CliTestDisposition精确diff保留；按名称/函数重复不得冒业务等价。49旧CLI测试加resultHistoryReadErrors共50路径精确退役，原文件/fixtures/历史保留，glob继续自动发现其他新增文件。原冻结全部文件枚举方案被否决，不复活。
+本节旧候选/待审批全文见Git c08b61af及cb44bd81同计划；用户先前已一次明确批准，当前事实以下文“当前收尾”及execution最新尾为准，不恢复旧等待。coverage.g004CliRetirementIndex逐302旧CLI用例、g004ExternalCliReferences最终27外部项、g004CliTestDisposition精确diff保留；按名称/函数重复不得冒业务等价。49旧CLI测试加resultHistoryReadErrors共50路径精确退役，原文件/fixtures/历史保留，glob继续自动发现其他新增文件。原冻结全部文件枚举方案被否决，不复活。
 
 混合消费者保留Host/PLAN/实例/正式作业/checkpoint/归属等断言，13旧job改17当前MCP契约，原CLI便利和已撤销入口不造新功能。Agent旧SFTP专属--file/default-active/token外壳不恢复，公开enabled Worker/allowlist保留，真实后端秘密未测。publicCliAliases曾误Delete File后恢复原路径，Git为M，旧0d5cae56及失误保留；最终按新公开面更新1/1，不能冒整个生命周期已验。
 
@@ -90,26 +90,24 @@ Artifacts规范本机root/每级目录/manifest/链接，保留相对绝对、�
 J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未知；不sanitize/注入/改全局Git或重启稿件。旧CLI --version API_WORKSPACE_MISMATCH exit2不重放。平台旧systemError cybersecurity risk触发未公开，无Daybreak/扫描/重放或换工具模型聊天绕限，自然接替与绕限无关。所有原失败/未测/真实未知不能被新局部通过覆盖。
 ## 当前收尾：集中批准后连续实施
 
-完整候选基线0ee444bef20581c3367cc0b20cd60b8872430a9d，审核登记5886c9e2；原完整候选/审批与过程可从Git 11c076f8同计划及当前execution/coverage读取。e4fd93ed file_cleanup_preview显式managed_tmux、缺省保持/非法值拒绝，真实Gateway/Host假后端17/17；c9b2dd99 runtimeRow/pickExperiment精确身份/别名14/14；ca8d012b同值PLAN配置/INFO/ERROR及failed/OOM诊断18/18，均合成，不证明整个CLI接口/真实Worker等价。
+完整候选基线0ee444bef20581c3367cc0b20cd60b8872430a9d，审核5886c9e2；完整审批、39路径与过程可从Git 11c076f8、97d723e1及cb44bd81同计划和现execution/coverage读取。用户已明确“同意1、2、3，按清单执行，保留必要业务和安全检查，复用有效证据，完成后统一验收交付，不要再因局部问题停下整批任务。”不恢复历史待审批，不扩删除目标/远端效果，不以局部失败停全部独立工作。
 
-用户已明确回复“同意1、2、3，按清单执行，保留必要业务和安全检查，复用有效证据，完成后统一验收交付，不要再因局部问题停下整批任务。”一次授权绑定已展示完整39仓内file路径及候选，原测试退休/替代/矩阵/两helper获批，B1改后原文件原20秒唯一复验获批；上文各待批准/未验文字属于当时边界，以本节实际结果为准。不重复问同一许可，不扩路径/其它测试/临时文件/远端效果。总控独占plan/README，唯一执行01a203b9重新持产品/测试/execution/coverage、受限UI、唯一检查/scoped Git；无并行执行者。
+精确39文件已实际删除并推送：690be905、4d003cdc、b7d6ce0b、3382fcbd、4a43d1fc、fd593cca六组及97d723e1登记；完整集合与批准基线一致，全部tracked clean普通file、根/全部祖先/直父无reparse；逐项直父cd/物理cwd/类型/内容身份后仅Remove-Item ./精确叶名、无Force，39/39核不存在。不含目录、旧dist、全局shim、测试/fixture/临时文件。首次大命令CreateProcess blocked by policy未启进程，原call_887a6fcce30d45c4a9a7625697e86b55保留；后去掉只读Get-Item的Force并拆预检/delete-only/文档Git，实际成功，不断言唯一平台原因、不换工具权限绕限。
 
-49个旧test/cli文件302顶层用例及目录外27项均有未应用精确候选，61份联合git apply --check exit0只是可应用证据。现获批49旧CLI测试与history、两helper、sourceReader和混合消费者已经实施，旧测试路径/fixture/Git历史保留；current业务/安全断言保留，旧无Host history、自动绑定/default-active/argv/exit/dry-run等明确退休差异不冒等价。矩阵精确过滤49旧CLI加resultHistoryReadErrors共50路径，保留glob自动发现、其他argv/caseGroups/20秒，13旧直接job改17现MCP契约、worker-mode移旧manualDispatch；独立oracle/盘面覆盖同步，原分类移除不冻结341总数。
+49旧CLI文件302顶层用例、27外部引用、精确50退休路径、13旧job→17MCP与两helper迁移均已实施；原测试路径/fixture/历史保留，其他glob自动发现、argv/caseGroups/20秒不缩。B1唯一特批复验3/3；Windows消费者4/4、指标3/3、checkpoint1/1、formalJob5/5、中立客户端前四项4/4、取消预算1/1、dispatch5/5均原exit0。规划oracle首0/1要求已退役50路径，修后1/1保留；不能代最终HEAD规划。
 
-B1唯一复验3/3；Windows消费者4/4、指标3/3、证据1/1、formalJob原5/5（串行Python唯一子进程、10秒spawn/提取函数、不训练/fullimport）、中立LocalApiClient前四项4/4、localApi预算/取消1/1、MCP dispatch5/5，均exit0。规划对账首0/1因盘面要求50已退休路径，修对获批50项反向断言/其余完整覆盖后1/1。完整runner/acceptance安全套件含实际temp删除，windowScope.dispose删发现文件，未运行这些分支；保留原安全断言，复用未改函数和519相同用例证据，不冒完整套件通过或新版本通过。最终凭据不能组合时必须交实际差距裁决，不停所有独立工作或擅减默认覆盖。
-
-先前为真实dist/api消费者精确放行一次tsc-cached，仅TS类型检查/emit，不是完整build或runtime生成/版本/package。实际incremental/input-drift/TS7.0.2 exit2，旧CLI丢EXIT_OK/jsonErrorBody导出与MCP stopRunning推断类型错误；233f31d3已将params按真实字典契约标注，dispatch5/5。71 emit造成18个tracked dist dirty，全部保留不stage/恢复。日志TEMP/g004-tsc-central-predelete-20261122-terra.log及当前execution保留首失败；不能因有emit声称编译通过。删除后真实输入改变才按现缓存单次重验TS语义，不重放同输入。此必要TS前置许可不开放完整build/package/安装。
-
-当前HEAD=origin/master=97d723e1。获批39文件实际删除已完成，6组提交690be905、4d003cdc、b7d6ce0b、3382fcbd、4a43d1fc、fd593cca，97d723e1登记删除后TS成功。最终全批预检与0ee444be批准集合一致，均tracked clean普通file、根/父/祖先无reparse；逐项直接父cd与物理cwd、类型/内容身份重核，只对./精确叶名Remove-Item无Force，39/39核不存在。不含目录、旧dist、全局shim、fixture或历史资产。
-
-首次混合大命令CreateProcess blocked by policy、进程未创建，39当时未删，原call_887a6fcce30d45c4a9a7625697e86b55及execution保留。总控发现Get-Item含Force违反safe-delete-paths，未称唯一策略原因；批准同pwsh/同Remove-Item/同39目标一次安全修正，全部去掉Force并拆只读预检、逐组delete-only、另文档/Git，实际成功，不是换工具或权限绕限。
-
-删除后输入改变，单次tsc-cached TS7.0.2 previous-failed rebuild，391输入、emit2、exit0，日志TEMP/g004-tsc-after-cli-removal-20261123-terra.log。18个tracked dist仍dirty，保留不stage/恢复；首exit2/71 emit不抹去。最终源审5886c9e2..97d723e1确认除39删除外仅B1通知脱离租约及Gateway params字典类型，方向通过；最终构建、实际矩阵、包、发行、安装、新Host仍未完成。原临时删除边界不扩，旧证适用性按总控后续逐项裁决；不伪造组合receipt、不因runner表达不足无据全重跑。全部真实Worker/UI/跨项目限制不变。
+首次tsc-cached TS7.0.2 input-drift exit2/71emit，旧CLI出口及Gateway params类型错误真实保留；233f31d3字典类型修正，dispatch5/5。39删除后新输入一次TS previous-failed rebuild、391输入/emit2/exit0，日志TEMP/g004-tsc-after-cli-removal-20261123-terra.log；首次日志TEMP/g004-tsc-central-predelete-20261122-terra.log不抹去。后0.5.520同步package/lock根与entry/runtime并稳定write-agent-runtime，compile实过8/8 gates、输入=结束，receipt simple_cluster/reports/test-workflow/2026-11-22T18-17-42-383Z-84032-compile/run.json；Panel模块和实际3段scripts VM、10890零命中通过。这些不等于最终package、安装或新Host通过。26 tracked dist dirty为已授权emit/生成，未stage/恢复；最终交付源及生成文件须精确审查后分组同步。
 
 ## 当前决定：最终增量覆盖核验
 
-2026-11-23用户明确批准“允许修改现有打包器，支持本任务增量覆盖核验”，逐项核对仍有效旧结果与本轮补验，保留完整覆盖、原日志、失败阻断，不恢复通用缓存。依据A–D完整包：当前package规划360条实际＋6文件按需，57组/cap34/23保护恢复；50获批退休路径均不调度，未来输入变化重算，数量不冻结。旧519有321同file/argv、39新项，但相同条目不等于依赖仍适用。旧未改删锁函数7项job264/265/267/268/269/271/274只支持原安全行为，可审定继承，不能冒新规划/指纹通过。实际逐项规划与argv见TEMP/g004-final-plan-details-20261123-terra.json，原dry-run exit0见TEMP/g004-final-package-plan-20261123-terra.json。
+2026-11-23用户明确批准现有打包器支持本任务逐项核对“仍有效旧结果＋本轮补验”，保留完整覆盖/原日志/失败阻断，不恢复通用测试缓存。已实现--g004-incremental，仅本仓package/max-parallel1，原schema2与普通入口不变；任务schema3区分原receipt继承、原direct实际输出和本轮fresh，核identity+argv、依赖/外部输入、日志与事件SHA、真实结算、当前工具链/输入/选择/产物及全部required gates。旧工具链/原工作树精确字节未知的条目仅经人工适用审定，不伪填为同工具链、精确旧字节或fresh。
 
-现runner仅接受同全局输入/产物的单批schema2 passed凭据，不能组合旧有效证据与本轮补验（test-workflow.js:969–1002、1146–1174）。最小扩展必须如实区分继承与本轮执行，绑定本任务冻结输入/平台/工具链/计划、每项identity+argv和可核依赖范围；无可靠适用依据则恢复该项真实执行，不无据全重跑。最终全部required gates/selection/当前产物仍验证，缺失/失败/未知/超时/取消/中途漂移继续阻断；旧日志/input/end不改写，不生成伪fresh receipt。实际实现及有限依赖映射先交总控审，最终编译/版本/package尚未授权开跑。
+阶段源码基线cb44bd81406445719519f42c44ac329aa6d4d38b=origin/master=FETCH_HEAD。实际planEntry为361 active＋6 onDemand；123历史人工继承、235原direct已被planner逐项接受，3未覆盖，不冻结未来数量。6按需未运行、不计通过；历史031为0pass/1skip、165为5pass/1skip、37为40pass/1skip；340原34项只继承当前保留30项，4CLI项按既有批准退休。68原parity证明选定Python核心及JS两个拒绝边界，非原JS全文件身份；69原外部py根/字节未记录，按本任务人工推断适用，原未知保留，不自动扩用。7旧删锁job264/265/267/268/269/271/274仅继承未改安全逻辑，不当前执行真实删除。
 
-两测试仅尾部housekeeping rm改保留其新建合成fixture，不改安全断言：packageContentPolicy原文件12/12 exit0；releaseAcceptance首exit1，因jobs-only漏6按需项，原日志TEMP/g004-release-acceptance-retain-20261123.log保留。总控批准完整计划jobs∪onDemandJobs对账、保留50退休反向/非空/不交叉保护，允许修后原文件原20秒额外一次验证，非超时重试；packageContent不重复。原子rename发布自己的合成discovery/registry文件允许，实际dispose不unlink，前误判已纠正；真实APPDATA/用户配置/Worker不触碰。docs/release-delivery.md只将现行CLI入口说明更新MCP。实际临时永久删除仍未授权，完整acceptance及其额外清理用例不跑。
+仅剩：旧job219 gpuCollectorFrame，原11/11、exit0/tree，但20857.309ms；旧job284 assemble逐项凭据，原passed/0/tree，但20119.841ms。两者均超过20秒，原记录保留且eligible=false，已向用户提出只限历史功能证据的两项例外，未获回复不得纳入、重跑或扩大未来超时。第三项job289为real-repo plan独立对账原精确pattern，待最终源码与HEAD稳定后原20秒一次；为避免登记提交改变selectionHash，不先直跑再提交/重复跑，准备为最终package内唯一fresh项，由该运行冻结真实HEAD/selection并在assemble前复核。开放package仍须两项用户决定及总控最终源审完成，不能提前组装。
+
+packageContentPolicy尾部扫尾改保留fixture，原12/12；releaseAcceptance首exit1因jobs-only漏按需，保留首日志，修为jobs∪onDemand/精确50退休反向/非空不交叉后获准1/1。resultCandidateMetadataExclusion仅TemporaryDirectory→保留mkdtemp，原4/4，全部业务断言保留。真实dispose写自身stopped discovery并关闭server、不unlink，旧误判已纠正。完整acceptance额外真实临时删除未获准，未运行。
+
+新mcpProjectOpsContract11/11、隔离windowScopeIsolation8/8均exit0；原事件/日志完整。工具包装兼容仅固定JSON字面量到相邻exec调用，不eval/动态JS，不伪造原事件。续接链固定初始session，原请求/响应SHA/顺序/最终exit0/完整日志都核。首G004扩展20.389s虽输出1/1/exit0仍作超时无效，用户精确特批修后原20秒1/1、7.513s；之后新真实静态包装兼容单次1/1、8661.6398ms，acf338a1，业务两文件未重跑。前39个test注册AST比仅G004 case变化；未改runner各旧pattern依赖审定重冻。ENOBUFS/只读引号错误、原规划/按需夹具失败、误跑及被覆盖独立日志均在execution/coverage保留；丢失mcpWorkerHistory独立log仅取原完整rollout，不伪恢复。
+
+当前总控持短暂Git租约，仅更新本计划/README并同步；cb44bd81交包无在途，唯一执行仍01a20584，后续由必要一次消息释放。execution现10558字，下一次追加前整体语义压缩，完整旧记录见cb44bd81；不另建报告。最后源审/实际dry-run、完整package/gates/lock/receipt、VSIX/远端试行/真实更新客户端/一次安装按前述交付门禁连续执行；0.5.520尚未package/发行/安装，单项目UI、真实Worker及跨项目未测不能写通过。
