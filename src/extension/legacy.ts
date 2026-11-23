@@ -24593,7 +24593,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async openLocalResultTableFromUi(message) {
         const context = this.captureProjectContext();
         if (!context.root) throw new Error("请先打开当前实验项目。");
-        const catalog = await this.readProjectResultCatalog(context.root, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
+        const directory = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
+        const isCurrent = () => this.projectContextIsCurrent(context) && (this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) === directory;
+        const catalog = await this.readProjectResultCatalog(context.root, pluginProjectAdapterRules(context.root).planDatasetMapping || {}, directory);
+        if (!isCurrent()) throw new Error("项目或结果目录已变化，请刷新后重试。");
         if (message?.artifactKey) {
             const artifact = catalog.datasets.flatMap(item => item.plans.flatMap(plan => plan.artifacts)).find(row => row.artifactKey === String(message.artifactKey));
             if (!artifact) throw new Error("结果产物不在当前目录索引中。");
@@ -24605,12 +24608,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!["csv", "md"].includes(format)) throw new Error("不支持的表格格式。");
         const table = catalog.datasets.flatMap(item => item.tables).find(row => row.tableKey === key);
         if (!table) throw new Error("结果表不存在，请先按数据集重新汇总。");
-        const directory = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
         await this.withProjectResultPublicationLease(context.root, directory, async () => {
             const exported = await readLatestResultExport(context.root, directory);
+            if (!isCurrent()) throw new Error("项目或结果目录已变化，请刷新后重试。");
             if (!exported?.tables.some(row => row.tableKey === key)) throw new Error("结果表已变化，请刷新后重试。");
-            await regenerateLatestResultTables(context.root, directory, exported, () => this.projectContextIsCurrent(context));
+            await regenerateLatestResultTables(context.root, directory, exported, isCurrent);
         });
+        if (!isCurrent()) throw new Error("项目或结果目录已变化，请刷新后重试。");
         await this.openWorkspaceFileForProjectContext(format === "md" ? table.markdownPath : table.path, context, this.client);
     }
     async splitProjectResultTableFromUi(message) {

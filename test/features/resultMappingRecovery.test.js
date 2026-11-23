@@ -77,3 +77,28 @@ test("host supplies validated configuration save to the result writer", async ()
   await assert.rejects(apply.call(host, { mappings: { "plan.yaml": "肺" } }), /EACCES/);
   assert.equal(saved.planDatasetMapping["plan.yaml"].datasets[0], "肺");
 });
+
+test("opening a result table keeps the original directory across asynchronous reads", async () => {
+  const context = { root: "project" }, calls = [], table = { tableKey: "BUS/final", path: "results/BUS/final.csv", markdownPath: "results/BUS/final.md" };
+  let changeDuringCatalog = false, changeDuringExport = false;
+  const host = { resultCsvDirectory: "results", captureProjectContext: () => context, projectContextIsCurrent: () => true,
+    readProjectResultCatalog: async (_root, _mappings, directory) => {
+      calls.push(["catalog", directory]); if (changeDuringCatalog) host.resultCsvDirectory = "other";
+      return { datasets: [{ tables: [table], plans: [] }] };
+    },
+    withProjectResultPublicationLease: async (_root, _directory, work) => work(),
+    openWorkspaceFileForProjectContext: async file => calls.push(["open", file]) };
+  const open = vm.runInNewContext(extract("extension/legacy.ts", "openLocalResultTableFromUi", true), {
+    pluginProjectAdapterRules: () => ({}), DEFAULT_RESULT_CSV_DIR: "results",
+    readLatestResultExport: async (_root, directory) => { calls.push(["read", directory]); if (changeDuringExport) host.resultCsvDirectory = "other"; return { tables: [{ tableKey: table.tableKey }] }; },
+    regenerateLatestResultTables: async (_root, directory, _value, current) => { assert.equal(current(), true); calls.push(["regenerate", directory]); },
+  });
+  await open.call(host, { tableKey: "BUS/final", format: "md", file: "../ignored" });
+  assert.deepEqual(calls, [["catalog", "results"], ["read", "results"], ["regenerate", "results"], ["open", table.markdownPath]]);
+  calls.length = 0; changeDuringCatalog = true;
+  await assert.rejects(open.call(host, { tableKey: "BUS/final" }), /结果目录已变化/);
+  assert.deepEqual(calls, [["catalog", "results"]]);
+  calls.length = 0; host.resultCsvDirectory = "results"; changeDuringCatalog = false; changeDuringExport = true;
+  await assert.rejects(open.call(host, { tableKey: "BUS/final" }), /结果目录已变化/);
+  assert.deepEqual(calls, [["catalog", "results"], ["read", "results"]]);
+});

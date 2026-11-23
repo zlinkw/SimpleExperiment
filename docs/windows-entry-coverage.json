@@ -12958,7 +12958,7 @@
         },
         {
           "id": "panel:openLocalResultTable:1",
-          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。源码未提交、待build；产物按钮依现有catalog，未实测外部文件。"},
+          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。开表源码纳本批、待build；产物按钮依现有catalog，未实测外部文件。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openLocalResultTable]; panelPayloadReconciliation[command=openLocalResultTable]",
           "oldStatus": "concluded_scoped",
@@ -12966,7 +12966,7 @@
         },
         {
           "id": "panel:openLocalResultTable:2",
-          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。源码未提交、待build；产物按钮依现有catalog，未实测外部文件。"},
+          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。开表源码纳本批、待build；产物按钮依现有catalog，未实测外部文件。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=openLocalResultTable]; panelPayloadReconciliation[command=openLocalResultTable]",
           "oldStatus": "concluded_scoped",
@@ -15232,7 +15232,7 @@
         },
         {
           "name": "openLocalResultTable",
-          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。源码未提交、待build；产物按钮依现有catalog，未实测外部文件。"},
+          "currentReview": {"status":"source_candidate_pending_build","evidence":"CSV/Markdown按钮以tableKey和format匹配当前目录catalog，不采用自由文件路径；按项目与原结果目录核导出、经原写入器更新表格再打开。产物按钮只接受catalog中的artifactKey。候选在异步catalog或导出读取期间目录/项目变化时停止，写入器也使用同一上下文检查。","boundary":"%TEMP%/g004-result-mapping-open-guard-20261123.*.log 单文件8/8 exit0，含假异步catalog和导出期间切目录、保留原路径及Markdown选择；无真实文件或编辑器操作。开表源码纳本批、待build；产物按钮依现有catalog，未实测外部文件。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -17180,5 +17180,30 @@
       "panelMessageDispatch full21一次",
       "planStopClear ^handleMessage posts the real stop-clear outcome for failed, cancelled, and completed$ 一次"
     ]
+  },
+  "g004ResultOpenPriorCase": {
+    "status": "single_case_conditionally_applicable",
+    "file": "test/features/resultMappingRecovery.test.js",
+    "case": "opening a result table keeps the original directory across asynchronous reads",
+    "callId": "call_e467409c57a44255bebae7df3c2f4ff4",
+    "rollout": "C:/Users/ZLK/.codex/archived_sessions/rollout-2026-11-23T14-19-23-01a2070f-26ea-7cb2-a4f5-d715d3b51d15.jsonl",
+    "eventSha256": [
+      "e303cb31c5ac3af909cf6f3f75cf1a2229f24d4b7cb5df315ebe56131938a245",
+      "1d4b127ea4ce1511416bd7be2cc32b346ab4eee6e14f7d6b9c6838e3fac2c8c0"
+    ],
+    "logs": [
+      "C:/Users/ZLK/AppData/Local/Temp/g004-result-mapping-open-guard-20261123.out.log",
+      "C:/Users/ZLK/AppData/Local/Temp/g004-result-mapping-open-guard-20261123.err.log"
+    ],
+    "logSha256": [
+      "64a01e6aabcd89f71760f757673aa34c616f33feff1599c7604245bb72f8b2b9",
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    ],
+    "originalResult": "Process wrapper full8/8, child status0 signal null stderr empty, case 202.6183ms, total 1667.51ms; outer exit not independently emitted",
+    "basis": "原449源码patch及695测试patch所涉方法/单case分别与当前索引真实AST逐字相同；其他自动映射case及fixture变更未进入本批。",
+    "indexLegacySha256": "eba73ce763f38f96a69c3d6a03b40ad1b21450cb691e7c5e77d72c013ae6e9cf",
+    "indexTestSha256": "74e89a073dd099e435a4ae7840520cbf0af0f7cb61f77d9946c0b0179e598cbb",
+    "methodSha256": "2d2ba3352899bcbe40cd9b7b589da84081a9d9ec2715c8803833caf953b911ad",
+    "boundary": "原Node及整test运行时SHA未知；仅选中case条件适用，非literal direct、新运行、当前full5/8或真实文件/editor/新dist。索引语法node --check exit0。"
   }
 }

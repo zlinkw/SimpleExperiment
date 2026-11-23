@@ -17,7 +17,7 @@
 
 停止路由候选按精确Worker/command停止并保留unknown意图，假端12/12及首失败见 `cd66811a`；渲染和结果候选仍未build、未安装。草稿和业务CLI已退役，旧记录仅历史事实。
 
-缓存、Plan恢复、Git绑定及SFTP取消/交接/下载范围的原验证、失败和限制见8f04bd1f及coverage；未知执行器未确认结束，旧119/120日志与工具链缺口仍在，旧316项规划过期。
+缓存、Plan恢复及SFTP传输的原验证、失败和限制见8f04bd1f及coverage；未知执行器未确认结束，旧119/120日志与工具链缺口仍在。
 
 输出模板项目围栏 `fedd8bc9`/`7dfd6db5` 假端4/4；首失败及确认变体见 `d70e1b40`/`3a916416`，未build或真实删除。
 
@@ -25,7 +25,7 @@
 
 服务器队列、派发、同步及Git覆盖围栏原验证、首失败、日志和限制见 `60c8b277:docs/plan-generations/G004-execution.md` 及coverage；final fresh和新dist消费者仍待批准。
 
-配置读取、Worker删除确认及隧道/离线入口假端原验证、失败和限制见 `17692f55:docs/plan-generations/G004-execution.md` 及coverage；配置检查与rename非原子，异步保存可能部分写入，无真实Worker或配置效果。Panel仍待build及真实脚本VM，plan阈值首失败保同历史。
+配置、Worker删除确认及隧道/离线入口原验证与失败见 `17692f55:docs/plan-generations/G004-execution.md` 及coverage；配置检查与rename非原子，可能部分写入，无真实Worker效果。Panel仍待build及真实脚本VM。
 
 47a1681d旧build规划exit0、执行规划首拒legacy漂移exit1；不能批量重绑。详见 `c8912955:docs/plan-generations/G004-execution.md`。
 
@@ -75,7 +75,7 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 
 结果拆表候选按原项目和结果目录守等待、逐目标及beforeRename，stat仅ENOENT视为不存在；已写文件与可能staging不撤回。full4 call_1ac40222d8f345ad8fcf881d98a7c1b6 4/4、1665.8815ms、literal exit0/no session/skip0；真实方法AST配fake catalog、FS、确认与writer，未运行真实StateStore/文件写/Worker，非批量原子或新dist。实际输入含未提交报告列表候选；原事件及事后日志见coverage。总控首次误猜两个源码路径os2，改真实StateStore和results路径核负责链。
 
-拆表scoped本地提交8b6cd237后，普通push首次exit1：TLS connect unexpected EOF；执行者立即停Git升级。总控仅准本次有界恢复：ls-remote exit0仍f064、HEAD 8b6/index空及upstream正确后，普通push一次exit0，fetch一次exit0，HEAD/origin/master/FETCH_HEAD均8b6cd237976d9aeb8d9dcb6291f75a08a2111078。首失败保留，此次不构成通用重试许可。
+拆表8b6cd237首次push TLS EOF exit1，停Git升级；总控批准精确一次ls-remote/push/fetch恢复成功，三HEAD一致。原首失败和边界见 `01e4dae1:docs/plan-generations/G004-execution.md`，非通用重试许可。
 
 拆表新dist消费者仅原dataset精确case一次；私有TEMP真实写入、flush/rename与named-pipe，fixture保留，未运行。精确pattern及plan阈值首失败见 `01e4dae1:docs/plan-generations/G004-execution.md`。
 
@@ -98,3 +98,5 @@ Speed实测工作树23f48e15，索引LF归一后121b3e83，归一文本相同；
 UI funnel生产批仅五方法及focused/四域注册同步；原full8实际运行树legacy ca1d，索引仅五方法的候选84e7，不冒同一whole或新编译。新旧项目进度始终释放且迟到提示绑定原项目，未知PLAN仅记录事实；首事件与fake效果见coverage。列表/slot/Panel仍待各自门禁。
 
 总控仅准三条direct的847→ca1d、七条及四nested的8536/9918→ca1d依赖适用，原运行快照、日志和限制保coverage；不重跑或扩其他行。原patch逆转复原847；另复原9918时两次重复子串及一次纯删除hunk脚本退出1，均内存无写，改精确方法及原行逆转得9918。总控截断输出及嵌套重名匹配无效未作依据；coverage首匹配两行与nested首脚本语法错误均写前exit1，纠正后成功。总控plan扩写16226写前exit1，归并后阈值通过，非测试失败。
+
+结果表打开绑定原目录和项目；仅同case纳测试，自动映射/Panel候选保留。归档e467原Process子status0/signalnull、原8/8，单case按原449/695逐字闭包条件适用；Node与运行时test SHA未知、外层exit未单列，非新运行或full5通过。索引test语法通过，真实原事件、摘要和fake效果见coverage，真实editor/新dist未验。
