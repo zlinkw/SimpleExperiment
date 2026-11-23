@@ -18558,9 +18558,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const worker = this.setupConfig.workerTunnels.find((item) => item.id === endpointId);
         if (!worker)
             return;
+        const confirmedWorker = JSON.stringify(worker);
         const ok = await vscode.window.showWarningMessage(`删除 Worker ${worker.displayName || worker.id}？配置会从全局状态移除。`, { modal: true }, "删除");
         if (ok !== "删除")
             throw new UiCommandCancelled("已取消删除 Worker 配置。");
+        if (JSON.stringify(this.setupConfig.workerTunnels.find((item) => item.id === endpointId)) !== confirmedWorker)
+            throw new Error("Worker 配置已变化，请重新确认删除目标。");
         const workers = this.setupConfig.workerTunnels.filter((item) => item.id !== endpointId);
         const manual = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
             ...this.setupConfig,
