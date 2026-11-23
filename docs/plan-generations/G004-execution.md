@@ -89,7 +89,7 @@ SFTP服务器配置、下载路径、tree/inventory、file_stats、plan_logs及r
 
 本人指出草稿机制已退役，停止新调查、验证和实现；旧母集/兼容入口不代表当前功能，不删除文件。
 
-MCP task_stop 在登记意图期间若撤销授权或更改Worker配置，原实现仍可发送停止；现发送前重核experiment授权及快照，未知保留意图。假Gateway/Host 3/3 exit0 `%TEMP%/g004-task-stop-auth-complete-20261123.*.log`；首次夹具不存在路径ENOENT及随后实际缺少拒绝的复现均exit1，分别保留 `g004-task-stop-auth-first`、`g004-task-stop-auth-repro` 日志。未访问真实Worker。
+MCP task_stop发送前重核授权和Worker快照、未知保留意图；假Gateway/Host 3/3及首两次exit1复现原日志见 `d1d816d2:docs/plan-generations/G004-execution.md`。未访问真实Worker。
 
 SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log` 仅证明透传；后续核已装120发现取消按operationId更新账本、却可按不相属transferId选另一传输，静态可达缺陷已升级总控，未修或实际取消。三次只读rg路径猜错/Windows通配符失败未改产品。
 
@@ -111,7 +111,7 @@ runner job 257/258、260/261/262 按identity/argv和原日志复核，各1/1、s
 
 结果目录、复制、高级设置及SFTP服务器/目标/确认重置逐ID审查见coverage；未改配置或共享确认。
 
-MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发送；现发送前重核，假Gateway/Host 3/3 %TEMP%/g004-preflight-cancel-auth-final-20261123.*.log，原Host精确1/1 %TEMP%/g004-preflight-host-cancel-exact-20261123.*.log，均exit0。首模式未匹配任何用例的exit0保留 g004-preflight-host-cancel-20261123.*.log，不算验证。384f6d5f已同步、待build；无真实Worker。
+MCP诊断取消发送前重核授权及身份；假Gateway/Host 3/3、Host 1/1 exit0，首模式零用例不算验证；完整日志见 `d1d816d2:docs/plan-generations/G004-execution.md`。384f6d5f已同步待build，无真实Worker。
 
 打开Plan时项目可在异步文件检查期间切换；现复用项目绑定打开器，定向3/3 exit0 %TEMP%/g004-open-plan-project-guard-20261123.*.log，6b4e5651已同步、待build；未打开真实编辑器或其他项目。
 
@@ -144,3 +144,5 @@ tmux_list/capture源码和假Gateway路由证据范围见coverage；未访问真
 artifact_list/inspect项目边界、精确身份和本地及假远端证据逐ID见coverage；未查询真实任务、活动结果或Worker。
 
 配套120→28087f3中api-server、cleanup-file-api/cleanup-files和以下11个测试均字节未变；120包汇总分别 api 23、apiBackpressure 4、apiUploadProgress 4、batchDeleteApi 24、chunkedTrimGuard 1、cleanupChunkedDelete 1、cleanupConsumerRoot 13、cleanupExecuteSelfBusy 8、cleanupExplicitTarget 1、cleanupFiles 18、cleanupHandle 1通过，但各自原日志缺失。119→当前除api新增下载Host入口相关用例外，上述测试和清理实现未变；其中cleanupExecuteSelfBusy使用假传输控制器，不调用transfers.cancel；api仅列举该方法。汇总不补造具体断言、工具链或逐项运行证据；本次不执行真实清理/WSL，打包覆盖仍待总控审收。
+
+experiment_list/summary/tree按输入合并、过滤与树结构逐项复核，假RPC历史覆盖和未调用真实任务的限制见coverage。

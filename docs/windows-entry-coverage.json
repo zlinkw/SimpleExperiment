@@ -11840,6 +11840,7 @@
         },
         {
           "name": "experiment_list",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"loadExperiments汇总项目数据，按status/type和limit过滤后输出公开视图；原假RPC及合成数据18/18 exit0 %TEMP%/g004-520-mcp-query-context-20261123.log 含筛选、限制及终态。","boundary":"源码和受控历史证据；未查询真实活动任务或Worker，不能推广所有状态。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_list]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11848,6 +11849,7 @@
         },
         {
           "name": "experiment_summary",
+          "currentReview": {"status":"synthetic_scoped_external_effect_restricted","evidence":"基于同一loadExperiments结果统计运行、失败、成功和Worker等，原假RPC及合成数据18/18 exit0 %TEMP%/g004-520-mcp-query-context-20261123.log 覆盖既定汇总输出。","boundary":"未读取真实活动任务或Worker，统计取决于输入新鲜度。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_summary]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11864,6 +11866,7 @@
         },
         {
           "name": "experiment_tree",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"loadExperiments后以workflow为根，将无已知父workflow的Worker任务保留为根，再生成树。","boundary":"仅源码审阅；未调用真实活动任务或Worker，不将schema存在当测试通过。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_tree]",
           "scope": "local_gateway_plus_worker_effect_restricted",
