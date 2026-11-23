@@ -1109,12 +1109,48 @@ function verifyG004ActionLifecycleWrapper(root, job, row, events, continuationEv
     || !["fail", "cancelled", "skipped", "todo"].every(name => new RegExp(`(?:ℹ|#)\\s*${name}\\s+0\\b`).test(stdout))) fail();
 }
 
+// Only the recorded G004 staged-slot test wrapper is recognized here.
+const G004_STAGED_SLOT_CALL = "const r=await tools.exec_command({cmd:\"$p = [System.Diagnostics.Process]::new()\\n$p.StartInfo.FileName = 'node'\\n$p.StartInfo.Arguments = '--test --test-force-exit --test-timeout 20000 test/features/stagedSlotDeleteReview.test.js'\\n$p.StartInfo.UseShellExecute = $false\\n$p.StartInfo.RedirectStandardOutput = $true\\n$p.StartInfo.RedirectStandardError = $true\\n$p.StartInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8\\n$p.StartInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8\\n[void]$p.Start()\\n$out = $p.StandardOutput.ReadToEndAsync()\\n$err = $p.StandardError.ReadToEndAsync()\\nif (-not $p.WaitForExit(20000)) { $p.Kill($true); $p.WaitForExit(); $timedOut = $true } else { $timedOut = $false }\\n[System.IO.File]::WriteAllText(\\\"$env:TEMP/g004-stage-review-v4-20261123.out.log\\\", $out.GetAwaiter().GetResult(), [System.Text.UTF8Encoding]::new($false))\\n[System.IO.File]::WriteAllText(\\\"$env:TEMP/g004-stage-review-v4-20261123.err.log\\\", $err.GetAwaiter().GetResult(), [System.Text.UTF8Encoding]::new($false))\\nWrite-Output \\\"exit=$($p.ExitCode) timedOut=$timedOut\\\"\\nGet-Content -Encoding UTF8 -LiteralPath \\\"$env:TEMP/g004-stage-review-v4-20261123.out.log\\\" -Tail 20\\nGet-Content -Encoding UTF8 -LiteralPath \\\"$env:TEMP/g004-stage-review-v4-20261123.err.log\\\"\",\"shell\":\"pwsh.exe\",\"yield_time_ms\":1000,\"max_output_tokens\":2000}); text(JSON.stringify(r));\n";
+function verifyG004StagedSlotWrapper(root, job, row, events, contexts) {
+  const fail = () => { throw new Error("G004 staged slot direct execution invalid: " + job.file); };
+  const digest = value => crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  const turn = "01a208e7-8d3e-70d2-96de-c4c140b3278f";
+  if (root !== "D:\\GitRepo\\MCP\\zlk-cluster-orchestrator" || job.file !== "test/features/stagedSlotDeleteReview.test.js"
+    || JSON.stringify(job.argv) !== JSON.stringify(["--test", "--test-force-exit", "--test-timeout", "20000"])
+    || row.callId !== "call_b1b04a2117f2414d86e3a8a2060f426e" || (row.continuations || []).length) fail();
+  const calls = events.filter(x => x.event.payload.type === "custom_tool_call");
+  const outputs = events.filter(x => x.event.payload.type === "custom_tool_call_output");
+  if (calls.length !== 1 || outputs.length !== 1 || contexts.length !== 1 || contexts[0].position >= calls[0].position || calls[0].position >= outputs[0].position
+    || digest(contexts[0].line) !== "3b8ad7b8de903d3af7cf97be6462c08540f0ecf166a4ab06db26c0d9b862d6ab"
+    || contexts[0].event.payload.turn_id !== turn || contexts[0].event.payload.cwd !== root
+    || calls[0].event.payload.internal_chat_message_metadata_passthrough?.turn_id !== turn
+    || outputs[0].event.payload.internal_chat_message_metadata_passthrough?.turn_id !== turn
+    || calls[0].event.payload.input !== G004_STAGED_SLOT_CALL
+    || digest(calls[0].line) !== "09259218b0e20afdcdab68d2bd06835a910bb7cb54b06ebbe1498e94d3b1412c"
+    || digest(outputs[0].line) !== "bd55e0b493203e8cf3615fa593a4f8fd68344b7937fa9360021a713a22c514cb"
+    || row.commandEventSha256 !== digest(calls[0].line) || row.outputEventSha256 !== digest(outputs[0].line)) fail();
+  const blocks = outputs[0].event.payload.output;
+  if (!Array.isArray(blocks) || blocks.length !== 2 || !/^Script completed\nWall time [\d.]+ seconds\nOutput:\n$/.test(blocks[0].text)) fail();
+  let result; try { result = JSON.parse(blocks[1].text); } catch { fail(); }
+  if (result.exit_code !== 0 || result.session_id != null || typeof result.output !== "string" || /Warning: truncated output/i.test(result.output)) fail();
+  const base = path.join(process.env.TEMP, "g004-stage-review-v4-20261123");
+  if (row.log !== base + ".out.log" || row.stderrLog !== base + ".err.log"
+    || row.logSha256 !== "fec55d9aca10cc4f548d22e0880953005e916a2eb97feccaf487b0ce759cc251"
+    || row.stderrLogSha256 !== "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    || sha256Fresh(row.log) !== row.logSha256 || sha256Fresh(row.stderrLog) !== row.stderrLogSha256) fail();
+  const stdout = fs.readFileSync(row.log, "utf8"), stderr = fs.readFileSync(row.stderrLog, "utf8");
+  const normalize = value => value.replace(/\r\n/g, "\n");
+  if (stderr !== "" || normalize(result.output) !== "exit=0 timedOut=False\n" + normalize(stdout)
+    || !/(?:ℹ|#)\s*tests\s+10\b/.test(stdout) || !/(?:ℹ|#)\s*pass\s+10\b/.test(stdout)
+    || !["fail", "cancelled", "skipped", "todo"].every(name => new RegExp(`(?:ℹ|#)\\s*${name}\\s+0\\b`).test(stdout))) fail();
+}
+
 function inspectG004DirectEvidence(root, plan, coverage) {
   const key = j => JSON.stringify([j.identity, j.argv]);
   const planned = new Map(plan.jobs.map(j => [key(j), j]));
   const accepted = [], seen = new Set();
   const rows = (coverage.currentTargetedEvidence || []).filter(j => j.eligible === true);
-  const grouped = new Map();
+  const grouped = new Map(), contexts = new Map();
   for (const row of rows) {
     if (!grouped.has(row.rollout)) grouped.set(row.rollout, new Map());
     grouped.get(row.rollout).set(row.callId, []);
@@ -1123,6 +1159,10 @@ function inspectG004DirectEvidence(root, plan, coverage) {
   }
   for (const [rollout, ids] of grouped) {
     for (const [position, line] of fs.readFileSync(rollout, "utf8").split("\n").entries()) {
+      if (line.includes("01a208e7-8d3e-70d2-96de-c4c140b3278f") && line.includes("turn_context")) {
+        const event = JSON.parse(line);
+        if (event.type === "turn_context" && event.payload.turn_id === "01a208e7-8d3e-70d2-96de-c4c140b3278f") { if (!contexts.has(rollout)) contexts.set(rollout, []); contexts.get(rollout).push({ line, event, position }); }
+      }
       const match = /"call_id":"([^"]+)"/.exec(line);
       if (!match || !ids.has(match[1])) continue;
       const event = JSON.parse(line);
@@ -1139,7 +1179,10 @@ function inspectG004DirectEvidence(root, plan, coverage) {
     const calls = events.filter(x => x.event.payload.type === "custom_tool_call"), outputs = events.filter(x => x.event.payload.type === "custom_tool_call_output");
     const call = calls[0], output = outputs[0];
     const digest = s => crypto.createHash("sha256").update(s, "utf8").digest("hex");
-    if (row.recordFormat === "g004-action-lifecycle-spawn-v1") {
+    if (row.recordFormat === "g004-staged-slot-process-v1") {
+      verifyG004StagedSlotWrapper(root, job, row, events, contexts.get(row.rollout) || []);
+      if (JSON.stringify(row.review.reviewedArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct argv mismatch: " + row.file);
+    } else if (row.recordFormat === "g004-action-lifecycle-spawn-v1") {
       const continuation = row.continuations?.[0];
       verifyG004ActionLifecycleWrapper(root, job, row, events, grouped.get(row.rollout).get(continuation?.callId) || []);
       if (JSON.stringify(row.review.reviewedArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct argv mismatch: " + row.file);

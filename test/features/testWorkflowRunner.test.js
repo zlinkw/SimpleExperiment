@@ -371,6 +371,43 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   files.set(logBase + ".err.log", ""); files.set(logBase + ".out.log", stdout + "changed"); seal(); assert.throws(verify, /wrapped direct execution invalid/);
 });
 
+test("runner: G004 staged slot fixed wrapper evidence", () => {
+  const vm = require("node:vm"), source = fs.readFileSync(RUNNER, "utf8");
+  const start = source.indexOf("const G004_STAGED_SLOT_CALL ="), end = source.indexOf("\nfunction inspectG004DirectEvidence(", start);
+  assert.ok(start > 0 && end > start);
+  const base = path.join("X:\\temp", "g004-stage-review-v4-20261123");
+  const stdout = "ℹ tests 10\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\n";
+  const fixed = ["3b8ad7b8de903d3af7cf97be6462c08540f0ecf166a4ab06db26c0d9b862d6ab", "09259218b0e20afdcdab68d2bd06835a910bb7cb54b06ebbe1498e94d3b1412c", "bd55e0b493203e8cf3615fa593a4f8fd68344b7937fa9360021a713a22c514cb", "fec55d9aca10cc4f548d22e0880953005e916a2eb97feccaf487b0ce759cc251", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"];
+  const hashes = new Map(), files = new Map([[base + ".out.log", stdout], [base + ".err.log", ""]]);
+  const fakeCrypto = { createHash: () => ({ update: text => ({ digest: () => hashes.get(text) || "changed" }) }) };
+  const realm = { crypto: fakeCrypto, path, process: { env: { TEMP: "X:\\temp" } }, fs: { readFileSync: file => files.get(file) }, sha256Fresh: file => hashes.get(files.get(file)) || "changed" };
+  vm.runInNewContext(source.slice(start, end) + "\nthis.verify=verifyG004StagedSlotWrapper;this.call=G004_STAGED_SLOT_CALL;", realm);
+  const turn = "01a208e7-8d3e-70d2-96de-c4c140b3278f", root = "D:\\GitRepo\\MCP\\zlk-cluster-orchestrator";
+  const context = { event: { payload: { turn_id: turn, cwd: root } }, position: 0 };
+  const call = { event: { payload: { type: "custom_tool_call", input: realm.call, internal_chat_message_metadata_passthrough: { turn_id: turn } } }, position: 1 };
+  const output = { event: { payload: { type: "custom_tool_call_output", internal_chat_message_metadata_passthrough: { turn_id: turn }, output: [{ text: "Script completed\nWall time 1 seconds\nOutput:\n" }, { text: JSON.stringify({ exit_code: 0, output: "exit=0 timedOut=False\n" + stdout }) }] } }, position: 2 };
+  const all = [context, call, output]; for (const [i, item] of all.entries()) { item.line = JSON.stringify(item.event); hashes.set(item.line, fixed[i]); }
+  hashes.set(stdout, fixed[3]); hashes.set("", fixed[4]);
+  const job = { file: "test/features/stagedSlotDeleteReview.test.js", argv: ["--test", "--test-force-exit", "--test-timeout", "20000"] };
+  const row = { callId: "call_b1b04a2117f2414d86e3a8a2060f426e", commandEventSha256: fixed[1], outputEventSha256: fixed[2], log: base + ".out.log", stderrLog: base + ".err.log", logSha256: fixed[3], stderrLogSha256: fixed[4] };
+  const verify = () => realm.verify(root, job, row, [call, output], [context]);
+  assert.doesNotThrow(verify);
+  assert.throws(() => realm.verify("D:\\other", job, row, [call, output], [context]), /invalid/);
+  assert.throws(() => realm.verify(root, { ...job, file: "other" }, row, [call, output], [context]), /invalid/);
+  assert.throws(() => realm.verify(root, { ...job, argv: ["--test"] }, row, [call, output], [context]), /invalid/);
+  const change = (item, mutate) => { const original = structuredClone(item); mutate(item); item.line = JSON.stringify(item.event); hashes.set(item.line, fixed[all.indexOf(item)]); assert.throws(verify, /invalid/); Object.assign(item, original); };
+  change(context, x => { x.event.payload.cwd = "other"; });
+  change(context, x => { x.event.payload.turn_id = "other"; });
+  change(call, x => { x.event.payload.input += " "; });
+  change(output, x => { x.event.payload.internal_chat_message_metadata_passthrough.turn_id = "other"; });
+  change(output, x => { const r = JSON.parse(x.event.payload.output[1].text); r.exit_code = 1; x.event.payload.output[1].text = JSON.stringify(r); });
+  change(output, x => { const r = JSON.parse(x.event.payload.output[1].text); r.session_id = 123; x.event.payload.output[1].text = JSON.stringify(r); });
+  for (const prefix of ["exit=0 timedOut=True\n", "exit=1 timedOut=False\n", "Warning: truncated output\n"]) change(output, x => { const r = JSON.parse(x.event.payload.output[1].text); r.output = prefix + stdout; x.event.payload.output[1].text = JSON.stringify(r); });
+  output.position = 0; assert.throws(verify, /invalid/); output.position = 2;
+  files.set(row.log, stdout + "changed"); assert.throws(verify, /invalid/); files.set(row.log, stdout);
+  files.set(row.stderrLog, "unexpected"); assert.throws(verify, /invalid/);
+});
+
 test("runner: attested jobs really overlap but never exceed maxParallel=2", async t => {
   const ws = makeWorkspace(t), mark = path.join(ws, "mark.log");
   const files = [];
