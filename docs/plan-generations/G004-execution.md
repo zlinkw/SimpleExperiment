@@ -14,7 +14,7 @@ G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 activ
 
 0.5.520 原 compile 8/8 gates exit0/tree confirmed、input=end，receipt `simple_cluster/reports/test-workflow/2026-11-22T18-17-42-383Z-84032-compile/run.json`；Panel模块及三真实script VM通过。生成物保留；该旧证不覆盖当前源码。原完整日志、10890搜索和只读进程短暂重叠及引号失败见 `fc571512:docs/plan-generations/G004-execution.md`。
 
-真实不利结果保留：B1 原断言失败、夹具污染致 20 秒 timeout，用户批准原预算一次复验 3/3 exit0；删除前 tsc exit2、71 emit，修正并删除后重验 exit0、emit2。首次大删除命令被平台 policy 拒且进程未创建；Get-Item 三处 Force 已移除，后按授权执行，平台未公开唯一命中原因。规划首次 0/1 因仍要求退休路径，修后 1/1；releaseAcceptance 首 0/1 因漏 onDemand，修后原预算复验 1/1。隐私测试首缺 capability 0/1、后 1/1；Worker 来源旧索引首 16/17 后 17/17、本地索引首 15/17 后 17/17、下载根路径两次 13/14 后 14/14；中立 RPC 7/8 后 8/8。候选补丁两次 CRLF exit1、一次 push 后 fetch TLS exit1，后按总控授权恢复。具体日志与其余失败见历史。
+不利结果保留：B1原失败及20秒timeout后用户准单次复验3/3；tsc首exit2；大删除首遭policy拒、进程未创建；规划、releaseAcceptance、隐私、Worker索引、下载根路径、中立RPC原失败后各自复验，以及CRLF两次失败、fetch TLS失败和恢复，精确结果和日志见 `faffeffc:docs/plan-generations/G004-execution.md`。
 
 runner 增量开发曾有 OOM、解析误拒、临时 JSON 错误、依赖 drift 及旧 mcpWorkerHistory 日志被覆盖；原事件、已修状态与不重跑裁决见 `8ed64825:docs/plan-generations/G004-execution.md`。
 
@@ -98,3 +98,5 @@ SFTP server activate/save/delete 逐工具复核 schema、人工 modal 和同根
 复核 `sftp_download_paths` 时发现 Host 原接受绝对路径，下游会剥前导斜杠改解释为项目相对路径；现于公开输入边界拒绝绝对、盘符及越界路径，后端原路径限制不变。关联 upload_files/workspace 的范围、授权和假后端逐项记录在coverage。原单文件17/17 exit0、816ms，日志 `%TEMP%/g004-mcp-download-path-validation-20261123.*.log`，仅自建夹具，未连接真实Worker或传输。一次压缩补丁未匹配、写前退出。
 
 SFTP tree、tree_state、inventory逐项核Gateway、Host与已装SFTP路径检查；原假端口回归复用上条日志。此三只读工具当前不声明权限类别，只绑定配置Worker/项目；未访问真实Worker或计算远端哈希，范围不足见coverage。
+
+SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories发现Host无条件附confirm/pathConfirmed，而已装SFTP要求确认；当前工具无权限或真人确认，已交总控裁决，未访问真实服务器或改该入口。一次压缩补丁未匹配、未写入。

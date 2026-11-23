@@ -11704,6 +11704,7 @@
           "name": "sftp_file_stats",
           "method": "sync.projectFileStats",
           "oldEvidence": "projectTools[name=sftp_file_stats]",
+          "currentReview": {"status":"mock_scoped_remote_restricted","evidence":"Worker及paths经Gateway和Host透传，假端测试见 %TEMP%/g004-mcp-download-path-validation-20261123.*.log；已装SFTP源码限制文件数、相对路径、符号链接和项目根。","boundary":"此只读工具不声明权限类别；未查询真实Worker或文件。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11712,6 +11713,7 @@
           "name": "sftp_plan_logs",
           "method": "sync.planLogPaths",
           "oldEvidence": "projectTools[name=sftp_plan_logs]",
+          "currentReview": {"status":"mock_scoped_remote_restricted","evidence":"Gateway/McpHost传递精确Worker、Plan和statePath；原假端测试 %TEMP%/g004-mcp-download-path-validation-20261123.*.log。已装SFTP源码限定状态目录、校验Plan并限定返回日志路径。","boundary":"此只读工具不声明权限类别；未查询真实任务或日志。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
@@ -11744,6 +11746,7 @@
           "name": "sftp_remote_directories",
           "method": "remote.listDirs",
           "oldEvidence": "projectTools[name=sftp_remote_directories]",
+          "currentReview": {"status":"confirmation_gap_pending_decision","evidence":"Gateway仅核Worker存在；Host虽限定远端根内相对路径，却无条件附 confirm/pathConfirmed。已装SFTP的remote.listDirs要求此确认；假端测试仅核路径透传及越界。已将确认路径缺口交总控裁决。","boundary":"禁止实际远端查询；未改授权、配置或此入口，不能称确认链通过。"},
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
           "boundary": "已记录假SFTP代理和授权边界；真实SFTP文件/服务器效果未测。"
