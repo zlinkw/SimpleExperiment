@@ -25191,8 +25191,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const report = await runProjectStaticCheck(script, root, signal);
         if (workspaceRoot() !== root || signal.aborted) return;
         await this.refreshCheckStaticReports(root);
+        if (workspaceRoot() !== root || signal.aborted) return;
         const full = safeWorkspaceChildPath(root, rel);
-        const stat = await fs.stat(full).catch(() => undefined);
+        const stat = await fs.stat(full).catch((error) => {
+            if (workspaceRoot() !== root || signal.aborted || error?.code === "ENOENT") return undefined;
+            throw error;
+        });
+        if (workspaceRoot() !== root || signal.aborted) return;
         if (!stat || !stat.isFile())
             throw new Error(`静态检查未生成报告：${rel}。`);
         const overall = report.overall;

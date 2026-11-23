@@ -1,6 +1,6 @@
 # G004 执行登记
 
-本文件cap12000/90%=10800。本次压缩前完整记录见 `60657928:docs/plan-generations/G004-execution.md`，更早见 `17692f55`、`55b48068`、`8f04bd1f`、`e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
+本文件cap12000/90%=10800。本次压缩前完整记录见 `daffe414:docs/plan-generations/G004-execution.md`，更早见 `60657928`、`17692f55`、`55b48068`、`8f04bd1f`、`e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
 
 ## 当前边界与历史交付
 
@@ -8,9 +8,7 @@
 
 520历史交付：构建f66d3694、13 gates通过，包2919747字节/SHA256 aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba；试行tag绑定7bf49ba8、非Latest，远端资产一致，安装一次exit0及DEP0169；闭包/Panel/10890、专用窗口只读UI/MCP及首坐标失败见 `cee2e38d:docs/plan-generations/G004-execution.md`、`86e35b7b`/`0a662506`和coverage。未查Worker/GPU/tmux；后续源码未build或部署。B1首失败及20秒timeout、TS首exit2、删除policy拒绝、runner OOM/漂移/旧日志覆盖、各夹具失败及恢复、fetch TLS失败及误重复/按需误运行原证据见 `43efb031`；误运行不计覆盖，历史工具链/skip及文件缺口未知。
 
-首次新编译后仅按已准原20秒运行resultSyncFailureVisibility、jobArtifactStagedSlotIdentity及planRunIsolateRerun精确项；stage review已注册既有域，v4测试后stop改动不在提取方法内。固定历史Process包装验证器13284446已审，未锚定1/1不冒最终锚定argv；原317/369规划过期，未build。原事件/旧hash未知与日志 `g004-runner-stage-wrapper-v1-20261123.log` 见 `cee2e38d:docs/plan-generations/G004-execution.md` 和coverage。
-
-替换隔离E批 `16ade9d3` 原caller贯通预览/确认/发送/索引，A回执先保存且同ID观察串行；VM假端 `g004-plan-cleanup-context-v1-20261124.{out,err}.log` 8/8 exit0，不证真实删除/CAS或非managed、fast delete/restore/history通用闭包；最终按既有runner fresh。原索引补丁v1误识别hunk头及coverage两次行选择均写前exit1，v2及限定current后成功，另只读rg错误；细节见 `cee2e38d:docs/plan-generations/G004-execution.md`。
+新编译后仅按已准范围运行结果及隔离消费者；固定stage包装原Process、替换隔离E批假端、首次索引/coverage失败及原日志详见 `daffe414:docs/plan-generations/G004-execution.md` 与coverage。原规划过期；未build、真实删除或证明通用fast delete/restore/history。
 
 合法宽CSV误选long导致0记录，预览现传原文与映射、仅统计有指标记录，显式metric/value、alias和0值原6/6 exit0，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`；首失败见 `18f587b2`。真实RAF同心跳ACK与Host停滞保护候选原11/13失败，修复并按本人批准修夹具后13/13，Host 6/6；日志 `g004-render-probe`、`g004-render-full-current`、`g004-render-host-progress`，均在TEMP且保留。仍须当前build及实际render脚本VM，旧316 job规划已过期。
 ## 当前补充调查
@@ -90,3 +88,5 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 
 自动恢复：同项目已有自动请求若controller已取消，不复用其取消回执；未取消查询及manual读者可继续共享，已无reader时新读等待旧请求收尾。原full3 call_ae84ba2175884c8eaa70ec5d7be6727f 3/3、628.5799ms、literal exit0/no session/skip0，真实服务实例配fake collect/deferred；无真实文件写/Worker/网络/删除/Python。总控仅按该分支实际输入审核旧resultCollectionProjectContext full4的ResultHost适用736d→8506，保旧执行快照，非重跑或新dist。
 总控计划首次写后16255触发90%阈值校验exit1且误报低于阈值；执行者暂停暂存，待总控语义压缩至15787并UTF8复读通过后继续。
+
+静态检查core等待列表与stat后复核原root/signal，旧项目晚到不发当前界面；报告stat只将ENOENT当缺失，当前EACCES/EIO保原错。focused原full4 call_02d1cf7181be4a938e5f10c317074c5f 4/4、1821.6334ms、literal exit0/no session/skip0；真实core AST配fake执行/FS/UI，不运行真实检查或写文件。原事件、实际输入及事后日志见coverage；总控仅准九组旧证legacy适用cc61→9918，保原运行快照。总控首次按错误事件类型只读筛选无匹配exit1，后以call_id核原事件；非测试失败或通过。
