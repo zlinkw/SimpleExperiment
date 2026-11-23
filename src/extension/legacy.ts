@@ -21294,10 +21294,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return;
         const changedWrites = plannedWrites.filter((write) => write.status !== "unchanged");
         const writeResults = [];
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext))
+                throw new UiCommandCancelled("工作区已切换，输出接入模板写入已取消。");
+        };
         for (const write of changedWrites) {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
-            const result = await writeWorkspaceTextWithBackup(write.fullPath, write.text);
+            const result = await writeWorkspaceTextWithBackup(write.fullPath, write.text, assertCurrent);
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             writeResults.push(result);

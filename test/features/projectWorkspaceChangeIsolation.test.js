@@ -341,6 +341,35 @@ test("output adapter generation cannot continue in a replacement workspace", () 
   assert.match(generate, /const readmeUri = workspaceEditorUriForFile\("experiments\/simple_adapter\/README\.md"\);\s*const readmeDocument = await vscode\.workspace\.openTextDocument\(readmeUri\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await vscode\.window\.showTextDocument\(readmeDocument/);
 });
 
+test("output adapter stops its current file write when the project changes during preparation", async () => {
+  const vm = require("node:vm"), ts = require("typescript");
+  const method = methodBody("async generateOutputAdapterFromUi", "async saveProjectAdapterRulesFromUi");
+  const start = source.indexOf("async function writeWorkspaceTextWithBackup(");
+  const end = source.indexOf("// Backups are plugin-owned", start);
+  assert.ok(start > 0 && end > start);
+  const root = path.resolve("adapter-fixture"), calls = [];
+  let current = true;
+  const context = {
+    path, workspaceRoot: () => root, safePlanToken: value => value,
+    UiCommandCancelled: class UiCommandCancelled extends Error {},
+    fs: { mkdir: async () => { calls.push("mkdir"); current = false; },
+      readFile: async () => { calls.push("read"); return "old"; },
+      writeFile: async () => { calls.push("backup"); } },
+    nextWorkspaceBackupSlot: async () => { calls.push("slot"); return "backup"; },
+    atomicWriteText: async () => { calls.push("publish"); },
+    previewAndConfirmWorkspaceWrites: async (_root, writes) => [writes[0]].map(write => ({ ...write, status: "updated" })),
+  };
+  vm.createContext(context);
+  const code = source.slice(start, end) + "\nclass Host {" + method + "}\nthis.Host = Host;";
+  vm.runInContext(ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
+  const host = new context.Host();
+  host.captureProjectContext = () => ({ root });
+  host.projectContextIsCurrent = () => current;
+  host.loadProjectAdapterTemplateFiles = async () => ["result_writer.py", "__init__.py", "collect_results.py", "console_parser.py", "factory_hooks.py", "run_wrapper.py", "README.md", "claims.md", "output_contract_guide.md"].map(relativePath => ({ relativePath, text: "fixture" }));
+  await assert.rejects(host.generateOutputAdapterFromUi(), /工作区已切换/);
+  assert.deepEqual(calls, ["mkdir"]);
+});
+
 test("project adapter rule saves cannot continue in a replacement workspace", () => {
   const save = methodBody("async saveProjectAdapterRulesFromUi", "async loadProjectAdapterTemplateFiles");
   assert.match(save, /const projectContext = this\.captureProjectContext\(\)/);
