@@ -10567,6 +10567,7 @@
         },
         {
           "id": "panel:refreshJobArtifacts:1",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"job行传planId/jobIndex/commandId，刷新为verifyOnly；旧内存消费者验证0索引和身份4/4。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "oldReference": "g004U04RemainingInventory.panelCommandActions[name=refreshJobArtifacts]; dynamicPayloadVariants[commands包含该名称]",
           "scope": "local_partial_evidence_real_effect_restricted",
           "boundary": "只复用明确列出的本地或假对象行为；未实际执行Worker、任务、SSH、Agent、外部发布或关闭",
@@ -10574,6 +10575,7 @@
         },
         {
           "id": "panel:refreshJobArtifacts:2",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"PLAN行传planIds，刷新为verifyOnly；源码只选完成协议2 job，缺失PLAN拒绝。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "oldReference": "g004U04RemainingInventory.panelCommandActions[name=refreshJobArtifacts]; dynamicPayloadVariants[commands包含该名称]",
           "scope": "local_partial_evidence_real_effect_restricted",
           "boundary": "只复用明确列出的本地或假对象行为；未实际执行Worker、任务、SSH、Agent、外部发布或关闭",
@@ -10581,6 +10583,7 @@
         },
         {
           "id": "panel:retryJobArtifactSync:1",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"job行传planId/jobIndex/commandId，重试verifyOnly=false；旧内存消费者验证精确身份4/4。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "oldReference": "g004U04RemainingInventory.panelCommandActions[name=retryJobArtifactSync]; dynamicPayloadVariants[commands包含该名称]",
           "scope": "local_partial_evidence_real_effect_restricted",
           "boundary": "只复用明确列出的本地或假对象行为；未实际执行Worker、任务、SSH、Agent、外部发布或关闭",
@@ -10588,6 +10591,7 @@
         },
         {
           "id": "panel:retryJobArtifactSync:2",
+          "currentReview": {"status":"source_and_prior_fake_scoped","evidence":"PLAN行传planIds，重试为实际同步分支；源码限制完成协议2 job和勾选范围。 旧证见panelCommandActions。","boundary":"未读取当前真实任务或同步Worker；PLAN批次不冒称由job单项假验证覆盖。"},
           "oldReference": "g004U04RemainingInventory.panelCommandActions[name=retryJobArtifactSync]; dynamicPayloadVariants[commands包含该名称]",
           "scope": "local_partial_evidence_real_effect_restricted",
           "boundary": "只复用明确列出的本地或假对象行为；未实际执行Worker、任务、SSH、Agent、外部发布或关闭",
