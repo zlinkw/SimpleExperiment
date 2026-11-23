@@ -95,13 +95,13 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 SFTP server activate/save/delete源码及假后端范围见coverage；后两项复用17/17 `%TEMP%/g004-520-mcp-sftp-routing-20261123.log`，无真实配置变更或删除。
 
-复核 `sftp_download_paths` 时发现 Host 原接受绝对路径，下游会剥前导斜杠改解释为项目相对路径；现于公开输入边界拒绝绝对、盘符及越界路径，后端原路径限制不变。关联 upload_files/workspace 的范围、授权和假后端逐项记录在coverage。原单文件17/17 exit0、816ms，日志 `%TEMP%/g004-mcp-download-path-validation-20261123.*.log`，仅自建夹具，未连接真实Worker或传输。一次压缩补丁未匹配、写前退出。
+`sftp_download_paths` 原接受绝对路径并被下游误解释为相对路径；现拒绝绝对、盘符及越界输入。关联上传范围和授权见coverage；假后端17/17 exit0 `%TEMP%/g004-mcp-download-path-validation-20261123.*.log`，无真实传输。一次压缩补丁未匹配、写前退出；原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 SFTP tree、tree_state、inventory源码及假端口范围见coverage；三只读工具未声明权限类别，仅绑定Worker/项目，未访问真实Worker或计算远端哈希。
 
 SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories原无条件附confirm/pathConfirmed且缺授权，已按总控裁决改为sync项目授权、根内精确目标及调用前项目/Worker快照复核；假Gateway/Host 18/18 exit0，`%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`。已装120确认函数仅提取VM核缺失/部分/完整因子3/3，`%TEMP%/g004-sftp120-confirmation-vm-20261123.log`。未改真实grant或访问远端。一次压缩补丁未匹配、未写入。
 
-逐位置检查静态报告打开两处与复制一处、相应invoke及命令别名；Host路径及缺失/权限错误的真实方法VM回归3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`。成功打开/复制和链接目标未实测，不操作真实剪贴板。
+静态报告打开两处、复制一处及对应invoke/命令别名：路径与错误VM 3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`；成功打开/复制及链接目标未实测。
 
 草稿审核/拒绝写入后若刷新抛错或保存错误，原UI及拒绝API可能报完成；现UI复用项目绑定API，明确报告“已写入但刷新失败”，不自动重发。方法VM/假写入6/6 exit0 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`，原生命周期49/49 exit0 `%TEMP%/g004-draft-action-lifecycle-final-20261123.*.log`；夹具补齐真实Host已有状态，无真实草稿写入。
 
@@ -110,3 +110,5 @@ SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校�
 用户指出草稿机制已移除，立即停止草稿相关新调查、验证和实现；前述检查源自旧母集及保留兼容入口，不能当作当前功能。范围由总控统一裁决，不删除文件。
 
 MCP task_stop 在登记意图期间若撤销授权或更改Worker配置，原实现仍可发送停止；现发送前重核experiment授权及快照，未知保留意图。假Gateway/Host 3/3 exit0 `%TEMP%/g004-task-stop-auth-complete-20261123.*.log`；首次夹具不存在路径ENOENT及随后实际缺少拒绝的复现均exit1，分别保留 `g004-task-stop-auth-first`、`g004-task-stop-auth-repro` 日志。未访问真实Worker。
+
+SFTP传输观察与取消分别核原操作身份、授权及未知/取消中转发，复用假后端18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`；实际归属核对和传输终态未验。三次只读rg路径猜错/Windows通配符失败未改产品。

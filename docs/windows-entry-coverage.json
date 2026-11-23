@@ -11665,6 +11665,7 @@
         {
           "name": "sftp_transfer_reconcile",
           "method": "transfers.reconcile",
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"只观察原operationId及可选instance，按当前项目根转发，不自动重试；假后端notFound/settled=false与参数保留复用 %TEMP%/g004-mcp-remote-directories-auth-20261123.*.log。","boundary":"未查询真实传输；下游实际归属及终态未验证。"},
           "oldEvidence": "projectTools[name=sftp_transfer_reconcile]",
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
@@ -11673,6 +11674,7 @@
         {
           "name": "sftp_transfer_cancel",
           "method": "transfers.cancel",
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"Gateway要求sync授权，传原operationId及可选instance/transferId，不自动再发；假后端cancelling与撤权拒绝复用 %TEMP%/g004-mcp-remote-directories-auth-20261123.*.log。","boundary":"下游实际归属核对和异步取消结果未验；未触真实传输。"},
           "oldEvidence": "projectTools[name=sftp_transfer_cancel]",
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
