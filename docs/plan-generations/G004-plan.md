@@ -8,7 +8,7 @@
 
 ## 唯一角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续5》01a209ee-098a-7d91-8c44-c6242f9970bd/local，resolved/turn均Sol/high/default、match/continue，已完整读取交班及必要原材料。旧总控01a2097a在6次压缩、第五次后峰301183自然交班，明确释放plan/README/最终审查，无在途；已核其turn completed/idle，归档前须核原rollout引用安全。更早01a2040c已安全归档，交权见87120df3/43efb031/e8bc27fe；tier只记录，轮换不重置任务/授权。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续5》01a209ee-098a-7d91-8c44-c6242f9970bd/local，resolved/turn均Sol/high/default、match/continue，已完整读取交班及必要原材料。旧总控01a2097a在6次压缩、第五次后峰301183自然交班，明确释放plan/README/最终审查，无在途；已核turn completed/idle、coverage无原rollout引用且docs/scripts仅计划历史身份，归档成功。更早01a2040c已安全归档，交权见87120df3/43efb031/e8bc27fe；tier只记录，轮换不重置任务/授权。
 
 唯一执行现为01a209da-8e0d-7381-b4e5-e2d6c9c8d768/local，Terra/high/default、resolved/turn match/continue，已完整读材料并实核两仓。旧01a208e7在7次压缩、第五次后峰300656自然交班，明确释放全部产品/测试/execution/coverage及两仓串行Git、无在途；总控更新本指针后同范围独占移交新执行。总控仍只持plan/README、协调/最终审查。不索普通ack/重派/加代理；依全局事件协调，总控无独立待办且仅等完整包时角色空闲，执行有工作继续。旧turn完成及rollout引用安全核后才归档不删，路径不能伪造成新证据。
 
@@ -99,6 +99,8 @@ runner旧35锚定jobs255..287/290/291＋direct af4ee4a9/0ebf2208，原1e91的38b
 Agent旧af809d70→当前4cd5364e差异限定清理四方法/常量，runtime等import未改；已审24旧job+14direct仅该依赖适用。原31Windows skip、68外部JS未知、219历史超时/工具链unknown及首AST插值读取失败保6117fd49/execution，不批签其它依赖/新能力。
 
 SFTP当前73文件证据未齐：120原69/466仅aggregate、逐日志目录空，119有56日志13缺，Node/Python/WSLunknown。已审补验apiBackpressure4/4、apiUploadProgress4/4、cleanupExplicitTarget1/1均exit0，分别假SSE/假spawn/VM假SSH；最后仅生成Python字符串未启动Python。旧逐闭包适用不由新单项合成完整包通过。原日志、真实退出和未测保留。
+
+接续5定向源审：SE syncScopeStagingIdentityWiring 08cc(4)、planBatchCodeSyncOnce 8219(8)、serverPlanQueueRecovery ceb0(4)原事件exit0/日志SHA亲核；漂移基线1e91与原snapshot一致，两retain方法/proof helper/cleanupRelative实际AST均存在且相同，slot helper及隔离账本变更未进入fixture，Queue仅可选recall字段。仅这些依赖有条件适用，第四sync及queue动态仍旧dist，不冒新编译。SFTP119 mapped脚本字符串case、transferRecovery两静态及前九只读恢复case，完整断言/Map假存储/假localProof及原日志已核，所用方法/常量与119归一相同；仅这12项条件继承，不外推整文件/73文件或实际SSH/Python/进程，工具链未知保留。只读误查不存在的src/transfer-settlement、lib/src及api-request-context路径已纠正，无写入。
 
 最终稳定HEAD/输入后，planning289原精确pattern唯一fresh一次，新runner仅锚定 ^runner: G004 staged slot fixed wrapper evidence$ finalfresh。新dist后resultSyncFailureVisibility及jobArtifactStagedSlotIdentity原20秒各单文件一次；五旧隔离消费者仅指定case不整world。F的mcpProject仅锚定 ^routine cleanup queries need no extra Codex prompt$ 新dist后20秒一次：私有mkdtemp保留/假端/配置生成读新目录，无网络删除；适配断言随F提交不冒当前已验。Panel须真build＋模块/真实渲染脚本VM/node-c、10890零命中，未经门禁不提交。其余动态先审效果。
 

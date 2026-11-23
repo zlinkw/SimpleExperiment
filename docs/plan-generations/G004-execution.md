@@ -84,3 +84,5 @@ MCP旧证撤回：总控漏核optionalApi的live.output错误分支，Active/Per
 MCP完整identity源码假端literal direct：dispatch 5/5、SFTP routing 20/20、ordinary results 8/8、preflight 3/3，均exit0无skip/timeout；原call及输入见coverage，TEMP/g004-mcp-*-direct-v1-20261124.log为事后从原事件提取stdout，未真实访问Worker/传输/授权。旧四行降历史。登记时首次误匹配历史与current两行写前退出1，限定current后成功。
 
 SFTP mappedBatchDownload仅一个wrapper内存拒绝case经总控审旧119日志及实际闭包有条件继承，工具链未知/120逐项日志缺，余24项未审；未运行真实传输。比较首因仓内缺TypeScript报MODULE_NOT_FOUND，随后借现有TS；首CRLF未归一误报差异，归一后相同。本记录归并首脚本因段首空行断言exit1、写前停止，修正后写入。
+
+总控接续5审定：SFTP旧119再按当前闭包有条件继承mapped脚本文本一项及transferRecovery只读九项/静态两项；均假端或静态，无真实进程/SSH/Python，旧工具链未知、120逐项日志缺，余项仍未审。SE三旧direct只更新实际漂移依赖适用摘要，保原call及旧dist限制。总控只读定位三次误路径已纠正，无写入。
