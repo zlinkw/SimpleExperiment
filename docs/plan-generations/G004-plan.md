@@ -4,13 +4,13 @@
 
 2026-11-22用户最新要求：复用已查证据，把剩余单项目界面、按钮、功能及MCP逻辑一次查清修完；先迁出MCP共用逻辑，再彻底退役业务CLI入口/专用代码。所有可独立完成的源码、必要消费者、测试和文档先做到可审，最后集中列出确需本人确认的精确删除、测试退役/替代及复验事项，再统一验收交付。不得因单项发现或普通测试失败停整批，不逐项发版；单项目正常后才处理跨项目延期。这是原G004一个完整业务批次，内部每组≤3强相关问题、≤8非生成源/测试/文档文件，验证后scoped FF提交，不把完整目标缩成一组或巨型提交。
 
-本轮0.5.520源码、最终增量package、试行发布及一次安装已完成。原构建HEAD f66d36946ade4b911a75636d6f2fc1f28c65111b；发布tag/源码提交7bf49ba84802df56821b098b440b289d3d3eb61e；磁盘已装520，运行中Host未重载，不能称已运行520或新UI通过。39文件删除/获批测试迁移、B1唯一3/3和所有规定门禁已完成；361项覆盖按125历史＋235原direct＋1fresh记录，6按需未跑，2历史超时按本人精确例外保留。待本人Developer: Reload Window后续新Host/UI验收；真实Worker、跨项目及原受限效果未测，不宣称G004所有按钮/外部功能已通过。
+本轮0.5.520源码、最终增量package、试行发布及一次安装已完成，精确凭据见末节。2026-11-23本人已报告重载，明确继续新版本单项目界面与MCP验收、复用有效证据，真实Worker及跨项目限制不变，完成后统一汇报。当前只确认磁盘520，尚须实核重载后的Host/项目身份、稳定MCP入口及实际界面；不把本人重载报告等同新UI验收通过，不重复build/package/安装。
 
 本计划集中语义压缩于30a5d6e0后；完整此前计划可从Git 30a5d6e0同路径读取，原调查/修法/失败不被抹除。进一步原材料见59041060、89498eff同计划及下列现行证据；不另建tracker或重复报告。plan cap18000/90%=16200，execution cap12000/90%=10800；接近阈值整体压缩，保留未决与真实失败。
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。现总控仅最终文档同步，执行停止UI等待本人重载。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default，resolved与实际turn已实核match/continue，独占本计划/README。唯一执行01a20584-8cbd-7383-8626-4997e9d2dacc/local，Terra/high/priority，资格实核后承接；本轮包、发行、安装已交完整包且释放scoped Git，无在途。总控同步本次阶段边界后一次完整派单，释放API/MCP/UI/必要测试、execution/coverage及scoped Git给该执行者；总控不并发操作同一实例。只保留两角色，不另建验收者；service_tier仅记录。旧总控01a1fdb5及旧执行01a203b9/01a204cc均按caveman自然阈值完整交班并归档不删除，真实峰值/资格/租约与基线详见Git 7bf49ba8同计划、6a2cf63c和execution；接替不重置任务/许可或有效证据。
 
 总控无独立待办、仅等完整包/必要决定时按全局事件协调合法结束本轮，不能轮询/催进度；执行者仍有授权可做工作不得套用空闲。必要消息默认无回执。未知在途动作先核归属与结果，不重放。当前原仓是普通Windows工作区，非Pi/自制容器/项目管理器，不触发worktree PR。master追踪origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git；逐组检查diff、UTF8、必要验证后精确stage，普通commit/push/fetch核HEAD一致。remote前进、认证/hooks/同步失败停相关Git升级，不amend/rebase/reset/merge/force/改remote，不stage日志、夹具、无关未跟踪资产。0aa6b27c push后fetch TLS unexpected EOF exit1，经总控精确一次恢复fetch exit0核一致，非通用重试许可。
 
@@ -100,7 +100,7 @@ J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未�
 
 2026-11-23用户明确批准现有打包器支持本任务逐项核对“仍有效旧结果＋本轮补验”，保留完整覆盖/原日志/失败阻断，不恢复通用测试缓存。已实现--g004-incremental，仅本仓package/max-parallel1，原schema2与普通入口不变；任务schema3区分原receipt继承、原direct实际输出和本轮fresh，核identity+argv、依赖/外部输入、日志与事件SHA、真实结算、当前工具链/输入/选择/产物及全部required gates。旧工具链/原工作树精确字节未知的条目仅经人工适用审定，不伪填为同工具链、精确旧字节或fresh。
 
-阶段源码基线cb44bd81406445719519f42c44ac329aa6d4d38b=origin/master=FETCH_HEAD。实际planEntry为361 active＋6 onDemand；123历史人工继承、235原direct已被planner逐项接受，3未覆盖，不冻结未来数量。6按需未运行、不计通过；历史031为0pass/1skip、165为5pass/1skip、37为40pass/1skip；340原34项只继承当前保留30项，4CLI项按既有批准退休。68原parity证明选定Python核心及JS两个拒绝边界，非原JS全文件身份；69原外部py根/字节未记录，按本任务人工推断适用，原未知保留，不自动扩用。7旧删锁job264/265/267/268/269/271/274仅继承未改安全逻辑，不当前执行真实删除。
+cb44bd81的三缺口准备状态已由最终凭据取代，原记录保留该提交。历史031为0pass/1skip、165为5pass/1skip、37为40pass/1skip；340原34项只继承现存30项，4CLI项按批准退休。68原parity只证明Python核心及JS两拒绝边界；69外部py根/字节未知，仅本任务人工推断适用。7旧删锁job264/265/267/268/269/271/274只继承未改安全逻辑，不当前执行删除。
 
 收尾时原三项缺口：旧job219 gpuCollectorFrame，原11/11、exit0/tree，但20857.309ms；旧job284 assemble逐项凭据，原passed/0/tree，但20119.841ms。两者均超过20秒，原记录完整保留。2026-11-23用户明确批准仅作为本任务历史功能覆盖，可据此登记人工继承；不重跑、不扩大未来20秒限制，不改原duration/退出码/tree状态。第三项job289为real-repo plan独立对账原精确pattern，已在最终package内按原20秒唯一fresh运行一次；未先直跑再登记或重复跑，运行冻结真实构建HEAD/selection并在assemble前复核。总控源审后已按本人授权登记两项例外并完成下列最终package/试行/安装，未减门禁。
 
@@ -119,3 +119,7 @@ https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.520 实际prereleas
 唯一npm run install:latest exit0，TEMP/g004-520-install-20261123.log，安装前519/无520，安装后code与磁盘package.json均520，保留DEP0169 warning。simpleex-mcp.cmd→稳定launcher/resolver与已装bin字节相同，520 dist/mcp/server.cjs存在；未运行动态resolver连接旧Host，未使用退役simpleex查版本。安装后停止面板操作，用户须本人Developer: Reload Window。真实Worker/SSH/Agent/tmux/GPU/训练/永久删除、新UI均未验；未自动部署Agent。交付阶段完成，UI及原外部/跨项目延期保留，不能以本包覆盖总数冒所有真实功能通过。
 
 执行完整收包及原失败保存在现execution/coverage、cb44bd81等原Git历史；无新增报告。总控仅同步本计划/README与执行者补齐的实际交付记录；该文档提交不改变已发布不可变tag/VSIX，也不触发再build/package/安装。后续仅根据本人重载/真实反馈接续适用工作，不后台保活或自动重放。
+
+## 重载后单项目验收阶段
+
+基线f9d37425，已发布520及原凭据不改。唯一Terra先核实际发现/Host版本及上述专用根，发现其他稿件窗口不调用。读取匹配实例health/capabilities/OpenAPI后，以真实稳定MCP入口核握手、工具目录和经源码审定的本地只读工具；状态/授权/选择/配置持久化按519实机证据比较，不发送潜在Worker查询。真实界面沿silent-ui-screenshot，须证明不抢焦点的现有机制，不能用VM/静态HTML充当原生UI；没有能力先报具体缺口，不启动可见宿主或造截图框架。依现coverage逐项复用、补当前Host/UI缺口；不重跑完整测试或远端效果。执行完整交包包含真实输入、身份、证据、失败/受限与仍待验项后释放同实例租约，总控仅补必要最终缺口并统一交付。新真实问题在原授权内有界查修，不因局部阻塞停止其余可做项。
