@@ -9,17 +9,23 @@ export async function resourceAvailable(): Promise<number> {
 }
 
 function availableResources(snapshot: unknown, busyWorkers: Set<string>): Array<Record<string, unknown>> {
-  const root = asRecord(asRecord(snapshot).gpu || snapshot);
+  const source = asRecord(snapshot);
+  const root = asRecord(source.gpu || snapshot);
   const rows: Array<Record<string, unknown>> = [];
   for (const [serverId, value] of Object.entries(root)) {
     if (["source", "gpuHistory"].includes(serverId)) continue;
+    const server = asRecord(value);
+    const unavailable = source.source === "offline_import" || server.staleFromCache === true
+      || ["stale", "offline", "unknown", "error", "conflict", "degraded"].includes(String(server.status || "").toLowerCase());
     for (const gpu of gpuRecords(value)) {
       const id = String(gpu.index ?? gpu.gpu_index ?? gpu.id ?? "");
       const utilization = finiteNumber(gpu.utilizationPercent ?? gpu.utilization ?? gpu.gpuUtilPercent);
       const processes = Array.isArray(gpu.processes) ? gpu.processes.length : finiteNumber(gpu.processCount);
       const workerBusy = busyWorkers.has(serverId) || busyWorkers.has(String(gpu.workerId || ""));
       let available = "unknown", reason = "utilization_unknown";
-      if (processes !== null && processes > 0) {
+      if (unavailable || gpu.staleFromCache === true) {
+        reason = "telemetry_unavailable";
+      } else if (processes !== null && processes > 0) {
         available = "false"; reason = "process_present";
       } else if (workerBusy && id === "") {
         available = "false"; reason = "worker_running";

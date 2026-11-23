@@ -98,8 +98,9 @@ test('query runtime parsers retain existing training and identity semantics',()=
 
 test('MCP resource availability preserves the prior structured query',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'g004-mcp-resource-'));
+ let telemetryStatus;
  const rpc=async method=>{
-  if(method==='gpu.list')return {gpu:{workerA:{gpus:[{index:0,utilizationPercent:0,processCount:0},{index:1,processCount:2}]}}};
+  if(method==='gpu.list')return {gpu:{workerA:{status:telemetryStatus,gpus:[{index:0,utilizationPercent:0,processCount:0},{index:1,processCount:2}]}}};
   if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};
   if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method);
  };
@@ -107,6 +108,9 @@ test('MCP resource availability preserves the prior structured query',async()=>{
   {server:'workerA',gpu:'0',available:'true',reason:'utilization_below_5',utilization:0},
   {server:'workerA',gpu:'1',available:'false',reason:'process_present',utilization:''}
  ]);
+ telemetryStatus='stale';
+ assert.deepEqual((await queryProject(root,rpc,'resource_available',{})).map(row=>[row.available,row.reason]),
+  [['unknown','telemetry_unavailable'],['unknown','telemetry_unavailable']]);
  await assert.rejects(queryProject(root,async method=>{
   if(method==='tasks.list')throw support.businessError('task query rejected');
   return rpc(method);

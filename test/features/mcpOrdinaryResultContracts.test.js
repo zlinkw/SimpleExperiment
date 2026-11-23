@@ -28,6 +28,16 @@ test("resource query surfaces task refusal and preserves genuinely idle zero val
   await assert.rejects(call(), /task query rejected/);
   fail = false; assert.equal(await call(), 0);
   assert.equal(output[0].available, "true"); assert.equal(output[0].utilization, 0);
+  const gpu = { worker: { status: "stale", gpus: [{ index: 0, utilizationPercent: 0, processCount: 0 }] } };
+  assert.equal(globals.availableResources({ gpu }, new Set())[0].available, "unknown");
+  assert.equal(globals.availableResources({ gpu }, new Set())[0].reason, "telemetry_unavailable");
+  gpu.worker.gpus[0].processCount = 2;
+  assert.equal(globals.availableResources({ gpu }, new Set())[0].available, "unknown");
+  gpu.worker.status = "degraded";
+  assert.equal(globals.availableResources({ gpu }, new Set())[0].available, "unknown");
+  gpu.worker.status = "online";
+  assert.equal(globals.availableResources({ source: "offline_import", gpu }, new Set())[0].available, "unknown");
+  assert.equal(globals.availableResources({ gpu }, new Set())[0].available, "false");
 });
 test("metric show rejects a missing result but preserves empty and zero metrics", async () => {
   let row, output;

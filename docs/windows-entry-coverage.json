@@ -12024,6 +12024,7 @@
         },
         {
           "name": "resource_available",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"gpu.list 返回缓存状态；查询现将明确 stale/offline/unknown/error/conflict/degraded 或 offline_import 判为 unknown。假RPC及真实查询方法 1/1：%TEMP%/g004-resource-stale-gateway-20261123.*.log；源码函数定向 1/1：%TEMP%/g004-resource-degraded-20261123.*.log，均exit0。","boundary":"未调用真实GPU、任务或Worker；缺少状态或旧时间戳本身未证明新鲜，未增加主观时限。当前源码待构建，已安装版本未修复。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=resource_available]",
           "scope": "local_gateway_plus_worker_effect_restricted",
