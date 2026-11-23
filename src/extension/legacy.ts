@@ -2787,6 +2787,7 @@ export class RealtimeTunnelPanelProvider {
 }
     async readWorkerTaskSnapshot(workerId, options: { signal?: AbortSignal; fresh?: boolean; inventoryOnly?: boolean; executionOnly?: boolean; declarations?: any[]; excludeVerifiedCompleted?: boolean } = {}) {
         const root = workspaceRoot();
+        const client = this.client;
         const cacheKey = `${root || ""}\u0000${workerId}`;
         if (options.signal?.aborted) throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
         const generation = this.client?.clients?.get(workerId)?.progressGeneration ?? 0;
@@ -2801,6 +2802,7 @@ export class RealtimeTunnelPanelProvider {
         if (shared?.controller?.signal?.aborted) {
             await shared.promise.catch(() => undefined);
             if (options.signal?.aborted) throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
+            if (workspaceRoot() !== root || this.client !== client) throw new Error("项目或连接已变化，未继续查询 Worker 状态。");
             return this.readWorkerTaskSnapshot(workerId, options);
         }
         if (!shared) {
@@ -2960,6 +2962,7 @@ export class RealtimeTunnelPanelProvider {
         let executionSnapshot: any;
         try {
             const queue = await this.loadDistributedQueue(root);
+            if (!current()) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
             const queries = options.inventoryOnly || options.executionOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId,
                 { excludeVerifiedCompleted: options.excludeVerifiedCompleted });
             if (options.executionOnly || !options.inventoryOnly && (cached?.capabilities?.taskLifecycle === 2 || queue.plans?.some(plan =>
@@ -2989,11 +2992,13 @@ export class RealtimeTunnelPanelProvider {
                     }
                 } catch (error) {
                     if (options.signal?.aborted) throw error;
+                    if (!current()) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
                     if (options.executionOnly) throw error;
                     // Older agents may not provide the lightweight inventory;
                     // a genuine full query can still establish current truth.
                 }
             }
+            if (!current()) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
             if (options.executionOnly) {
                 if (!executionSnapshot) throw new Error("本轮未取得执行库存");
                 return workerTaskSnapshotPayload(executionSnapshot);
@@ -3033,6 +3038,7 @@ export class RealtimeTunnelPanelProvider {
             const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
             const values = [];
             for (const [index, batch] of batches.entries()) {
+                if (!current()) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
                 const startedAt = new Date().toISOString();
                 values.push(WorkerProgressQuery.completeProgressSnapshot(await client.getWorkerTasks(workerId, { signal: options.signal, queries: batch,
                 declarationOnly: options.inventoryOnly === true,
@@ -5929,15 +5935,19 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             assertCurrent();
         }
     }
-    async ensureSimpleSftpReadyForSetup(operation) {
+    async ensureSimpleSftpReadyForSetup(operation, assertCurrent?: () => void) {
+        assertCurrent ||= () => {};
+        assertCurrent();
         const simpleSftp = simpleSftpIntegrationReadiness();
         if (simpleSftp.ready) {
             try {
                 const registered = new Set(await vscode.commands.getCommands(true));
+                assertCurrent();
                 const missing = SIMPLE_SFTP_REQUIRED_COMMANDS.filter((command) => !registered.has(command));
                 if (!missing.length)
                     return true;
                 const next = await vscode.window.showWarningMessage(`SimpleSFTP 已安装但当前窗口尚未注册编排命令：${missing.join("、")}。请先重载 VS Code 窗口。`, "重载窗口", "打开配置说明", "打开扩展管理", "稍后");
+                assertCurrent();
                 if (next === "重载窗口")
                     await vscode.commands.executeCommand("workbench.action.reloadWindow");
                 else if (next === "打开配置说明")
@@ -5947,13 +5957,16 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 return false;
             }
             catch {
+                assertCurrent();
                 const next = await vscode.window.showWarningMessage("无法确认当前窗口是否已注册 SimpleSFTP 编排命令，请先重载 VS Code 窗口。", "重载窗口", "稍后");
+                assertCurrent();
                 if (next === "重载窗口")
                     await vscode.commands.executeCommand("workbench.action.reloadWindow");
                 return false;
             }
         }
         const next = await vscode.window.showWarningMessage(`${operation}暂不能开始：${simpleSftp.message}`, "打开配置说明", "打开扩展管理", "稍后");
+        assertCurrent();
         if (next === "打开配置说明")
             await this.openSetupGuide();
         else if (next === "打开扩展管理")
@@ -10110,7 +10123,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
         return result;
     }
-    async verifyDeployedAgentRuntime(targets, manifest) {
+    async verifyDeployedAgentRuntime(targets, manifest, assertCurrent?: () => void) {
+        assertCurrent ||= () => {};
         const token = this.tunnelConfig && this.tunnelConfig.token;
         const fatal = [];
         const warnings = [];
@@ -10128,6 +10142,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             fatal.push("本地 runtimeVersion 为空（单源 src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION 缺失），禁止 fallback 硬编码，已阻止校验");
         }
         for (let offset = 0; offset < targets.length; offset += 4) await Promise.all(targets.slice(offset, offset + 4).map(async (target) => {
+            assertCurrent();
             const _runtimeHint = String((target as any).remotePath || "").replace(/\/+$/, "");
             let installDir = "";
             let runtimeDir = "";
@@ -10162,16 +10177,19 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 const _effectiveRuntime = runtimeDir.replace(/\/+$/, "");
                 const remoteAbs = `${_effectiveRuntime}/${name}`;
                 try {
+                    assertCurrent();
                     const controller = new AbortController();
                     const timer = setTimeout(() => controller.abort(), 2500);
                     timer.unref?.();
                     const resp = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers, signal: controller.signal });
+                    assertCurrent();
                     clearTimeout(timer);
                     if (!resp.ok) {
                         warnings.push(`${target.label} 的 ${name}：agent 返回 HTTP ${resp.status}，无法校验`);
                         return;
                     }
                     const data: any = await resp.json();
+                    assertCurrent();
                     if (!data || data.ok !== true) {
                         warnings.push(`${target.label} 的 ${name}：agent 拒绝校验（${data && data.error ? data.error : "未知"}）`);
                         return;
@@ -10180,15 +10198,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                         fatal.push(`${target.label} 的 ${name} 部署校验不一致：远端 sha256(${data.sha256}) 与本地(${expected}) 不同，可能部署到错误路径`);
                 }
                 catch (error) {
+                    assertCurrent();
                     warnings.push(`${target.label} 的 ${name}：agent 不可达，跳过校验（${error instanceof Error ? error.message : String(error)}）`);
                 }
             }));
             try {
+                assertCurrent();
                 // 统一走 /api/health，兼容降级 /health 与 /api/version（worker_telemetry 曾仅暴露 /health）；超时 2500ms（原4000），并行文件校验已提速
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), 2500);
                 timer.unref?.();
                 let resp = await fetch(`${base}/api/health`, { headers, signal: controller.signal });
+                assertCurrent();
                 if (!resp.ok) {
                     clearTimeout(timer);
                     // 降级 1: /health
@@ -10197,14 +10218,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                         const t1 = setTimeout(() => c1.abort(), 2500);
                         t1.unref?.();
                         const r1 = await fetch(`${base}/health`, { headers, signal: c1.signal });
+                        assertCurrent();
                         clearTimeout(t1);
                         if (r1.ok) resp = r1;
                         else throw new Error(String(r1.status));
                     } catch {
+                        assertCurrent();
                         const c2 = new AbortController();
                         const t2 = setTimeout(() => c2.abort(), 2500);
                         t2.unref?.();
                         resp = await fetch(`${base}/api/version`, { headers, signal: c2.signal });
+                        assertCurrent();
                         clearTimeout(t2);
                         if (!resp.ok) {
                             warnings.push(`${target.label} 的版本接口返回 HTTP ${resp.status}，无法校验版本（已尝试 /api/health、/health、/api/version）`);
@@ -10215,6 +10239,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     clearTimeout(timer);
                 }
                 const data: any = await resp.json();
+                assertCurrent();
                 // 单源统一版本校验：所有远端版本字段必须与本地统一版本一致（以 package.json version为准）
                 const unifiedExpected = String((manifest as any).pluginVersion || (manifest as any).runtimeVersion || expectedRuntimeVersion || expectedPluginVersion || (RuntimeManifest_1 as any).CURRENT_RUNTIME_VERSION || "").trim();
                 const remoteAgentVersion = String(data.agentVersion || data.agent_version || "").trim();
@@ -10239,13 +10264,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     }
                 }
             } catch (error) {
+                assertCurrent();
                 warnings.push(`${target.label} 的版本校验不可达，跳过版本比对（${error instanceof Error ? error.message : String(error)}）`);
             }
         }));
+        assertCurrent();
         return { fatal, warnings };
     }
     async checkRemoteAgentVersionAndNotify(showUi = false) {
+        const projectContext = this.captureProjectContext(), client = this.client;
+        const assertCurrent = () => { if (!this.projectContextIsCurrent(projectContext) || this.client !== client) throw new UiCommandCancelled("项目或连接已变化，远端版本核验已停止。"); };
         try {
+            assertCurrent();
             const runtimeDir = path.join(__dirname, "..", "runtime");
             const agentPath = path.join(runtimeDir, "cluster_agent.py");
             const schedulerPath = path.join(runtimeDir, "cluster_scheduler.py");
@@ -10253,8 +10283,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             let schedulerText = "";
             try {
                 [agentText, schedulerText] = await Promise.all([fs.readFile(agentPath, "utf8"), fs.readFile(schedulerPath, "utf8")]);
+                assertCurrent();
             }
             catch {
+                assertCurrent();
                 return { fatal: [], warnings: ["本地 runtime 文件不可读，跳过远端版本校验"] };
             }
             const pluginVersion = String(this.context?.extension?.packageJSON?.version || "");
@@ -10275,6 +10307,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 };
             }
             let targets: any[] = [];
+            assertCurrent();
             try {
                 targets = this.agentRuntimeUploadTargets();
             }
@@ -10287,13 +10320,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 if (showUi) await vscode.window.showInformationMessage("未配置远端目标或隧道未建立（targets 为空），请先配置服务器并启动 tunnel 后再校验 Agent 版本。");
                 return { fatal: [], warnings: ["未配置远端目标或隧道未建立"] };
             }
-            const result = await this.verifyDeployedAgentRuntime(targets, manifest);
+            const result = await this.verifyDeployedAgentRuntime(targets, manifest, assertCurrent);
+            assertCurrent();
             if (result.fatal.length) {
                 const detail = `远端 Agent 实际运行版本不一致：${result.fatal.join("；")}。请通过“准备 Agent”更新辅助服务。`;
                 console.warn(`[version-check] ${detail}`);
                 if (showUi) {
                     void vscode.window.showWarningMessage(detail, "部署 Agent").then((choice) => {
-                        if (choice === "部署 Agent")
+                        if (choice === "部署 Agent" && this.projectContextIsCurrent(projectContext) && this.client === client)
                             void this.deployLatestAgentRuntime(true, false).catch((err) => void vscode.window.showErrorMessage(String(err && (err as any).message || err)));
                     });
                 }
@@ -10307,6 +10341,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return result;
         }
         catch (error) {
+            assertCurrent();
             const msg = String(error && (error as any).message || error);
             if (showUi) await vscode.window.showInformationMessage(`未配置远端目标或隧道未建立：${msg}；请先配置服务器并启动 tunnel。`);
             return { fatal: [], warnings: [msg] };
@@ -10317,13 +10352,19 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return tunnelHttpOrigin(host, target.localForwardPort);
     }
     async ensureRemoteAgentVersionConsistent() {
+        const projectContext = this.captureProjectContext(), client = this.client;
+        const assertCurrent = () => { if (!this.projectContextIsCurrent(projectContext) || this.client !== client) throw new UiCommandCancelled("项目或连接已变化，远端版本核验已停止。"); };
+        assertCurrent();
         let result: any;
-        if (!this.remoteVersionCheckPromise) {
+        if (!this.remoteVersionCheckPromise || !this.remoteVersionCheckOwner
+            || !this.projectContextIsCurrent(this.remoteVersionCheckOwner.context) || this.remoteVersionCheckOwner.client !== client) {
             const work = this.checkRemoteAgentVersionAndNotify(false);
             this.remoteVersionCheckPromise = work;
-            void work.finally(() => { if (this.remoteVersionCheckPromise === work) this.remoteVersionCheckPromise = undefined; }).catch(() => undefined);
+            this.remoteVersionCheckOwner = { context: projectContext, client };
+            void work.finally(() => { if (this.remoteVersionCheckPromise === work) { this.remoteVersionCheckPromise = undefined; this.remoteVersionCheckOwner = undefined; } }).catch(() => undefined);
         }
         try { result = await this.remoteVersionCheckPromise; } catch (err) { console.warn(`[version-check] ensureRemoteAgentVersionConsistent check failed: ${String((err as any)?.message || err)}`); throw err; }
+        assertCurrent();
         if (result && Array.isArray(result.fatal) && result.fatal.length) {
             // 版本差异不能自动清理调度器或 GPU tmux；用户需通过 Agent 准备流程仅重启 Agent 会话。
             try {
@@ -12152,10 +12193,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
     }
     async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = [], reportStage = (_text: string) => {}, onTargetReady?) {
+        const client = this.client;
+        const assertCurrent = () => { if (!this.projectContextIsCurrent(projectContext) || this.client !== client) throw new UiCommandCancelled("项目或连接已变化，运行前代码同步已取消。"); };
+        assertCurrent();
         reportStage("正在检查运行代码；仅有变化时自动上传…");
-        await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
-        if (!this.projectContextIsCurrent(projectContext))
-            throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+        await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace", [], assertCurrent);
+        assertCurrent();
         const topology = this.assertPlanTopologyReady("运行前代码同步");
         const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).flatMap((body) => [this.planSchedulerWorkerId(body), ...(Array.isArray(body?.selectedWorkerIds) ? body.selectedWorkerIds : [])]).filter(Boolean));
         const targets = this.workerCodeSyncTargets();
@@ -12164,21 +12207,20 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const versionsReady = this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         const targetReady = typeof onTargetReady === "function" ? async (...args) => {
             await versionsReady;
-            if (!this.projectContextIsCurrent(projectContext))
-                throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+            assertCurrent();
             return onTargetReady(...args);
         } : undefined;
         reportStage("正在核对各 Worker 的运行代码…");
         const [syncedTargets] = await Promise.all([
-            this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text), onTargetReady: targetReady }),
+            this.syncCodeTargets(targets, "run", { projectContext, assertCurrent, hashCompare: true, progressReport: (text) => reportStage(text), onTargetReady: targetReady }),
             versionsReady,
         ]);
+        assertCurrent();
         if (topology.mode === "worker_pool" && syncedTargets?.length) for (const body of bodies) {
             if (!syncedTargets.some((target) => target.id === this.planSchedulerWorkerId(body)))
                 this.stampWorkerPoolManualTarget(body, syncedTargets[0].id);
         }
-        if (!this.projectContextIsCurrent(projectContext))
-            throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+        assertCurrent();
     }
     planSubmissionManifestKey(root, includePaths, scopePaths, holds) {
         const inputs = JSON.stringify({ root: path.resolve(root).toLowerCase(), includePaths: [...(includePaths || [])].map(String).sort(),
@@ -14017,16 +14059,21 @@ reportStage("正在准备校验所需代码…");
             assertCurrent();
         }
     }
-    async prepareSftpTargets(reason, requiredCommand, serverIds = []) {
+    async prepareSftpTargets(reason, requiredCommand, serverIds = [], assertCurrent?: () => void) {
+        assertCurrent ||= () => {};
+        assertCurrent();
         assertSingleProjectWorkspace("SFTP 上传或目录配置");
-        if (!await this.ensureSimpleSftpReadyForSetup("文件传输"))
+        if (!await this.ensureSimpleSftpReadyForSetup("文件传输", assertCurrent))
             throw new UiCommandCancelled("文件传输已取消，SimpleSFTP 未就绪。");
+        assertCurrent();
         if (requiredCommand)
             await this.ensureSftpManagerCommand(requiredCommand);
+        assertCurrent();
         this.assertTopologyActualWorkRoots("SFTP 上传或目录配置");
         const requestedIds = new Set((Array.isArray(serverIds) ? serverIds : []).map((item) => String(item || "").trim()).filter(Boolean));
         const transportTargets = this.sftpSharedTargets().filter((target) => !requestedIds.size || requestedIds.has(target.id));
         await this.assertSshTransportIdentities(transportTargets);
+        assertCurrent();
     }
     sftpServerOptions(target) {
         return SshTransportIdentity_1.buildSftpServerOptions(target, this.sshTransportIdentity(target));
@@ -16034,12 +16081,18 @@ this.assertPlanTopologyReady("Plan 调度");
         return executionOnly ? PlanCodeScopeHost.runSourceManifest(manifest) : manifest;
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest?) {
+        const projectContext = this.captureProjectContext(), root = projectContext.root, client = this.client, generation = this.distributedQueueGeneration;
+        const assertCurrent = () => {
+            if (!this.projectContextIsCurrent(projectContext) || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
+        };
         let transmissionStarted = false;
         // 非 tick 通道的交接所有权在本函数内回收；tick 已登记的所有权仍由 tick 在回执提交后结束。
         let channelHandoffRoot = "";
         try {
-        if (this.ensureDispatchHandoffForSendLocal?.(workspaceRoot() || "", workerId, commandId, plan, job, gpuId) === true)
-            channelHandoffRoot = workspaceRoot() || "";
+        assertCurrent();
+        if (this.ensureDispatchHandoffForSendLocal?.(root || "", workerId, commandId, plan, job, gpuId) === true)
+            channelHandoffRoot = root || "";
         // 块B防旁路（批准方案§4）：统一域内只允许发送已在本机队列持久化同意的精确身份。
         // 发送前的普适 save→send 顺序使所有既有通道自然通过；任何未来旁路在此被硬拒。
         const unifiedSendDomain = this.unifiedDomainState();
@@ -16047,11 +16100,11 @@ this.assertPlanTopologyReady("Plan 调度");
             throw new Error(`统一派发准入：${unifiedSendDomain.blocked}；未发送任务。`);
         if (unifiedSendDomain.active)
             await this.assertUnifiedDispatchConsentPersisted(plan, job, workerId, gpuId, commandId);
+        assertCurrent();
         if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
-        const root = workspaceRoot(), client = this.client, generation = this.distributedQueueGeneration;
         const probes = this.taskLifecycleProtocol === 2 ? await this.submissionWorkerProbes([{ id: workerId }]) : this.lastWorkerProbes;
-        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch || !this.projectContextIsCurrent(projectContext))
             throw new Error("派发上下文已变化；未发送任务。");
         if (probes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
             || probes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
@@ -16065,7 +16118,7 @@ this.assertPlanTopologyReady("Plan 调度");
         // （formalIdentityContract 契约"旧能力不得触达队列保存/发送"），此前置读盘会先抛出队列错误、吞掉 WORKER_PROTOCOL_INCOMPATIBLE。
         if (typeof this.loadDistributedQueue === "function" && root) {
             const persisted = await this.loadDistributedQueue(root);
-            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch || !this.projectContextIsCurrent(projectContext))
                 throw new Error("派发上下文已变化；未发送任务。");
             const persistedJob = persisted.plans.find((row) => row.id === plan.id)?.jobs.find((row) => row.index === job.index);
             if (persistedJob?.outputIsolationBlocked)
@@ -16099,7 +16152,9 @@ this.assertPlanTopologyReady("Plan 调度");
         const prepareCodeProofFields = async () => {
             if (codeProofFields) return codeProofFields;
             if (PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
-                const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, plan);
+                const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, { ...plan }, projectContext.signal);
+                assertCurrent();
+                plan.executionSource = executionSource;
                 codeProofFields = { executionSource };
             } else if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
                 // Agent verifies the persisted proof against its own code files before admission.
@@ -16117,7 +16172,7 @@ this.assertPlanTopologyReady("Plan 调度");
             }
             return codeProofFields;
         };
-        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch || !this.projectContextIsCurrent(projectContext))
             throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         const request = {
             schemaVersion: 1, lifecycleProtocol: 2, commandId, opId: commandId, operationId: commandId, runKey: commandId,
@@ -16142,13 +16197,13 @@ this.assertPlanTopologyReady("Plan 调度");
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
         };
         const transfer = () => this.withRemoteActionResource(workerId, "start-worker-task", request, async () => {
-            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch || !this.projectContextIsCurrent(projectContext))
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             Object.assign(request, await prepareCodeProofFields());
             // The lease callback only guarantees resource ownership, not context freshness: a
             // cancellation or project switch that lands while preparation is awaited must still
             // stop the transport. Re-check the fence synchronously right before posting.
-            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch || !this.projectContextIsCurrent(projectContext))
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             // 交接 gate：最后围栏前重查写入意图；新登记意图按「明确未发送」安全退回，不留无主准入意图。
             this.assertDispatchHandoffSendAllowedLocal?.(root, workerId);
@@ -16163,7 +16218,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 throw new Error(`TASK_LIFECYCLE_PROTOCOL_REQUIRED：Worker ${workerId} 需要更新 Agent/Scheduler；未派发`);
             // Same terminal guarantee for the direct protocol-2 transport: nothing is awaited
             // between this final fence and the post below.
-            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch || !this.projectContextIsCurrent(projectContext))
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             // 协议 2 直接发送口同样先重查 gate，再标记真实传输边界；这里之后没有任何 await，围栏与发送同拍。
             this.assertDispatchHandoffSendAllowedLocal?.(root, workerId);

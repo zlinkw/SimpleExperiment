@@ -3,8 +3,8 @@ function fixture(){
  const picks={showQuickPick:async()=>undefined};
  const file=path.resolve('dist/extension/ManualDispatchHost.js'),loaded=new Module(file,module);loaded.filename=file;loaded.paths=Module._nodeModulePaths(path.dirname(file));
  const requireBase=loaded.require.bind(loaded);loaded.require=id=>id==='vscode'?{window:picks,workspace:{workspaceFolders:[{uri:{fsPath:'project'}}]}}:requireBase(id);loaded._compile(fs.readFileSync(file,'utf8'),file);
- let sync=0,queries=0;const h={client:{getGpu:async()=>({w:[{index:0,utilizationPercent:100,excluded:true}]}),getWorkerTasks:async()=>{queries++;return {capabilities:{taskLifecycle:2}}}},enabledWorkerConfigs:()=>[{id:'w'},{id:'b'}],
-  assertExecutionWorkersReady(){},assertExecutionAgentProjectsReady(){},workerActionTargets:()=>[],ensureCodeReadyForRun:async()=>sync++,captureProjectContext:()=>({}),
+ let sync=0,queries=0;const context={root:'project'},h={client:{getGpu:async()=>({w:[{index:0,utilizationPercent:100,excluded:true}]}),getWorkerTasks:async()=>{queries++;return {capabilities:{taskLifecycle:2}}}},enabledWorkerConfigs:()=>[{id:'w'},{id:'b'}],
+  assertExecutionWorkersReady(){},assertExecutionAgentProjectsReady(){},workerActionTargets:()=>[],ensureCodeReadyForRun:async()=>sync++,captureProjectContext:()=>context,projectContextIsCurrent:value=>value===context,
   manualDispatchInFlight:new Set(),postState(){},tickDistributedQueue(){},loadDistributedQueue:async()=>({plans:[]}),
   lastCodeSyncState:{fingerprint:'hash'},lastWorkerTaskSnapshots:new Map()};
  return {host:new loaded.exports.ManualDispatchHost(h,'project'),h,picks,get sync(){return sync},get queries(){return queries}};
@@ -60,10 +60,11 @@ test('confirmed manual selection holds dispatch gate while awaiting an automatic
  f.h.distributedPlanStopEpoch=1;finish();
  await assert.rejects(pending,/停止请求/);assert.equal(f.sync,0);assert.equal(f.h.manualDispatchInFlight.size,0);
 });
-test('health client replacement is harmless, but an actual endpoint change still cancels manual dispatch',()=>{
+test('health refresh preserves manual dispatch while client reset or endpoint change cancels it',()=>{
  const f=fixture();let target={id:'w',local_agent_url:'http://configured:1234',project_dir:'/project'};
  f.h.workerActionTargets=()=>[target];const ports=f.host.ports();
- f.h.client={};assert.doesNotThrow(()=>ports.assertCurrent());
+ f.h.lastWorkerProbes={w:{status:'ok'}};assert.doesNotThrow(()=>ports.assertCurrent());
+ const client=f.h.client;f.h.client={};assert.throws(()=>ports.assertCurrent(),/连接/);f.h.client=client;
  target={...target,local_agent_url:'http://changed:2345'};assert.throws(()=>ports.assertCurrent(),/连接/);
 });
 test('manual preparation uses the shared actively queried snapshot instead of overwriting it with an undated response',async()=>{

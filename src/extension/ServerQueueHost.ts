@@ -10,15 +10,16 @@ import { mcpInvocation } from "../mcp/Invocation";
 export class ServerQueueHost {
   constructor(private readonly h: any, private readonly root: string) {}
   async dispatch(params: any, fromUi=false) {
-    const h=this.h, context=h.captureProjectContext(), epoch=h.distributedPlanStopEpoch;
+    const h=this.h, context=h.captureProjectContext(), client=h.client, epoch=h.distributedPlanStopEpoch;
     if (!fromUi && params.confirm!==true) throw Error("CONFIRM_REQUIRED：请确认剩余 job 按逐卡配额进入服务器队列。");
     const ids=params.all===true ? undefined : [params.workflowId||params.planId,...(Array.isArray(params.workflowIds)?params.workflowIds:[])].filter(Boolean);
     if (ids && !ids.length) throw Error("请选择 PLAN 或明确指定全部剩余 job。");
     const targets=()=>JSON.stringify([h.workerActionTargets(),h.schedulerSettings(),h.enabledWorkerConfigs().map((w:any)=>[w.id,w.gpuJobsPerCard,w.gpuCardOverrides,w.gpuMaxConcurrentCards])]);
     const binding=targets(), key=this.root+"\0server-queue", reserved:any[]=[];
-    const current=()=>{if(!h.projectContextIsCurrent(context)||context.root!==this.root||vscode.workspace.workspaceFolders?.[0]?.uri.fsPath!==this.root||targets()!==binding||h.distributedPlanStopEpoch!==epoch)throw Error("项目、GPU 配额或连接已变化，未继续派发服务器队列。");mcpInvocation.getStore()?.permission("experiment");};
+    const isCurrent=()=>h.projectContextIsCurrent(context)&&context.root===this.root&&vscode.workspace.workspaceFolders?.[0]?.uri.fsPath===this.root&&h.client===client&&targets()===binding&&h.distributedPlanStopEpoch===epoch;
+    const current=()=>{if(!isCurrent())throw Error("项目、GPU 配额或连接已变化，未继续派发服务器队列。");mcpInvocation.getStore()?.permission("experiment");};
     if(h.manualDispatchInFlight.size||h.manualDispatchReviewKeys?.size)throw Error("已有手动派发或产物审核正在处理，请等待本批结果。");
-    h.manualDispatchInFlight.add(key);
+    const inFlight=h.manualDispatchInFlight;inFlight.add(key);
     const batchId=randomUUID();let reservedOnDisk=false;
     const reservationMatches=(plan:any,job:any,item:any)=>plan&&job&&job.status==="pending"&&!job.commandId
       &&JSON.stringify([plan.id,plan.projectId,plan.revision,plan.codeFingerprint,job.index,job.outputDir,job.collectionResultCsv])===item.identity
@@ -30,7 +31,7 @@ export class ServerQueueHost {
       if(ids && ids.some((id:string)=>!queue.plans.some((plan:any)=>plan.id===id)))throw Error("所选 PLAN 已变化，整批未派发。");
       const selected=queue.plans.filter((plan:any)=>!ids||ids.includes(plan.id)).flatMap((plan:any)=>remainingQueueJobs(plan).map(job=>({plan,job})));
       if(!selected.length)return {status:"completed",message:"没有尚未派发的剩余 job；已在运行或服务器排队的任务保持原状。"};
-      const gpu=await h.client.getGpu({userInitiated:true});current();
+      const gpu=await client.getGpu({userInitiated:true});current();
       const workers=h.enabledWorkerConfigs();
       if(workers.some((w:any)=>h.lastWorkerProbes?.[w.id]?.capabilities?.endpoints?.manualDispatch!==1||h.lastWorkerProbes?.[w.id]?.capabilities?.endpoints?.gpuQuotaScheduling!==1))
         throw Error("Worker 未支持逐卡手动排队协议，未派发。");
@@ -45,7 +46,7 @@ export class ServerQueueHost {
       selected.forEach((item:any,index:number)=>reserved.push({...item,identity:identity(item.plan,item.job),placement:distribution.placements[index]}));
       // Persist only this batch's job reservations before a human review can
       // release the global gate. Other jobs remain eligible for normal scheduling.
-      await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,mutateLatest:(latest:any)=>{
+      await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,projectContextCurrent:isCurrent,recallAssertCurrent:current,mutateLatest:(latest:any)=>{
         current();
         for(const item of reserved){const plan=latest.plans.find((p:any)=>p.id===item.plan.id),job=plan?.jobs.find((j:any)=>j.index===item.job.index);
           if(!job||identity(plan,job)!==item.identity||!remainingQueueJobs(plan).includes(job))throw Error("排队批次已变化，未预约任务。");}
@@ -80,7 +81,7 @@ export class ServerQueueHost {
         // A failed/cancelled later PLAN cannot erase a safety fact already
         // observed for this one. Keep reservations until the whole batch settles.
         const blockedHere=reserved.filter(item=>item.plan.id===planId&&blocked.has(item.identity));
-        if(blockedHere.length)await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,mutateLatest:(latest:any)=>{
+        if(blockedHere.length)await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,projectContextCurrent:isCurrent,recallAssertCurrent:current,mutateLatest:(latest:any)=>{
           current();
           for(const item of blockedHere){const p=latest.plans.find((p:any)=>p.id===item.plan.id),job=p?.jobs.find((j:any)=>j.index===item.job.index);
             if(!reservationMatches(p,job,item))throw Error("审核目标已变化，未改写其他任务的阻断。");}
@@ -90,7 +91,7 @@ export class ServerQueueHost {
       }
       distribution=quotaQueuePlacements(approved.size,cards);
       let placementIndex=0;for(const item of reserved)if(approved.has(item.identity))item.placement=distribution.placements[placementIndex++];
-      await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,mutateLatest:(latest:any)=>{
+      await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,projectContextCurrent:isCurrent,recallAssertCurrent:current,mutateLatest:(latest:any)=>{
         current();
         for(const item of reserved){const plan=latest.plans.find((p:any)=>p.id===item.plan.id),job=plan?.jobs.find((j:any)=>j.index===item.job.index);
           if(!reservationMatches(plan,job,item)||job.stopIntent||job.outputIsolationBlocked&&!blocked.has(item.identity))throw Error("排队批次已变化，未提交新任务。");}
@@ -102,19 +103,21 @@ export class ServerQueueHost {
           }else Object.assign(job,{manualDispatch:undefined,retainExistingOutputs:true,status:"cancelled",manualDispatchNotice:"保留已有产物，本次未派发。"});}
         return {...latest};
       }});
+      if(!isCurrent())return {status:"partial",message:"原项目的排队意图已保存；项目或连接已变化，请返回原项目核查，未继续派发。"};
       if(!approved.size)return {status:blocked.size?"blocked":"completed",blocked:blocked.size,retained:reserved.length-blocked.size,message:blocked.size?"产物隔离尚未核实，受阻 job 保留等待；本批未派发。":"已保留已有产物；本批未派发。",allocations:distribution.allocations};
       await ports.tick();
+      if(!isCurrent())return {status:"partial",message:"原项目的排队意图已保存且派发已发起；项目或连接已变化，请返回原项目核查。"};
       return {status:"submitted",message:`已按逐卡 job 配额将 ${approved.size} 个剩余 job 派入服务器队列；比例 `+distribution.allocations.map(card=>`${card.workerId}/GPU ${card.gpuId}=${card.weight}（本批 ${card.count}）`).join("、"),allocations:distribution.allocations};
     } finally {
       try{
-        if(reservedOnDisk)await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,mutateLatest:(latest:any)=>{
+        if(reservedOnDisk)await h.saveDistributedQueue(this.root,undefined,{controlMutation:true,projectContextCurrent:isCurrent,mutateLatest:(latest:any)=>{
           let changed=false;
           for(const item of reserved){const plan=latest.plans.find((p:any)=>p.id===item.plan.id),job=plan?.jobs.find((j:any)=>j.index===item.job.index);
             if(job?.manualDispatch?.stage==="preparing"&&job.manualDispatch.batchId===batchId){
               job.manualDispatch=reservationMatches(plan,job,item)?item.job.manualDispatch:undefined;changed=true;}}
           return changed?{...latest}:latest;
         }});
-      }finally{h.manualDispatchInFlight.delete(key);h.postState();if(h.projectContextIsCurrent(context))void h.tickDistributedQueue().catch(()=>{});}
+      }finally{inFlight.delete(key);if(isCurrent()){h.postState();void h.tickDistributedQueue().catch(()=>{});}}
     }
   }
 }

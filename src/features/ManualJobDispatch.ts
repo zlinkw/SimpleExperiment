@@ -1,6 +1,7 @@
 import { DistributedQueue, outputIsolationNotice, QueuedJob, QueuedPlan } from "./DistributedPlanQueue";
 import { dispatchAdmissionDenied } from "../project/UnifiedDispatchAdmission";
 import { hasVerifiedCompletion } from "./VerifiedCompletion";
+import { randomUUID } from "node:crypto";
 
 export type ManualDispatchRequest = { workflowId: string; indices: number[]; workerId: string; gpuId?: string; gpuSelection?: "automatic" | "specific";
   expectedCommands?: Record<string, string>; stopRunning?: boolean };
@@ -9,7 +10,7 @@ export type ManualDispatchPorts = {
   /** save 可携带 dispatchAdmission 并回传统一准入回执（旧宿主不返回回执=行为不变）。 */
   save(queue: DistributedQueue, options?: { dispatchAdmission?: boolean }): Promise<unknown>;
   /** Production host validates and mutates the latest queue under its write lease. */
-  commitReview?(mutate: (latest: DistributedQueue) => DistributedQueue): Promise<void>;
+  commitReview?(mutate: (latest: DistributedQueue) => DistributedQueue, release?: boolean): Promise<void>;
   assertCurrent(): void;
   online(workerId: string): boolean; supports(workerId: string): boolean; newCommandId(): string;
   prepare(plan: QueuedPlan): Promise<void>; stop(plan: QueuedPlan, job: QueuedJob): Promise<void>;
@@ -50,7 +51,7 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
   const identities = new Map(selected.map(job => [job.index, job.commandId || ""]));
   const binding=(job:QueuedJob)=>JSON.stringify([job.index,job.commandId,job.workerId,job.case,job.seed,job.outputDir,job.collectionResultCsv]);
   const bindings=new Map(selected.map(job=>[job.index,binding(job)]));
-  const currentSelection=(latest:DistributedQueue)=>{
+  const currentSelection=(latest:DistributedQueue, reservationId?:string)=>{
     ports.assertCurrent();
     const current=latest.plans.find(row=>row.id===plan.id);
     if(!current||current.revision!==plan.revision||current.projectId!==plan.projectId||current.codeFingerprint!==plan.codeFingerprint)
@@ -58,6 +59,7 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
     const jobs=selected.map(original=>current.jobs.find(job=>job.index===original.index));
     for(const job of jobs){
       if(!job||binding(job)!==bindings.get(job.index))throw new Error("任务身份或声明已变化，未派发。");
+      if(reservationId && (job.manualDispatch?.stage!=="preparing" || job.manualDispatch.batchId!==reservationId))throw new Error("派发预约已变化，未改写其他批次。");
       if(job.status==="completed"||hasVerifiedCompletion(current,job))throw new Error("所选任务已确认完成，保留完成事实；请使用重跑入口，未派发。");
       if(job.stopIntent||job.recallRequested)throw new Error("所选任务已有停止或召回意图，保留原意图；未继续派发。");
     }
@@ -75,14 +77,15 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
       throw new Error("原任务的请求或服务器身份缺失，无法核实精确停止；未另行派发。");
     if (["running", "queued"].includes(job.status) && !request.stopRunning) throw new Error("请使用“停止后派发”撤出原任务。");
   }
+  const reservationId = randomUUID();
   for (const job of selected) job.manualDispatch = { workerId: request.workerId, gpuId,
-    ...(automatic ? { gpuSelection: "automatic" as const } : {}), stage: "preparing" };
-  await ports.save(queue); // Reserve before sync/stop: automatic allocation must skip this batch.
+    ...(automatic ? { gpuSelection: "automatic" as const } : {}), stage: "preparing", batchId: reservationId };
   let committed = false;
   const stopped = new Set<number>();
   try {
+    await ports.save(queue); // Reserve before sync/stop: automatic allocation must skip this batch.
     if (ports.online(request.workerId)) await ports.prepare(plan);
-    queue=await ports.load();const prepared=currentSelection(queue);
+    queue=await ports.load();const prepared=currentSelection(queue,reservationId);
     for (const job of prepared.jobs) if (job.commandId && job.workerId) {
       ports.assertCurrent(); await ports.stop(prepared.plan, job);
       stopped.add(job.index);
@@ -106,7 +109,7 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
     }
     ports.assertCurrent();
     const commitReview = (latest:DistributedQueue) => {
-    const current = currentSelection(latest).plan;
+    const current = currentSelection(latest,reservationId).plan;
     for (const original of selected.filter(job => !accepted.includes(job))) {
       const job = current.jobs.find(row => row.index === original.index); if (!job) continue;
       const decision = blockedDecisions.get(original.index);
@@ -180,11 +183,12 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
   } finally {
     if (!committed) {
       const release = (latest:DistributedQueue) => {
-      for (const p of latest.plans) if (p.id === plan.id) for (const job of p.jobs) if (identities.get(job.index) === (job.commandId || "") && job.manualDispatch?.stage === "preparing")
-        job.manualDispatch = undefined;
-      return latest;
+      let changed = false;
+      for (const p of latest.plans) if (p.id === plan.id) for (const job of p.jobs) if (identities.get(job.index) === (job.commandId || "") && job.manualDispatch?.stage === "preparing" && job.manualDispatch.batchId === reservationId)
+        { job.manualDispatch = undefined; changed = true; }
+      return changed ? { ...latest } : latest;
       };
-      if(ports.commitReview)await ports.commitReview(release);
+      if(ports.commitReview)await ports.commitReview(release, true);
       else await ports.save(release(await ports.load()));
     }
   }

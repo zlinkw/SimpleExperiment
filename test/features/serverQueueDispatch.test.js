@@ -38,6 +38,150 @@ function fixture(count=14){
  return {h,host:new ServerQueueHost(h,'project'),sent,get queue(){return saved},set queue(value){saved=value}};
 }
 
+test('server queue keeps original project and client across save and preparation waits',async()=>{
+ const old=ManualDispatchHost.prototype.review;ManualDispatchHost.prototype.review=async()=>true;
+ try{for(const stage of ['before-save','after-reserve','after-commit','gpu-client']){
+  const f=fixture(2);let posts=0,ticks=0,saves=0;f.h.postState=()=>{posts++;};f.h.tickDistributedQueue=async()=>{ticks++;};
+  const save=f.h.saveDistributedQueue;
+  f.h.saveDistributedQueue=async(...args)=>{
+   const options=args[2];saves++;
+   if(stage==='before-save'&&saves===1)f.h.changed=true;
+   options.recallAssertCurrent?.();
+   await save(...args);
+   if(stage==='after-reserve'&&saves===1||stage==='after-commit'&&saves===2)f.h.changed=true;
+  };
+  if(stage==='gpu-client'){
+   const gpuRead=f.h.client.getGpu;let calls=0;
+   f.h.client.getGpu=async(...args)=>{const value=await gpuRead(...args);if(++calls===2)f.h.client={getGpu:()=>assert.fail('new client used')};return value;};
+  }
+  const result=await f.host.dispatch({planId:'p'},true).catch(error=>error);
+  if(stage==='after-commit'){assert.equal(result.status,'partial');assert.ok(f.queue.plans[0].jobs.every(j=>j.manualDispatch?.stage==='ready'));}
+  else {assert.ok(result instanceof Error);assert.ok(f.queue.plans[0].jobs.every(j=>j.manualDispatch?.stage!=='preparing'));}
+  assert.equal(f.sent.length,0);assert.equal(posts,0);assert.equal(ticks,0);
+ }
+ }finally{ManualDispatchHost.prototype.review=old;}
+});
+
+test('manual dispatch ports stop after project or client changes during preparation or save',async()=>{
+ for(const stage of ['prepare-client','save-project']){
+  const f=fixture(1);let posts=0,prepares=0;f.h.postState=()=>{posts++;};
+  f.h.ensureCodeReadyForRun=async()=>{prepares++;};
+  if(stage==='prepare-client'){
+   f.h.client.getGpu=async()=>{f.h.client={};return structuredClone(gpu);};
+   const ports=new ManualDispatchHost(f.h,'project').ports();
+   await assert.rejects(ports.prepare({...f.queue.plans[0],jobs:[{manualDispatch:{stage:'preparing',workerId:'w',gpuId:'0'}}]}),/项目、连接/);
+   assert.equal(prepares,0);
+  }else{
+   f.h.saveDistributedQueue=async(_root,_queue,options)=>{options.recallAssertCurrent();f.h.changed=true;};
+   const ports=new ManualDispatchHost(f.h,'project').ports();
+   await assert.rejects(ports.save(f.queue),/原项目意图/);
+   assert.throws(()=>ports.send(f.queue.plans[0],f.queue.plans[0].jobs[0]),/原项目意图/);
+   assert.throws(()=>ports.tick(),/原项目意图/);
+  }
+  assert.equal(posts,0);assert.equal(f.sent.length,0);
+ }
+ const {PlanRunHost}=require('../../src/extension/PlanRunHost.ts'),old=PlanRunHost.prototype.replace;
+ try{
+  const f=fixture(1),key='project\0server-queue',oldFlight=f.h.manualDispatchInFlight;
+  oldFlight.add(key);f.h.manualDispatchReviewKeys=new Set();f.h.assertPlanSubmissionWorkers=async()=>{};
+  let newFlight,newReviews;
+  PlanRunHost.prototype.replace=async(_plan,body)=>body.runConfirmationWaitLocal(async()=>{
+   f.h.changed=true;newFlight=new Set([key]);newReviews=new Set([key]);f.h.manualDispatchInFlight=newFlight;f.h.manualDispatchReviewKeys=newReviews;return 'choice';
+  });
+  await assert.rejects(new ManualDispatchHost(f.h,'project').review(f.queue.plans[0],f.queue.plans[0].jobs),/原项目核查/);
+  assert.equal(oldFlight.has(key),false);assert.equal(newFlight.has(key),true);assert.equal(newReviews.has(key),true);
+ }finally{PlanRunHost.prototype.replace=old;}
+ const {dispatchManualJobs}=require('../../src/features/ManualJobDispatch.ts');
+ for(const replace of [false,true]){
+  let queue=plan(1),current=true,releases=0;
+  const ports={load:async()=>structuredClone(queue),assertCurrent:()=>{if(!current)throw Error('context changed');},online:()=>true,supports:()=>true,
+   save:async value=>{queue=structuredClone(value);if(replace)queue.plans[0].jobs[0].manualDispatch.batchId='another-batch';current=false;throw Error('context changed');},
+   commitReview:async(mutate,release)=>{assert.equal(release,true);releases++;queue=mutate(structuredClone(queue));},
+   newCommandId:()=>assert.fail('must not allocate command'),prepare:()=>assert.fail('must not prepare'),
+   stop:()=>assert.fail('must not stop'),review:()=>assert.fail('must not review'),send:()=>assert.fail('must not send'),tick:()=>assert.fail('must not tick')};
+  await assert.rejects(dispatchManualJobs(ports,{workflowId:'p',indices:[0],workerId:'w',gpuId:'0'}),/context changed/);
+  assert.equal(releases,1);assert.equal(queue.plans[0].jobs[0].manualDispatch?.batchId,replace?'another-batch':undefined);
+ }
+ {
+  let queue=plan(1),loads=0,commits=0;
+  const ports={load:async()=>{loads++;if(loads===2)queue.plans[0].jobs[0].manualDispatch.batchId='another-batch';return structuredClone(queue);},
+   assertCurrent:()=>{},online:()=>true,supports:()=>true,save:async value=>{queue=structuredClone(value);},prepare:async()=>{},
+   commitReview:async(mutate,release)=>{assert.equal(release,true);commits++;queue=mutate(structuredClone(queue));},
+   newCommandId:()=>assert.fail('must not allocate command'),stop:()=>assert.fail('must not stop'),review:()=>assert.fail('must not review'),
+   send:()=>assert.fail('must not send'),tick:()=>assert.fail('must not tick')};
+  await assert.rejects(dispatchManualJobs(ports,{workflowId:'p',indices:[0],workerId:'w',gpuId:'0'}),/预约已变化/);
+  assert.equal(commits,1);assert.equal(queue.plans[0].jobs[0].manualDispatch.batchId,'another-batch');
+ }
+ const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
+ const source=fs.readFileSync(require('node:path').resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const tree=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);let member;
+ function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='sendDistributedJob')member=node;ts.forEachChild(node,visit);}visit(tree);
+ const Host=vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(tree)+'};Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/fixture-a'});
+ const host=new Host(),context={root:'/fixture-a'};let current=true,posts=0;
+ Object.assign(host,{client:{postWorkerAction:()=>{posts++;}},captureProjectContext:()=>context,projectContextIsCurrent:()=>current,
+  unifiedDomainState:()=>({active:true}),assertUnifiedDispatchConsentPersisted:async()=>{current=false;}});
+ await assert.rejects(host.sendDistributedJob({},{},'w','0','cmd'),error=>error.dispatchNotSent===true&&/提交已取消或项目已切换/.test(error.message));
+ assert.equal(posts,0);
+ let prepareMember,versionMember,verifyMember,ensureVersionMember,codeReadyMember;
+ function findMore(node){if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='prepareSftpTargets')prepareMember=node;
+  if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='checkRemoteAgentVersionAndNotify')versionMember=node;
+  if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='verifyDeployedAgentRuntime')verifyMember=node;
+  if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='ensureRemoteAgentVersionConsistent')ensureVersionMember=node;
+  if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='ensureCodeReadyForRun')codeReadyMember=node;ts.forEachChild(node,findMore);}findMore(tree);
+ let requests=0;
+ const SandboxHost=vm.runInNewContext(ts.transpileModule('class Host{'+prepareMember.getText(tree)+versionMember.getText(tree)+verifyMember.getText(tree)+ensureVersionMember.getText(tree)+codeReadyMember.getText(tree)+'};Host',
+  {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{assertSingleProjectWorkspace:()=>{},UiCommandCancelled:Error,
+  path:require('node:path'),__dirname:'.',AbortController,fs:{readFile:async()=>{current=false;return 'runtime';}},
+  RuntimeManifest_1:{CURRENT_RUNTIME_VERSION:'1'},tunnelHttpOrigin:()=> 'http://fake',setTimeout:()=>({unref(){}}),clearTimeout(){},
+  fetch:async()=>{requests++;current=false;return {ok:true,json:async()=>({ok:true,sha256:'hash'})};}});
+ const prep=new SandboxHost();let later=0;current=true;
+ Object.assign(prep,{client:{},captureProjectContext:()=>context,projectContextIsCurrent:()=>current,
+  ensureSimpleSftpReadyForSetup:async()=>{current=false;return true;},ensureSftpManagerCommand:()=>{later++;},
+  agentRuntimeUploadTargets:()=>{later++;return [];}});
+ await assert.rejects(prep.prepareSftpTargets('run','upload',[],()=>{if(!current)throw Error('context changed');}),/context changed/);
+ assert.equal(later,0);current=true;
+ const oldPrepare=prep.prepareSftpTargets;prep.prepareSftpTargets=async()=>{prep.client={};};
+ await assert.rejects(prep.ensureCodeReadyForRun(context,[]),/项目或连接已变化/);assert.equal(later,0);
+ prep.prepareSftpTargets=oldPrepare;
+ await assert.rejects(prep.checkRemoteAgentVersionAndNotify(false),/项目或连接已变化/);assert.equal(later,0);
+ current=true;prep.agentRuntimeDirs=()=>({installDir:'/fake'});
+ await assert.rejects(prep.verifyDeployedAgentRuntime([{label:'w',projectWorkDir:'/fake',localForwardPort:1}],
+  {runtimeVersion:'1',files:{'cluster_agent.py':'hash','cluster_scheduler.py':'hash'}},()=>{if(!current)throw Error('context changed');}),/context changed/);
+ assert.equal(requests,1);
+ let activeContext={root:'/fixture-a'},release,checks=0;
+ const pendingVersion=new Promise(resolve=>{release=resolve;});
+ prep.captureProjectContext=()=>activeContext;prep.projectContextIsCurrent=value=>value===activeContext;
+ prep.checkRemoteAgentVersionAndNotify=()=>++checks===1?pendingVersion:Promise.resolve({fatal:[],warnings:[]});
+ const original=prep.ensureRemoteAgentVersionConsistent(),originalResult=original.catch(error=>error);
+ activeContext={root:'/fixture-b'};prep.client={};
+ await prep.ensureRemoteAgentVersionConsistent();assert.equal(checks,2);release({fatal:[],warnings:[]});
+ assert.match((await originalResult).message,/项目或连接已变化/);
+ let readMember,refreshMember;
+ function findReads(node){if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='readWorkerTaskSnapshot')readMember=node;
+  if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='refreshWorkerTaskSnapshot')refreshMember=node;ts.forEachChild(node,findReads);}findReads(tree);
+ const ReadHost=vm.runInNewContext(ts.transpileModule('class Host{'+readMember.getText(tree)+refreshMember.getText(tree)+'};Host',
+  {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/fixture-a',cleanupDigest:()=>'',WorkerTaskQuery:{workerTaskQueries:()=>[]}});
+ const reader=new ReadHost();let readPosts=0;const originalClient={getWorkerTasks:()=>{readPosts++;}};
+ Object.assign(reader,{client:originalClient,cachedWorkerTaskSnapshot:()=>undefined,
+  loadDistributedQueue:async()=>{reader.client={};return {plans:[]};},readWorkerTaskSnapshot:async()=>{readPosts++;}});
+ const stale=await reader.refreshWorkerTaskSnapshot('w','/fixture-a','key',{});
+ assert.match(stale.error,/Workspace changed/);assert.equal(readPosts,0);
+ const sharedReader=new ReadHost();const aborted={signal:{aborted:true}};
+ Object.assign(sharedReader,{client:originalClient,workerTaskRequests:new Map()});
+ const shared={client:originalClient,controller:aborted,promise:Promise.resolve().then(()=>{sharedReader.client={};})};
+ sharedReader.workerTaskRequests.set('/fixture-a\0w:tasks0',shared);
+ await assert.rejects(sharedReader.readWorkerTaskSnapshot('w'),/项目或连接已变化/);
+ let submissionMember;
+ function findSubmission(node){if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='assertPlanSubmissionWorkers')submissionMember=node;ts.forEachChild(node,findSubmission);}findSubmission(tree);
+ const SubmissionHost=vm.runInNewContext(ts.transpileModule('class Host{'+submissionMember.getText(tree)+'};Host',
+  {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/fixture-a'});
+ const submission=new SubmissionHost();let valid=true;
+ Object.assign(submission,{taskLifecycleProtocol:2,workerActionTargets:()=>[{id:'w'}],submissionWorkerProbes:async()=>{valid=false;return {};},
+  readWorkerTaskSnapshot:()=>{readPosts++;},assertExecutionWorkersReady:()=>assert.fail('stale checks'),assertExecutionCondaEnvReady:()=>assert.fail('stale checks')});
+ await assert.rejects(submission.assertPlanSubmissionWorkers({}, {},()=>{if(!valid)throw Error('context changed');}),/context changed/);
+ assert.equal(readPosts,0);
+});
+
 test('real manual and batch review release the global gate only with job reservations and retain unrelated progress',async()=>{
  const {PlanRunHost}=require('../../src/extension/PlanRunHost.ts'),old=PlanRunHost.prototype.replace;
  try{for(const mode of ['manual','batch'])for(const outcome of ['accepted','cancelled','stopped']){

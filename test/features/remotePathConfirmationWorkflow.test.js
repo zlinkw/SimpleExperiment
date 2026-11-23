@@ -206,7 +206,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(confirm, /"确认位置并继续"/);
   assert.match(confirm, /"确认，此后不再提醒该路径"/);
   assert.match(confirm, /persistProjectRemotePathConfirmationsState\(\)/);
-  assert.match(prepareSftp, /assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)[\s\S]{0,180}ensureSimpleSftpReadyForSetup\("文件传输"\)/);
+  assert.match(prepareSftp, /assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)[\s\S]{0,180}ensureSimpleSftpReadyForSetup\("文件传输", assertCurrent\)/);
   assert.match(source, /loadProjectRemotePathConfirmationsState\(\)\.catch\(\(\) => undefined\)/);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"|simpleSftpApiCall\("upload.workspace"/g)].length, 6);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureDownloadScope"/g)].length, 1);
@@ -231,10 +231,10 @@ test("path confirmation precedes profile writes and upload-start state", () => {
   assert.ok(sync.indexOf("writeSftpManagerServerProfiles(") < sync.indexOf("notifyLocalActionStarted"));
   assert.ok(sync.indexOf("notifyLocalActionStarted") < sync.indexOf('simpleSftpApiCall("upload.workspace"'));
   assert.doesNotMatch(prepareSftp, /writeSftpManagerServerProfiles/);
-  assert.ok(prepareSftp.indexOf('ensureSimpleSftpReadyForSetup("文件传输")') < prepareSftp.indexOf("ensureSftpManagerCommand"));
+  assert.ok(prepareSftp.indexOf('ensureSimpleSftpReadyForSetup("文件传输", assertCurrent)') < prepareSftp.indexOf("ensureSftpManagerCommand"));
   assert.doesNotMatch(prepareSftp, /syncXshellConfigBeforeNetwork|writeSftpManagerServerProfiles/);
   assert.ok(prepareSftp.indexOf("ensureSftpManagerCommand") < prepareSftp.indexOf("assertTopologyActualWorkRoots"));
-  assert.match(source, /writeSftpManagerServerProfiles\(targetIds\)[\s\S]{0,600}requestedIds\.has\(target\.id\)/);
+  assert.match(source, /writeSftpManagerServerProfiles\(targetIds, assertCallerCurrent\?: \(\) => void\)[\s\S]{0,600}requestedIds\.has\(target\.id\)/);
   assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标或显示上传已开始/);
   assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标、修改 `\.xsh` 或显示上传已开始/);
 });

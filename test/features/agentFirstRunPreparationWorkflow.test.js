@@ -50,7 +50,7 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.match(flow, /当前项目 SimpleSFTP 目标不完整/);
   assert.match(flow, /尚未修改 \.xsh 或上传 runtime/);
   assert.match(flow, /return true;/);
-  assert.match(extension, /async ensureSimpleSftpReadyForSetup\(operation\)/);
+  assert.match(extension, /async ensureSimpleSftpReadyForSetup\(operation, assertCurrent\?: \(\) => void\)/);
   assert.match(extension, /ensureSimpleSftpReadyForSetup\("一键配置"\)/);
   assert.match(extension, /ensureSimpleSftpReadyForSetup\("准备 Agent"\)/);
   assert.match(extension, /operation\}暂不能开始/);
@@ -79,13 +79,13 @@ test("quick setup and main UI expose preparation while connection keeps literal 
   const quickSetupStart = extension.indexOf("async quickSetup(showAgentCompletion = true)");
   const quickSetupEnd = extension.indexOf("async configureXshellSavedSessions()", quickSetupStart);
   const quickSetup = extension.slice(quickSetupStart, quickSetupEnd);
-  const readinessStart = extension.indexOf("async ensureSimpleSftpReadyForSetup(operation)");
+  const readinessStart = extension.indexOf("async ensureSimpleSftpReadyForSetup(operation, assertCurrent?: () => void)");
   const readinessEnd = extension.indexOf("async quickSetup(showAgentCompletion = true)", readinessStart);
   const readiness = extension.slice(readinessStart, readinessEnd);
   assert.ok(quickSetup.indexOf('ensureSimpleSftpReadyForSetup("一键配置")') >= 0);
   assert.ok(quickSetup.indexOf('ensureSimpleSftpReadyForSetup("一键配置")') < quickSetup.indexOf("const hubRequired"));
   assert.doesNotMatch(quickSetup, /showQuickPick/);
-  assert.match(extension, /async ensureSimpleSftpReadyForSetup\(operation\)/);
+  assert.match(extension, /async ensureSimpleSftpReadyForSetup\(operation, assertCurrent\?: \(\) => void\)/);
   assert.match(extension, /\$\{operation\}暂不能开始/);
   assert.match(readiness, /next === "打开配置说明"[\s\S]{0,220}this\.openSetupGuide\(\)/);
   assert.match(readiness, /next === "打开扩展管理"[\s\S]{0,260}workbench\.extensions\.search/);
