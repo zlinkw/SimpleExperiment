@@ -104,10 +104,10 @@ J01未修：Host GIT_CONFIG_COUNT10/KEY全有，VALUE0和5缺、传递环节未�
 
 阶段源码基线cb44bd81406445719519f42c44ac329aa6d4d38b=origin/master=FETCH_HEAD。实际planEntry为361 active＋6 onDemand；123历史人工继承、235原direct已被planner逐项接受，3未覆盖，不冻结未来数量。6按需未运行、不计通过；历史031为0pass/1skip、165为5pass/1skip、37为40pass/1skip；340原34项只继承当前保留30项，4CLI项按既有批准退休。68原parity证明选定Python核心及JS两个拒绝边界，非原JS全文件身份；69原外部py根/字节未记录，按本任务人工推断适用，原未知保留，不自动扩用。7旧删锁job264/265/267/268/269/271/274仅继承未改安全逻辑，不当前执行真实删除。
 
-仅剩：旧job219 gpuCollectorFrame，原11/11、exit0/tree，但20857.309ms；旧job284 assemble逐项凭据，原passed/0/tree，但20119.841ms。两者均超过20秒，原记录保留且eligible=false，已向用户提出只限历史功能证据的两项例外，未获回复不得纳入、重跑或扩大未来超时。第三项job289为real-repo plan独立对账原精确pattern，待最终源码与HEAD稳定后原20秒一次；为避免登记提交改变selectionHash，不先直跑再提交/重复跑，准备为最终package内唯一fresh项，由该运行冻结真实HEAD/selection并在assemble前复核。开放package仍须两项用户决定及总控最终源审完成，不能提前组装。
+仅剩：旧job219 gpuCollectorFrame，原11/11、exit0/tree，但20857.309ms；旧job284 assemble逐项凭据，原passed/0/tree，但20119.841ms。两者均超过20秒，原记录完整保留。2026-11-23用户明确批准仅作为本任务历史功能覆盖，可据此登记人工继承；不重跑、不扩大未来20秒限制，不改原duration/退出码/tree状态。第三项job289为real-repo plan独立对账原精确pattern，待最终源码与HEAD稳定后原20秒一次；为避免登记提交改变selectionHash，不先直跑再提交/重复跑，准备为最终package内唯一fresh项，由该运行冻结真实HEAD/selection并在assemble前复核。当前总控源审已完成，用户已明确继续最终打包、试行发布和一次安装、最后统一交付；先登记两项精确例外并同步、重算最终计划与依赖，全部对账通过后开放一次集中package及原定交付，不减任何门禁。
 
 packageContentPolicy尾部扫尾改保留fixture，原12/12；releaseAcceptance首exit1因jobs-only漏按需，保留首日志，修为jobs∪onDemand/精确50退休反向/非空不交叉后获准1/1。resultCandidateMetadataExclusion仅TemporaryDirectory→保留mkdtemp，原4/4，全部业务断言保留。真实dispose写自身stopped discovery并关闭server、不unlink，旧误判已纠正。完整acceptance额外真实临时删除未获准，未运行。
 
 新mcpProjectOpsContract11/11、隔离windowScopeIsolation8/8均exit0；原事件/日志完整。工具包装兼容仅固定JSON字面量到相邻exec调用，不eval/动态JS，不伪造原事件。续接链固定初始session，原请求/响应SHA/顺序/最终exit0/完整日志都核。首G004扩展20.389s虽输出1/1/exit0仍作超时无效，用户精确特批修后原20秒1/1、7.513s；之后新真实静态包装兼容单次1/1、8661.6398ms，acf338a1，业务两文件未重跑。前39个test注册AST比仅G004 case变化；未改runner各旧pattern依赖审定重冻。ENOBUFS/只读引号错误、原规划/按需夹具失败、误跑及被覆盖独立日志均在execution/coverage保留；丢失mcpWorkerHistory独立log仅取原完整rollout，不伪恢复。
 
-当前总控持短暂Git租约，仅更新本计划/README并同步；cb44bd81交包无在途，唯一执行仍01a20584，后续由必要一次消息释放。execution现10558字，下一次追加前整体语义压缩，完整旧记录见cb44bd81；不另建报告。最后源审/实际dry-run、完整package/gates/lock/receipt、VSIX/远端试行/真实更新客户端/一次安装按前述交付门禁连续执行；0.5.520尚未package/发行/安装，单项目UI、真实Worker及跨项目未测不能写通过。
+本轮准备基线e427edc199521517d0dec403dfff01ee978b723e与上游一致，execution已整体压缩至9898字，压缩前完整记录见cb44bd81。总控现持短暂Git租约更新本人最新裁决/README，随后一次完整派单释放给唯一执行01a20584，连续完成登记、package、试行发行及一次安装；只在真实阻断需决定时交包，不索普通回执。不另建报告。最后源审/实际dry-run、完整package/gates/lock/receipt、VSIX/远端试行/真实更新客户端/一次安装按前述交付门禁连续执行；0.5.520尚未package/发行/安装，单项目UI、真实Worker及跨项目未测不能写通过。
