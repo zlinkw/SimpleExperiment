@@ -221,7 +221,7 @@ const BranchPullRequest = __importStar(require("../project/BranchPullRequest"));
 const UnifiedDispatchAdmission = __importStar(require("../project/UnifiedDispatchAdmission"));
 const DispatchHandoffGate = __importStar(require("../features/DispatchHandoffGate"));
 const GitIdentityProbe_1 = require("../project/GitIdentityProbe");
-const LocalApiClient_1 = require("../cli/LocalApiClient");
+const LocalApiClient_1 = require("../api/LocalApiClient");
 const RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
 const RemoteRootPolicyPrefill_1 = require("../config/RemoteRootPolicyPrefill");
 const PanelBuildIdentity_1 = require("../features/PanelBuildIdentity");
@@ -577,6 +577,11 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "registerAncestorProject", "registerBranchProject", "createBranchFromAncestor", "refreshBranchProjects", "openBranchProject", "forgetBranchProject", "forgetAncestorProject", "refreshUnifiedDispatchPolicy",
     "submitBranchPlanRun", "refreshBranchRuns", "compareBranchResults", "verifyBranchHeadBinding", "createBranchPr", "mergeBranchPr",
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
+]);
+const API_LOCAL_ACTION_COMMANDS = new Set([
+    "downloadDebugBundle", "openAuditTail", "publishGithub", "syncGithub", "overwriteGithub",
+    "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope",
+    "configureCodeSyncIncludes", "configureServerSyncScope", "clearLegacyTasks", "clearOperations", "abortScheduler",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
     "manageAiAuthorization",
@@ -3451,6 +3456,8 @@ class RealtimeTunnelPanelProvider {
         return API_SECRET_CONFIG_KEYS.has(key) && raw ? "***" : raw;
     }
     apiConfigUpdateTarget(schema, scope) {
+        if (scope === "global")
+            return vscode.ConfigurationTarget.Global;
         if (scope === "workspace")
             return vscode.ConfigurationTarget.Workspace;
         if (scope === "workspaceFolder" || schema.scope === "resource")
@@ -4735,7 +4742,12 @@ class RealtimeTunnelPanelProvider {
     async apiAdvanceFlow(step, patch) {
         this.apiFlowState = ApiWorkflow_1.advanceFlowStep(this.apiFlowState, step, patch);
         this.apiFlowStateDirty = true;
-        await this.persistProjectFlowState().catch(() => undefined);
+        try {
+            await this.persistProjectFlowState();
+        }
+        catch (error) {
+            throw new Error(`流程进度未保存；此前操作可能已执行，请核查后再重试：${errorMessage(error)}`, { cause: error });
+        }
         return this.apiFlowState;
     }
     async persistProjectFlowState(force = false) {
@@ -4797,6 +4809,15 @@ class RealtimeTunnelPanelProvider {
         const message = { command, ...params };
         if (command === "selectPlan" || command === "selectExperiment")
             return await this.withSafeTransferRetry(command, message, () => this.handleMessageCore(message, command));
+        if (API_LOCAL_ACTION_COMMANDS.has(command)) {
+            return await this.withSafeTransferRetry(command, message, async () => {
+                const leaseAction = hostOperationLeaseActionForUiCommand(command);
+                if (leaseAction)
+                    return await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path, readOnly: readOnlyHostLeaseUiCommand(command) });
+                require("../updates/Bootstrap").assertBusinessAllowed();
+                return await this.handleMessageCore(message, command);
+            });
+        }
         if (uiActionCommands.has(command))
             return await this.withSafeTransferRetry(command, message, () => this.runActionCommand(command, message));
         return await this.withSafeTransferRetry(command, message, () => this.handleMessageCore(message, command));
@@ -4848,7 +4869,7 @@ class RealtimeTunnelPanelProvider {
             this.loadProjectLocalPlanMetadataState().catch(() => undefined),
             projectContext.root ? this.loadPlanSyncLedger(projectContext.root).catch(() => undefined) : Promise.resolve(undefined),
             this.refreshCheckStaticReports(projectContext.root).catch(() => undefined),
-            this.loadProjectFlowState().catch(() => undefined),
+            this.loadProjectFlowState(),
             this.refreshLocalSshConfig().catch(() => undefined),
         ]);
         if (!this.projectContextIsCurrent(projectContext))
@@ -6041,13 +6062,19 @@ class RealtimeTunnelPanelProvider {
             throw error;
         }
     }
-    async ensureRealtimeConnected(_reason) {
+    async ensureRealtimeConnected(_reason, throwOnFailure = false) {
         const generation = this.projectContextGeneration;
         const client = this.client;
-        if (!this.isRealtimeMode())
+        if (!this.isRealtimeMode()) {
+            if (throwOnFailure)
+                throw new Error("当前为离线模式，无法恢复实时连接。");
             return;
-        if (this.budget.isPaused())
+        }
+        if (this.budget.isPaused()) {
+            if (throwOnFailure)
+                throw new Error("网络活动仍处于暂停状态，无法恢复实时连接。");
             return;
+        }
         try {
             await client.connect(undefined, { manual: ["resume stream", "resume network", "xshell launched", "xshell launched all", "xshell sessions launched", "tunnel test ok"].includes(_reason) });
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -6075,11 +6102,18 @@ class RealtimeTunnelPanelProvider {
                     message: "tunnel_unavailable",
                 };
             }
+            if (unavailable && !displayGuarded && throwOnFailure)
+                throw new Error("实时连接不可用，请检查已配置的端点。");
         }
         catch (error) {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            if (throwOnFailure) {
+                this.applyTrafficScheduling();
+                this.postState();
+                throw error;
+            }
         }
         // Converge the applied strategy (queue/progress cadence + A-class guard) on the fresh
         // connection evidence, so a resume/config path cannot leave the client on a stale policy.
@@ -6796,7 +6830,7 @@ class RealtimeTunnelPanelProvider {
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import")
-            return;
+            throw new Error("离线模式无法重启实时流。");
         try {
             await client.reconnect("manual restart");
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -6807,6 +6841,8 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         this.postState();
     }
@@ -6848,7 +6884,7 @@ class RealtimeTunnelPanelProvider {
         this.budget.resume();
         this.client.resume();
         this.applyTrafficScheduling();
-        await this.ensureRealtimeConnected("resume network");
+        await this.ensureRealtimeConnected("resume network", true);
         this.postState();
     }
     async refreshPendingWorkerOperations() {
@@ -7032,8 +7068,7 @@ class RealtimeTunnelPanelProvider {
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import") {
-            void vscode.window.showInformationMessage("离线模式无法刷新实时 GPU 状态。");
-            return;
+            throw new Error("离线模式无法刷新实时 GPU 状态。");
         }
         try {
             await client.getGpu();
@@ -7048,6 +7083,8 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
@@ -7136,8 +7173,7 @@ class RealtimeTunnelPanelProvider {
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import") {
-            void vscode.window.showInformationMessage("离线模式无法刷新实时调度状态。");
-            return;
+            throw new Error("离线模式无法刷新实时调度状态。");
         }
         try {
             await client.getScheduler();
@@ -7149,6 +7185,8 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
@@ -7157,7 +7195,7 @@ class RealtimeTunnelPanelProvider {
         const generation = this.projectContextGeneration;
         const client = this.client;
         if (this.effectiveConnectionMode() === "offline_import")
-            return;
+            throw new Error("离线模式无法刷新实时轨迹。");
         try {
             await client.getTraces();
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -7168,6 +7206,8 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastError = errorMessage(error);
+            this.postState();
+            throw error;
         }
         if (generation === this.projectContextGeneration && client === this.client)
             this.postState();
@@ -7558,7 +7598,7 @@ class RealtimeTunnelPanelProvider {
                 await this.pauseAllNetworkActivity();
                 break;
             case "resumeNetwork":
-                this.resumeNetwork();
+                await this.resumeNetwork();
                 break;
             case "snapshot":
                 await this.manualSnapshot();
@@ -7598,7 +7638,7 @@ class RealtimeTunnelPanelProvider {
                 await this.importOffline();
                 break;
             case "selectPlan":
-                this.selectPlanFromUi(message);
+                await this.selectPlanFromUi(message);
                 break;
             case "openPlan":
                 await this.openWorkspacePlanFromUi(message);
@@ -7716,7 +7756,7 @@ class RealtimeTunnelPanelProvider {
                 await this.chooseResultCsvDirFromUi();
                 break;
             case "selectExperiment":
-                this.selectExperimentFromUi(message);
+                await this.selectExperimentFromUi(message);
                 break;
             case "clearLegacyTasks":
                 await this.clearLegacyTasksFromUi(message);
@@ -8058,9 +8098,13 @@ class RealtimeTunnelPanelProvider {
         await Promise.all([
             this.context.globalState.update(keys.uiLayout, globalUiLayoutState(layout)),
             this.persistProjectUiLayoutState(),
-            this.context.workspaceState.update(keys.uiProjectLayout, undefined),
-            this.context.workspaceState.update(keys.uiProjectActions, undefined),
         ]);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectActions, undefined);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.postState();
@@ -8071,9 +8115,13 @@ class RealtimeTunnelPanelProvider {
         await Promise.all([
             this.context.globalState.update(keys.uiLayout, globalUiLayoutState(defaultUiLayout)),
             this.persistProjectUiLayoutState(),
-            this.context.workspaceState.update(keys.uiProjectLayout, undefined),
-            this.context.workspaceState.update(keys.uiProjectActions, undefined),
         ]);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectLayout, undefined);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
+        await this.context.workspaceState.update(keys.uiProjectActions, undefined);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.postState();
@@ -21457,8 +21505,8 @@ class RealtimeTunnelPanelProvider {
                 this.localPlanMetadataKey = key;
                 this.localPlanMetadataFullRefresh = true;
                 void this.refreshDraftPlans().catch(() => undefined);
-                void this.persistProjectPlanSelectionState().catch(() => undefined);
-                void this.persistProjectLocalPlanMetadataState().catch(() => undefined);
+                await this.persistProjectPlanSelectionState();
+                await this.persistProjectLocalPlanMetadataState();
             }
             catch (error) {
                 if (generation === this.projectContextGeneration && root === workspaceRoot()) {
@@ -21515,10 +21563,10 @@ class RealtimeTunnelPanelProvider {
         this.reconcileProjectPlanSelection(nextPlans);
         this.localPlanMetadataUpdatedAt = Date.now();
         this.localPlanMetadataActionUpdatedAt = Date.now();
-        void this.persistProjectLocalPlanMetadataState().catch(() => undefined);
+        await this.persistProjectLocalPlanMetadataState();
         this.localPlanMetadataKey = key;
         this.localPlanMetadataFullRefresh = false;
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        await this.persistProjectPlanSelectionState();
     }
     async openWorkspacePlanFromUi(message) {
         const generation = this.projectContextGeneration;
@@ -21536,7 +21584,7 @@ class RealtimeTunnelPanelProvider {
         const relativePlan = path.relative(path.resolve(root, planDirSafe()), path.resolve(root, file)).replace(/\\/g, "/");
         if (!relativePlan || relativePlan === ".." || relativePlan.startsWith("../") || path.isAbsolute(relativePlan) || !/\.ya?ml$/i.test(relativePlan))
             return;
-        this.selectPlanFromUi({ planFile: file, planId: file });
+        await this.selectPlanFromUi({ planFile: file, planId: file });
     }
     async refreshDraftPlans(force = false) {
         const root = workspaceRoot();
@@ -21862,13 +21910,18 @@ class RealtimeTunnelPanelProvider {
         await writeWorkspaceTextWithBackup(fullPath, ensurePlanPurposeHeader(text, path.basename(file)), assertCurrent);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
-        await this.refreshLocalPlanMetadata({ post: false, force: true });
-        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
-            return;
-        this.planFileInput = file;
-        this.selectedPlanId = file;
-        this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
+        try {
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+                return;
+            this.planFileInput = file;
+            this.selectedPlanId = file;
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+            await this.persistProjectPlanSelectionState();
+        }
+        catch (error) {
+            throw new Error(`Plan 文件已保存，但项目状态未能保存或刷新：${errorMessage(error)}`, { cause: error });
+        }
         if (generation === this.projectContextGeneration && root === workspaceRoot())
             this.postState();
     }
@@ -22210,10 +22263,17 @@ class RealtimeTunnelPanelProvider {
         if (this.selectedPlanId === file)
             this.selectedPlanId = undefined;
         this.refreshExperimentTracesProjectionForCurrentInterest();
-        await this.refreshLocalPlanMetadata({ post: false, force: true });
+        try {
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!isCurrent())
+                return;
+            await this.persistProjectPlanSelectionState();
+        }
+        catch (error) {
+            throw new Error(`Plan 归档包已创建，但项目状态未能保存或刷新：${errorMessage(error)}`, { cause: error });
+        }
         if (!isCurrent())
             return;
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
         this.postState();
         void vscode.window.showInformationMessage(`Plan 归档包已创建：${archivedRelative}`);
     }
@@ -22546,13 +22606,20 @@ class RealtimeTunnelPanelProvider {
         await (0, StateStore_1.atomicWriteText)(fullPath, text);
         if (!this.projectContextIsCurrent(projectContext))
             return;
-        await this.refreshLocalPlanMetadata({ post: false, force: true });
+        try {
+            await this.refreshLocalPlanMetadata({ post: false, force: true });
+            if (!this.projectContextIsCurrent(projectContext))
+                return;
+            this.planFileInput = relative;
+            this.selectedPlanId = relative;
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+            await this.persistProjectPlanSelectionState();
+        }
+        catch (error) {
+            throw new Error(`Plan 文件已生成，但项目状态未能保存或刷新：${errorMessage(error)}`, { cause: error });
+        }
         if (!this.projectContextIsCurrent(projectContext))
             return;
-        this.planFileInput = relative;
-        this.selectedPlanId = relative;
-        this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch(() => undefined);
         this.postState();
         this.queuePlanScopedResultParse("生成计划模板", relative, relative);
         if (openAfterCreate && this.projectContextIsCurrent(projectContext))
@@ -22628,28 +22695,13 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         assertSingleProjectWorkspace("识别工作区");
+        if (!projectOnboardingRoot())
+            throw new Error("无法确定单一工作区身份，工作区识别未完成。");
         await this.refreshLocalPlanMetadata({ post: false, force: true });
         if (!this.projectContextIsCurrent(projectContext))
             return;
         let plans = this.localPlanMetadata.plans || [];
-        // 3D：hasExistingProjectState 改为磁盘扫描（plans/*.yaml + simple_cluster/ui），避免内存 selectedPlanId 误判“非空”
-        const hasExistingOnDisk = (() => {
-            try {
-                const fsSync = require("fs");
-                const plansDir = path.join(root, "experiments", "plans");
-                const hasPlans = fsSync.existsSync(plansDir) && fsSync.readdirSync(plansDir).some((f) => f.endsWith(".yaml") || f.endsWith(".yml"));
-                const hasUi = fsSync.existsSync(path.join(root, "simple_cluster"));
-                return hasPlans || hasUi;
-            }
-            catch {
-                return false;
-            }
-        })();
-        const initialProjectState = Boolean(hasExistingOnDisk || this.localPlanMetadata.error);
-        // 检测到已有时不直接阻断，弹出双按钮供用户选择（3D）
-        // 检测到已有 Plan 时仅做信息提示：Plan 属于项目资产，插件只负责识别与管理，
-        // 不提供任何删除入口（原「清空并接入」会删除 experiments/plans/*.yaml 与 simple_cluster/ui/*.json）
-        if (hasExistingOnDisk && plans.length > 0) {
+        if (plans.length > 0) {
             const pick = await vscode.window.showInformationMessage(`已识别到 ${plans.length} 个 Plan，将纳入管理并继续。`, "继续", "查看现有");
             if (!this.projectContextIsCurrent(projectContext))
                 return;
@@ -22657,45 +22709,8 @@ class RealtimeTunnelPanelProvider {
                 await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
                 return;
             }
-            // 关闭通知或按 ESC：视为取消，不做任何改动
             if (pick !== "继续")
-                return;
-        }
-        for (let step = 0; step < NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS; step += 1) {
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const prerequisite = projectBootstrapNewProjectPrerequisite({
-                planCount: plans.length,
-                hasExistingProjectState: initialProjectState,
-                simpleSftp: simpleSftpIntegrationReadiness(),
-                setupComplete: initialServerSetupComplete(this.setupConfig, false),
-                workerCount: this.enabledWorkerConfigs().length,
-            });
-            if (!prerequisite)
-                break;
-            const next = await vscode.window.showInformationMessage(prerequisite.message, prerequisite.action, "稍后");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const continueFlow = await this.handleProjectBootstrapAction(next, { projectContext });
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (!continueFlow)
-                return;
-        }
-        const remainingPrerequisite = projectBootstrapNewProjectPrerequisite({
-            planCount: plans.length,
-            hasExistingProjectState: initialProjectState,
-            simpleSftp: simpleSftpIntegrationReadiness(),
-            setupComplete: initialServerSetupComplete(this.setupConfig, false),
-            workerCount: this.enabledWorkerConfigs().length,
-        });
-        if (remainingPrerequisite) {
-            const open = await vscode.window.showWarningMessage(`新工作区识别仍停留在基础设施配置：${remainingPrerequisite.message}`, "打开服务器设置", "稍后");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (open === "打开服务器设置")
-                await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
-            return;
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区识别已取消。");
         }
         if (!plans.length) {
             await this.generatePlanGuideFromUi(false);
@@ -22712,6 +22727,8 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         const planFile = String(selected?.planFile || selected?.file || selected?.planId || "");
+        if (!planFile)
+            throw new Error("未选择有效的项目 Plan，工作区识别未完成。");
         const selectionChanged = Boolean(planFile) && (!samePlanSelection(this.planFileInput || "", planFile) || !samePlanSelection(this.selectedPlanId || "", selected?.planId || planFile));
         if (planFile) {
             this.planFileInput = planFile;
@@ -22721,108 +22738,28 @@ class RealtimeTunnelPanelProvider {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
         }
-        const project = this.localPlanMetadata.detectedProject || {};
-        const gateDiagnostics = projectOutputGateDiagnostics(project, selected);
-        const finalGateReason = projectOutputGateReason(project, selected);
-        const simpleSftp = simpleSftpIntegrationReadiness();
-        const enabledWorkers = this.enabledWorkerConfigs();
-        const currentRunState = () => {
-            const state = this.buildPlanRuntimeEvidenceState();
-            return {
-                activeRun: activePlanRunEvidence(state, planFile, selected),
-                finishedRun: projectBootstrapFinishedRunOutcome(state, selected),
-            };
-        };
-        const initialRunState = currentRunState();
-        const endpointReadiness = projectBootstrapEndpointReadiness({
-            hubRequired: false,
-            hubStatus: this.lastProbe?.status || this.lastHealth?.state,
-            hubSchedulerDependencies: this.lastProbe?.schedulerDependencies,
-            workers: enabledWorkers.map((worker) => ({
-                label: worker.displayName || worker.id,
-                status: this.lastWorkerProbes[worker.id]?.status,
-                schedulerDependencies: this.lastWorkerProbes[worker.id]?.schedulerDependencies,
-            })),
-        });
-        if (projectBootstrapShouldProbeEndpoints({
-            outputGateReason: finalGateReason,
-            realtimeMode: this.isRealtimeMode(),
-            setupComplete: initialServerSetupComplete(this.setupConfig, false),
-            workerCount: enabledWorkers.length,
-            simpleSftpReady: simpleSftp.ready,
-            activeRun: initialRunState.activeRun,
-            finishedRun: initialRunState.finishedRun,
-            endpointsReady: projectBootstrapEndpointProbeReusable(endpointReadiness, this.lastFullEndpointProbeAt),
-        })) {
-            await this.testTunnel(false);
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-        }
+        await this.markProjectOnboardingComplete(projectContext);
+        if (!this.projectContextIsCurrent(projectContext))
+            return;
         this.postState();
         if (selectionChanged)
             this.queueSelectedPlanResultParse("识别工作区切换计划", planFile);
-        const currentCompletion = () => {
-            const currentWorkers = this.enabledWorkerConfigs();
-            const { activeRun, finishedRun } = currentRunState();
-            return projectBootstrapCompletion({
-                outputGateReason: finalGateReason,
-                outputGateNextLabel: gateDiagnostics.nextLabel,
-                adapterConfig: project.adapterConfig,
-                realtimeMode: this.isRealtimeMode(),
-                offlineBundleActive: Boolean(this.offlineBundle),
-                setupComplete: initialServerSetupComplete(this.setupConfig, false),
-                simpleSftp,
-                hubStatus: this.lastProbe?.status || this.lastHealth?.state,
-                hubSchedulerDependencies: this.lastProbe?.schedulerDependencies,
-                workers: currentWorkers.map((worker) => ({
-                    label: worker.displayName || worker.id,
-                    status: this.lastWorkerProbes[worker.id]?.status,
-                    schedulerDependencies: this.lastWorkerProbes[worker.id]?.schedulerDependencies,
-                })),
-                activeRun,
-                finishedRun,
+        ResourceOperationLease_1.runOutsideResourceLease(() => {
+            void (async () => {
+                const next = await vscode.window.showInformationMessage("本地工作区已识别。运行准备和输出配置可在实验准备中继续检查。", "打开实验准备");
+                if (!this.projectContextIsCurrent(projectContext))
+                    return;
+                if (next === "打开实验准备")
+                    await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
+            })().catch((error) => {
+                if (!this.projectContextIsCurrent(projectContext))
+                    return;
+                this.lastError = errorMessage(error);
+                this.recordActionError({ command: "bootstrapProject", message: this.lastError });
+                this.postState();
+                void vscode.window.showErrorMessage(this.lastError);
             });
-        };
-        const seenCompletions = new Set();
-        const stopAtProjectPanel = async (completion) => {
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const open = await vscode.window.showWarningMessage(`工作区识别仍停留在当前步骤：${completion.message}`, "打开实验准备", "稍后");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (open === "打开实验准备")
-                await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
-        };
-        for (let step = 0; step < PROJECT_BOOTSTRAP_MAX_STEPS; step += 1) {
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const completion = currentCompletion();
-            const completionKey = JSON.stringify([completion.state, completion.action, completion.secondaryAction, completion.message]);
-            if (seenCompletions.has(completionKey)) {
-                await stopAtProjectPanel(completion);
-                return;
-            }
-            seenCompletions.add(completionKey);
-            const completionActions = [completion.action, completion.secondaryAction, "稍后"].filter((action, index, items) => action && items.indexOf(action) === index);
-            const next = completionActions.length
-                ? await vscode.window.showInformationMessage(completion.message, ...completionActions)
-                : await vscode.window.showInformationMessage(completion.message);
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const continueFlow = await this.handleProjectBootstrapAction(next, {
-                projectContext,
-                planFile,
-                planId: selected?.planId || planFile,
-                adapterConfig: project.adapterConfig,
-            });
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (!continueFlow)
-                return;
-        }
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        await stopAtProjectPanel(currentCompletion());
+        });
     }
     async handleProjectBootstrapAction(action, context) {
         const projectContext = context?.projectContext || this.captureProjectContext();
@@ -22854,7 +22791,7 @@ class RealtimeTunnelPanelProvider {
             await this.clearOfflineImport();
             if (!isCurrent())
                 return false;
-            await this.ensureRealtimeConnected("resume from project onboarding");
+            await this.ensureRealtimeConnected("resume from project onboarding", true);
             if (!isCurrent())
                 return false;
             this.postState(true);
@@ -23372,7 +23309,8 @@ class RealtimeTunnelPanelProvider {
         });
         this.postState();
     }
-    selectPlanFromUi(message) {
+    async selectPlanFromUi(message) {
+        const projectContext = this.captureProjectContext();
         const planFile = stringField(message, "planFile");
         const planId = stringField(message, "planId") || planFile;
         const resolvedPlanFile = this.resolveSelectedPlanFile(planFile || planId || "");
@@ -23383,16 +23321,25 @@ class RealtimeTunnelPanelProvider {
         this.planFileInput = nextPlanFile;
         if (changed)
             this.refreshExperimentTracesProjectionForCurrentInterest();
-        void this.persistProjectPlanSelectionState().catch((error) => {
-            this.recordActionError({ command: "selectPlan", message: `保存计划选择失败：${errorMessage(error)}` });
-            this.postState();
-        });
         this.ensureSelectedPlanFileWatchers(changed ? "切换计划" : "选择计划");
         this.postState();
         if (changed)
             this.queuePlanScopedResultParse("切换计划", nextPlanFile, nextPlanId);
+        try {
+            await this.persistProjectPlanSelectionState();
+        }
+        catch (error) {
+            if (this.projectContextIsCurrent(projectContext)) {
+                this.recordActionError({ command: "selectPlan", message: `保存计划选择失败：${errorMessage(error)}` });
+                this.postState();
+            }
+            throw error;
+        }
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换；请在原项目核查计划选择保存结果。");
     }
-    selectExperimentFromUi(message) {
+    async selectExperimentFromUi(message) {
+        const projectContext = this.captureProjectContext();
         const taskUiKey = usableSelectionKey(stringField(message, "taskUiKey"));
         const runKey = usableSelectionKey(stringField(message, "runKey"));
         const messageExperimentId = usableSelectionKey(stringField(message, "experimentId"));
@@ -23433,11 +23380,19 @@ class RealtimeTunnelPanelProvider {
                 this.selectedArchiveKeys.delete(archiveKey);
         }
         this.markTaskSelectionChanged();
-        void this.persistProjectTaskSelectionState().catch((error) => {
-            this.recordActionError({ command: "selectExperiment", message: `保存任务选择失败：${errorMessage(error)}` });
-            this.postState();
-        });
         this.postState();
+        try {
+            await this.persistProjectTaskSelectionState();
+        }
+        catch (error) {
+            if (this.projectContextIsCurrent(projectContext)) {
+                this.recordActionError({ command: "selectExperiment", message: `保存任务选择失败：${errorMessage(error)}` });
+                this.postState();
+            }
+            throw error;
+        }
+        if (!this.projectContextIsCurrent(projectContext))
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区已切换；请在原项目核查任务选择保存结果。");
     }
     async clearLegacyTasksFromUi(message) {
         const selectedLegacy = stringArrayField(message, "selectedLegacyTaskUiKeys");
@@ -24348,18 +24303,16 @@ class RealtimeTunnelPanelProvider {
         const client = this.client;
         const pathFromOps = this.debugBundlePath || findDebugBundlePath(this.localOperations) || findDebugBundlePath(this.lastRealtimeState?.operations);
         if (!pathFromOps) {
-            this.recordActionError({ command: "downloadDebugBundle", message: "未找到调试包", suggestion: "请先创建调试包，等待操作完成后再下载。" });
-            this.postState();
-            return;
+            throw new Error("未找到调试包；请先创建调试包，等待操作完成后再下载。");
         }
         const picked = await vscode.window.showSaveDialog({
             title: "保存调试包",
             defaultUri: vscode.Uri.file(path.join(root || process.cwd(), path.basename(pathFromOps))),
         });
         if (!picked)
-            return;
+            throw new UiCommandCancelled_1.UiCommandCancelled("已取消调试包下载。");
         if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
-            return;
+            throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换，调试包下载已取消。");
         try {
             if (!root)
                 throw new Error("请先打开当前实验项目，才能把调试包暂存到项目内再复制到所选位置。");
@@ -24410,14 +24363,18 @@ class RealtimeTunnelPanelProvider {
                 await fs.copyFile(stagingPath, picked.fsPath);
             }, this.hostOperationLease, root);
             if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
-                return;
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换；请核查调试包是否已保存。");
             this.lastError = undefined;
         }
         catch (error) {
             if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
-                return;
+                throw new UiCommandCancelled_1.UiCommandCancelled("工作区或连接已切换；请核查调试包是否已保存。");
+            if (isUiCommandCancelled(error))
+                throw error;
             this.lastError = userFacingFileError(error);
             this.recordActionError({ command: "downloadDebugBundle", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
+            this.postState();
+            throw new Error(this.lastError, { cause: error });
         }
         if (generation === this.projectContextGeneration && root === workspaceRoot() && client === this.client)
             this.postState();
@@ -31983,15 +31940,20 @@ async function readProjectFlowState(root) {
     try {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
+        if (!data || typeof data !== "object" || Array.isArray(data))
+            throw new Error("项目状态格式无效");
         return ApiWorkflow_1.normalizeFlowState(data);
     }
-    catch {
-        return undefined;
+    catch (error) {
+        if (error?.code === "ENOENT")
+            return undefined;
+        throw new Error(`读取项目状态失败 ${fullPath}: ${errorMessage(error)}`, { cause: error });
     }
 }
 async function writeProjectFlowState(root, state) {
     if (!root)
         return;
+    await readProjectFlowState(root);
     const fullPath = path.join(root, ...PROJECT_FLOW_STATE_PATH.split("/"));
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const payload = ApiWorkflow_1.normalizeFlowState(state);
@@ -35848,10 +35810,10 @@ function projectOnboardingStateForWebview(options) {
         : mismatchedWorker
             ? `${mismatchedWorker.displayName || mismatchedWorker.id} ${mismatchedProbe.tcpOpen === true ? "隧道已连通，" : ""}Agent 当前属于 ${mismatchedProbe.projectRoot}；本项目需要 ${mismatchedProbe.expectedProjectRoot}。请部署本项目 Agent，或为同时使用的项目配置独立隧道端口。`
             : completed
-                ? `当前项目 ${projectName} 已完成接入。`
+                ? `当前项目 ${projectName} 的本地工作区已识别；运行准备状态请另行查看。`
                 : projectReady
-                    ? `当前项目 ${projectName} 尚未完成接入；点击“识别工作区”继续。`
-                    : `当前项目 ${projectName} 尚未完成接入；先补全：${missingItems.join("、")}，然后点击“识别工作区”。`;
+                    ? `当前项目 ${projectName} 尚未识别；点击“识别工作区”继续。`
+                    : `当前项目 ${projectName} 尚未识别；可先识别工作区。运行准备还需：${missingItems.join("、")}。`;
     const value = {
         required: hasProject && (!completed || Boolean(mismatchedWorker)),
         title: mismatchedWorker ? "Worker Agent 项目不匹配" : "项目配置待识别",

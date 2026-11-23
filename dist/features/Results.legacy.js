@@ -50,6 +50,7 @@ exports.classificationMetricDirections = {
     AUROC: "higher",
     ROC_AUC: "higher",
     AUPRC: "higher",
+    AP: "higher",
     F1: "higher",
     precision: "higher",
     recall: "higher",
@@ -58,15 +59,20 @@ exports.classificationMetricDirections = {
     balanced_accuracy: "higher",
     macro_f1: "higher",
     micro_f1: "higher",
+    weighted_f1: "higher",
+    macro_precision: "higher", micro_precision: "higher", weighted_precision: "higher",
+    macro_recall: "higher", micro_recall: "higher", weighted_recall: "higher",
     mcc: "higher",
     kappa: "higher",
     ece: "lower",
     brier: "lower",
     loss: "lower",
+    log_loss: "lower",
 };
+const classificationResultMetrics = ["accuracy", "AUC", "AUROC", "ROC_AUC", "AUPRC", "AP", "F1", "macro_f1", "micro_f1", "weighted_f1", "precision", "macro_precision", "micro_precision", "weighted_precision", "recall", "macro_recall", "micro_recall", "weighted_recall", "sensitivity", "specificity", "balanced_accuracy", "loss", "log_loss"];
 exports.builtInResultPresets = [
-    preset("classification_long_csv", "Classification long CSV", "long_csv", exports.classificationMetricDirections, ["accuracy", "AUC", "AUROC", "ROC_AUC", "AUPRC", "F1", "precision", "recall", "sensitivity", "specificity", "balanced_accuracy", "loss"]),
-    preset("classification_wide_csv", "Classification wide CSV", "wide_csv", exports.classificationMetricDirections, ["accuracy", "AUC", "AUROC", "ROC_AUC", "AUPRC", "F1", "precision", "recall", "sensitivity", "specificity", "balanced_accuracy", "loss"]),
+    preset("classification_long_csv", "Classification long CSV", "long_csv", exports.classificationMetricDirections, classificationResultMetrics),
+    preset("classification_wide_csv", "Classification wide CSV", "wide_csv", exports.classificationMetricDirections, classificationResultMetrics),
     preset("medical_segmentation_long_csv", "Medical segmentation long CSV", "long_csv", exports.segmentationMetricDirections, ["DSC", "ASD", "HD95", "IoU", "Dice"]),
     preset("medical_segmentation_wide_csv", "Medical segmentation wide CSV", "wide_csv", exports.segmentationMetricDirections, ["DSC", "ASD", "HD95", "IoU", "Dice"]),
     preset("regression_wide_csv", "Regression wide CSV", "wide_csv", { MAE: "lower", MSE: "lower", RMSE: "lower", R2: "higher", loss: "lower" }, ["MAE", "MSE", "RMSE", "R2", "loss"]),
@@ -127,7 +133,7 @@ exports.builtInResultSchemas = [
             metricDef("accuracy", "Accuracy", "number", true, 3, "classification", ["acc"], { min: 0, max: 1 }, true),
             metricDef("AUC", "AUC", "number", true, 3, "classification", ["auc", "AUROC", "roc_auc"], { min: 0, max: 1 }),
             metricDef("AUPRC", "AUPRC", "number", true, 3, "classification", ["auprc", "pr_auc"], { min: 0, max: 1 }),
-            metricDef("F1", "F1", "number", true, 3, "classification", ["f1", "macro_f1", "micro_f1"], { min: 0, max: 1 }),
+            metricDef("F1", "F1", "number", true, 3, "classification", ["f1"], { min: 0, max: 1 }),
             metricDef("precision", "Precision", "number", true, 3, "classification", ["ppv"], { min: 0, max: 1 }),
             metricDef("recall", "Recall", "number", true, 3, "classification", ["sensitivity", "tpr"], { min: 0, max: 1 }),
             metricDef("specificity", "Specificity", "number", true, 3, "classification", ["tnr"], { min: 0, max: 1 }),
@@ -156,8 +162,24 @@ exports.builtInPaperTableTemplates = [
     paperTemplate("missing_modality_robustness_table", "Missing modality robustness", ["method"], ["missing_rate"], ["DSC", "ASD"]),
     paperTemplate("noise_robustness_table", "Noise robustness", ["method"], ["noise_level"], ["DSC", "ASD"]),
 ];
-function selectResultPreset(fileName, presets = exports.builtInResultPresets) {
-    return presets.find((item) => item.filePatterns.some((pattern) => globMatch(fileName, pattern))) || presets[0];
+function selectResultPreset(fileName, presets = exports.builtInResultPresets, text, parserConfig = {}) {
+    const matched = presets.filter((item) => item.filePatterns.some((pattern) => globMatch(fileName, pattern)));
+    const candidates = matched.length ? matched : presets;
+    if (text !== undefined && !/\.json$/i.test(fileName)) {
+        const headers = csvRows(text)[0] || [];
+        if (headers.length) {
+            const long = candidates.find((item) => {
+                const mapping = { ...item.columnMapping, ...parserConfig.columnMapping };
+                return item.format === "long_csv" && headers.includes(mapping.metric || "metric") && headers.includes(mapping.value || "value");
+            });
+            if (long)
+                return long;
+            const wide = candidates.find((item) => item.id === "generic_metric_wide_csv") || candidates.find((item) => item.format === "wide_csv");
+            if (wide)
+                return wide;
+        }
+    }
+    return candidates[0];
 }
 function previewResultParse(text, sourceFile, preset, parserConfig = {}) {
     const isJson = /\.json$/i.test(sourceFile) || preset.format === "json";
@@ -352,6 +374,7 @@ function readResultConfigJson(text, validate, lastKnownGood) {
 }
 function normalizeMetricKey(metric, schema, extraRules = []) {
     const rules = [
+        ...extraRules,
         ...(schema?.metrics.flatMap((item) => (item.aliases || []).map((from) => ({ from, to: item.key, caseInsensitive: true, trim: true }))) || []),
         { from: "dice", to: "DSC", caseInsensitive: true, trim: true },
         { from: "mean_dice", to: "DSC", caseInsensitive: true, trim: true },
@@ -365,22 +388,17 @@ function normalizeMetricKey(metric, schema, extraRules = []) {
         { from: "top5_acc", to: "top5_accuracy", caseInsensitive: true, trim: true },
         { from: "auroc", to: "AUC", caseInsensitive: true, trim: true },
         { from: "roc_auc", to: "AUC", caseInsensitive: true, trim: true },
-        { from: "average_precision", to: "AUPRC", caseInsensitive: true, trim: true },
-        { from: "ap", to: "AUPRC", caseInsensitive: true, trim: true },
+        { from: "average_precision", to: "AP", caseInsensitive: true, trim: true },
+        { from: "ap", to: "AP", caseInsensitive: true, trim: true },
         { from: "pr_auc", to: "AUPRC", caseInsensitive: true, trim: true },
-        { from: "weighted_f1", to: "F1", caseInsensitive: true, trim: true },
-        { from: "f1_macro", to: "F1", caseInsensitive: true, trim: true },
-        { from: "f1_micro", to: "F1", caseInsensitive: true, trim: true },
-        { from: "f1_weighted", to: "F1", caseInsensitive: true, trim: true },
-        { from: "macro_precision", to: "precision", caseInsensitive: true, trim: true },
-        { from: "macro_recall", to: "recall", caseInsensitive: true, trim: true },
+        { from: "f1_macro", to: "macro_f1", caseInsensitive: true, trim: true },
+        { from: "f1_micro", to: "micro_f1", caseInsensitive: true, trim: true },
+        { from: "f1_weighted", to: "weighted_f1", caseInsensitive: true, trim: true },
         { from: "mcc", to: "MCC", caseInsensitive: true, trim: true },
         { from: "matthews_corrcoef", to: "MCC", caseInsensitive: true, trim: true },
         { from: "cohen_kappa", to: "kappa", caseInsensitive: true, trim: true },
-        { from: "log_loss", to: "loss", caseInsensitive: true, trim: true },
-        { from: "cross_entropy", to: "loss", caseInsensitive: true, trim: true },
-        { from: "ce_loss", to: "loss", caseInsensitive: true, trim: true },
-        ...extraRules,
+        { from: "cross_entropy", to: "log_loss", caseInsensitive: true, trim: true },
+        { from: "ce_loss", to: "log_loss", caseInsensitive: true, trim: true },
     ];
     for (const rule of rules) {
         const from = rule.trim ? rule.from.trim() : rule.from;
@@ -689,11 +707,10 @@ function preset(id, name, format, metricDirections, metricColumns) {
         metricAliases: {
             Dice: "DSC", dice: "DSC", acc: "accuracy", top1: "top1_accuracy", top_1: "top1_accuracy", top1_acc: "top1_accuracy",
             top5: "top5_accuracy", top_5: "top5_accuracy", top5_acc: "top5_accuracy", auc: "AUC", auroc: "AUC", roc_auc: "AUC",
-            average_precision: "AUPRC", ap: "AUPRC", pr_auc: "AUPRC", auprc: "AUPRC", macro_f1: "F1", micro_f1: "F1",
-            weighted_f1: "F1", f1_macro: "F1", f1_micro: "F1", f1_weighted: "F1", macro_precision: "precision", micro_precision: "precision",
-            weighted_precision: "precision", macro_recall: "recall", micro_recall: "recall", weighted_recall: "recall", bal_acc: "balanced_accuracy",
+            average_precision: "AP", ap: "AP", pr_auc: "AUPRC", auprc: "AUPRC", f1_macro: "macro_f1", f1_micro: "micro_f1",
+            f1_weighted: "weighted_f1", bal_acc: "balanced_accuracy",
             balanced_acc: "balanced_accuracy", sensitivity: "recall", tpr: "recall", ppv: "precision", tnr: "specificity", mcc: "MCC",
-            matthews_corrcoef: "MCC", cohen_kappa: "kappa", brier_score: "brier", log_loss: "loss", cross_entropy: "loss", ce_loss: "loss",
+            matthews_corrcoef: "MCC", cohen_kappa: "kappa", brier_score: "brier", cross_entropy: "log_loss", ce_loss: "log_loss",
         },
         metricDirections,
         requiredColumns: format === "long_csv" ? ["metric", "value"] : [],
@@ -1197,7 +1214,7 @@ function coerceDimension(value, type) {
 const splitNameMap = Object.assign(Object.create(null), {
     train: "train", val: "val", valid: "val", validation: "val", test: "test", external: "external", ext: "external",
 });
-const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric", "macro", "micro", "weighted"]);
+const metricDecorators = new Set(["best", "final", "last", "mean", "avg", "average", "eval", "score", "metric"]);
 const segmentationMetricNames = new Set(["DSC", "Dice", "IoU", "HD95", "ASD"]);
 function normalizeMetricToken(metric, aliases = {}) {
     const value = metric.trim();
@@ -1244,13 +1261,21 @@ function canonicalMetricName(lower) {
         return "top5_accuracy";
     if (["auc", "auroc", "roc_auc"].includes(lower))
         return "AUC";
-    if (["auprc", "pr_auc", "average_precision", "ap"].includes(lower))
+    if (["auprc", "pr_auc"].includes(lower))
         return "AUPRC";
-    if (["f1", "macro_f1", "micro_f1", "weighted_f1", "f1_macro", "f1_micro", "f1_weighted"].includes(lower))
+    if (["average_precision", "ap"].includes(lower))
+        return "AP";
+    if (lower === "f1")
         return "F1";
-    if (["precision", "macro_precision", "micro_precision", "weighted_precision", "ppv"].includes(lower))
+    for (const aggregation of ["macro", "micro", "weighted"]) {
+        if (lower === `${aggregation}_f1` || lower === `f1_${aggregation}`)
+            return `${aggregation}_f1`;
+        if (lower === `${aggregation}_precision` || lower === `${aggregation}_recall`)
+            return lower;
+    }
+    if (["precision", "ppv"].includes(lower))
         return "precision";
-    if (["recall", "macro_recall", "micro_recall", "weighted_recall", "sensitivity", "tpr"].includes(lower))
+    if (["recall", "sensitivity", "tpr"].includes(lower))
         return "recall";
     if (["specificity", "tnr"].includes(lower))
         return "specificity";
@@ -1264,8 +1289,10 @@ function canonicalMetricName(lower) {
         return lower.toUpperCase();
     if (["brier", "brier_score"].includes(lower))
         return "brier";
-    if (["loss", "log_loss", "cross_entropy", "ce_loss"].includes(lower))
+    if (lower === "loss")
         return "loss";
+    if (["log_loss", "cross_entropy", "ce_loss"].includes(lower))
+        return "log_loss";
     if (["dice", "dsc", "mean_dice"].includes(lower))
         return "DSC";
     if (lower === "iou")

@@ -84,6 +84,7 @@ function mcpGateway(host) {
         if (["files.cleanup.execute", "files.cleanup.settle"].includes(method))
             Invocation_1.mcpInvocation.getStore()?.permission("sync");
         return host.simpleSftpApiCall(method, { ...params, node, consumerRoot: root,
+            ...(method === "files.cleanup.observeBatch" && params.readConcurrency === undefined ? { readConcurrency: 1 } : {}),
             ...(method === "files.cleanup.preview" && params.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}) });
     };
     return new ProjectGateway_1.ProjectGateway({ root: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "",
@@ -110,6 +111,11 @@ function mcpGateway(host) {
                 const { workerId, sourceWorkerId, destinationWorkerId, ...params } = args;
                 if (method === "sync.projectInventory" && params.includeHashes === true && !params.paths?.length)
                     throw Error("MCP_HASH_PATHS_REQUIRED: 请指定要核验内容的项目内路径。");
+                if (method === "sync.downloadPaths" && (!params.paths.length || params.paths.some((value) => {
+                    const normalized = path.posix.normalize(value.trim().replace(/\\/g, "/")).replace(/\/+$/, "");
+                    return normalized === "." || normalized === "";
+                })))
+                    throw Error("MCP_PROJECT_PATH_REQUIRED: 请指定项目内文件或子目录，不能下载整个项目根目录。");
                 const target = (id) => {
                     const row = host.workerCodeSyncTargets().find((worker) => worker.id === id);
                     if (!row)

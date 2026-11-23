@@ -252,7 +252,7 @@ function registerGitBackupCommands(context) {
     if (!vscode)
         return [];
     const bind = (id, handler) => {
-        context.subscriptions.push(vscode.commands.registerCommand(id, () => void handler()));
+        context.subscriptions.push(vscode.commands.registerCommand(id, () => handler()));
     };
     bind(exports.CMD_SETUP, setupGitBackupCommand);
     bind(exports.CMD_REMOVE, removeGitBackupCommand);
@@ -274,7 +274,7 @@ function registerGitHubSyncCommands(context, provider) {
         const fn = provider[method];
         if (typeof fn !== "function")
             return;
-        context.subscriptions.push(vscode.commands.registerCommand(id, () => void fn.apply(provider, [])));
+        context.subscriptions.push(vscode.commands.registerCommand(id, () => fn.apply(provider, [])));
         registered.push(id);
     };
     bind(exports.CMD_SYNC_GITHUB, "syncToGitHub");

@@ -40,6 +40,7 @@ const ServerQueueDispatch_1 = require("../features/ServerQueueDispatch");
 const ManualDispatchHost_1 = require("./ManualDispatchHost");
 const GpuQuotaScheduling_1 = require("../features/GpuQuotaScheduling");
 const DistributedPlanQueue_1 = require("../features/DistributedPlanQueue");
+const Invocation_1 = require("../mcp/Invocation");
 /** An explicit button freezes remaining jobs; no PLAN-wide persistent prequeue switch. */
 class ServerQueueHost {
     h;
@@ -58,7 +59,7 @@ class ServerQueueHost {
         const targets = () => JSON.stringify([h.workerActionTargets(), h.schedulerSettings(), h.enabledWorkerConfigs().map((w) => [w.id, w.gpuJobsPerCard, w.gpuCardOverrides, w.gpuMaxConcurrentCards])]);
         const binding = targets(), key = this.root + "\0server-queue", reserved = [];
         const current = () => { if (!h.projectContextIsCurrent(context) || context.root !== this.root || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== this.root || targets() !== binding || h.distributedPlanStopEpoch !== epoch)
-            throw Error("项目、GPU 配额或连接已变化，未继续派发服务器队列。"); };
+            throw Error("项目、GPU 配额或连接已变化，未继续派发服务器队列。"); Invocation_1.mcpInvocation.getStore()?.permission("experiment"); };
         if (h.manualDispatchInFlight.size || h.manualDispatchReviewKeys?.size)
             throw Error("已有手动派发或产物审核正在处理，请等待本批结果。");
         h.manualDispatchInFlight.add(key);

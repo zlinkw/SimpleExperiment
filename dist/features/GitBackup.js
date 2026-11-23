@@ -105,8 +105,10 @@ function readHookFile(hookPath) {
     try {
         return fs.readFileSync(hookPath, "utf8");
     }
-    catch {
-        return "";
+    catch (error) {
+        if (error.code === "ENOENT")
+            return "";
+        throw error;
     }
 }
 /** 移除插件写入的标记段，保留仓库原有 hook 逻辑。 */
@@ -115,8 +117,10 @@ function stripHookBlock(content) {
     if (begin < 0)
         return content;
     const end = content.indexOf(exports.HOOK_BLOCK_END, begin);
+    if (end < 0)
+        throw new Error("Git 备份 hook 标记不完整，已保留原文件；请检查后重试。");
     const before = content.slice(0, begin);
-    const after = end < 0 ? "" : content.slice(end + exports.HOOK_BLOCK_END.length);
+    const after = content.slice(end + exports.HOOK_BLOCK_END.length);
     return (before + after).replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 function listRemotes(repoRoot) {

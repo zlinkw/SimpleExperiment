@@ -40,6 +40,7 @@ const ManualJobDispatch_1 = require("../features/ManualJobDispatch");
 const PulledTaskControl_1 = require("../features/PulledTaskControl");
 const PlanRunHost_1 = require("./PlanRunHost");
 const PlanCodeScopeHost_1 = require("./PlanCodeScopeHost");
+const Invocation_1 = require("../mcp/Invocation");
 class ManualDispatchHost {
     host;
     root;
@@ -113,7 +114,8 @@ class ManualDispatchHost {
             throw Error("这批任务正在处理，请勿重复点击。");
         if (h.manualDispatchInFlight.has(this.root + "\0server-queue"))
             throw Error("剩余 job 正在按配额派发服务器队列，请等待本批结果。");
-        const ports = this.ports();
+        const ports = this.ports(), assertCurrent = ports.assertCurrent;
+        ports.assertCurrent = () => { assertCurrent(); Invocation_1.mcpInvocation.getStore()?.permission("experiment"); };
         let acquired = false;
         selections.add(key);
         try {
