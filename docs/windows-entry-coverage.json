@@ -13357,56 +13357,64 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-inspector-move=up]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_layout_observation_or_fake","evidence":"Prior g003CurrentInspectorTwoItemMove observed two items reordering and upper boundary; current handler passes group/id and -1 to moveInspectorCustomButton. Persistence was not established.","boundary":"Original observed or fake layout only; no current real layout mutation or file deletion. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-inspector-move=down",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-inspector-move=down]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_layout_observation_or_fake","evidence":"Prior g003CurrentInspectorTwoItemMove observed two items reordering and lower boundary; current handler passes group/id and +1. Persistence was not established.","boundary":"Original observed or fake layout only; no current real layout mutation or file deletion. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-inspector-del",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-inspector-del]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_layout_observation_or_fake","evidence":"Prior rendered deleteInspectorCustomButton with fake layout verified exact group/action removal and preservation of other data, 3/3; current handler passes exact attributes.","boundary":"Original observed or fake layout only; no current real layout mutation or file deletion. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-inspector-add",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-inspector-add]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_layout_observation_or_fake","evidence":"Prior g003CurrentInspectorAddPreviews opened and cancelled menus in six sections; current handler uses selected group.","boundary":"Original observed or fake layout only; no current real layout mutation or file deletion. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-inspector-confirm",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-inspector-confirm]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_layout_observation_or_fake","evidence":"Historical inspectorWorkflowDensity:37-43 synthetic picker preserved group identity and saved selection; actual command execution was not tested.","boundary":"Original observed or fake layout only; no current real layout mutation or file deletion. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-inspector-cancel=1",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-inspector-cancel=1]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_layout_observation_or_fake","evidence":"Prior g003CurrentInspectorAddPreviews opened and cancelled six menus without executing candidates; current handler closes the menu.","boundary":"Original observed or fake layout only; no current real layout mutation or file deletion. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-card-menu-action",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-card-menu-action]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_only","evidence":"2026-11-21 rendered handler with fake layout checked section collapse/expand and card selection including expand-all, 4/4 exit0; current producer passes card key and action to click handler.","boundary":"Fake layout and callbacks only; no current actual workspace or layout mutation. New Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-card-menu-action=expand",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-card-menu-action=expand]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_only","evidence":"2026-11-21 rendered handler with fake layout checked section collapse/expand and card selection including expand-all, 4/4 exit0; current producer passes card key and action to click handler.","boundary":"Fake layout and callbacks only; no current actual workspace or layout mutation. New Panel candidate remains unbuilt."}
         },
         {
           "id": "navigation:plans:plans",
