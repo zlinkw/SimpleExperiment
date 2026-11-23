@@ -9,7 +9,7 @@ async function current(ports: Ports, node: CleanupNode) {
   if (ports.currentNode && cleanupDigest({ ...await ports.currentNode(node.id), error: undefined }) !== cleanupDigest({ ...node, error: undefined }))
     cleanupError("SERVER_IDENTITY_CHANGED");
 }
-export async function previewEmptyParents(ports: Ports, preview: CleanupPreview, forReplacement: boolean): Promise<EmptyParentPreview[]> {
+export async function previewEmptyParents(ports: Ports, preview: CleanupPreview, forReplacement: boolean, assertCurrent?: () => void): Promise<EmptyParentPreview[]> {
   if (preview.action !== "isolate") cleanupError("NOT_ISOLATED_OPERATION");
   const groups = new Map<string, typeof preview.rows>();
   for (const row of preview.rows.filter(row => row.disposition === "isolate")) {
@@ -19,9 +19,10 @@ export async function previewEmptyParents(ports: Ports, preview: CleanupPreview,
   }
   const result: EmptyParentPreview[] = [];
   for (const rows of groups.values()) {
-    const node = rows[0].node; await current(ports, node);
+    const node = rows[0].node; await current(ports, node); assertCurrent?.();
     const sourceIsolationTokens = [...new Set(rows.map(row => row.backendToken!))];
-    const answer = await ports.sftp("files.cleanup.isolationParentsPreview", { isolationTokens: sourceIsolationTokens, forReplacement });
+    const answer = await ports.sftp("files.cleanup.isolationParentsPreview", { isolationTokens: sourceIsolationTokens, forReplacement }, assertCurrent);
+    assertCurrent?.();
     if (answer?.eligible === false) continue;
     const allowed = new Set<string>();
     const absolute = (relative: string) => node.kind === "local" ? path.join(node.root, relative) : path.posix.join(node.root, relative);
@@ -45,11 +46,12 @@ export async function previewEmptyParents(ports: Ports, preview: CleanupPreview,
   }
   return result;
 }
-export async function confirmEmptyParents(ports: Ports, previews: EmptyParentPreview[], phase: number): Promise<void> {
+export async function confirmEmptyParents(ports: Ports, previews: EmptyParentPreview[], phase: number, assertCurrent?: () => void): Promise<void> {
   for (const row of previews) {
     await current(ports, row.node);
+    assertCurrent?.();
     if (row.confirmations === phase) continue;
-    await ports.sftp("files.cleanup.confirm", { token: row.token, digest: row.digest, phase, confirm: true, exactTargets: row.confirmationPaths });
+    await ports.sftp("files.cleanup.confirm", { token: row.token, digest: row.digest, phase, confirm: true, exactTargets: row.confirmationPaths }, assertCurrent);
     row.confirmations = phase;
   }
 }

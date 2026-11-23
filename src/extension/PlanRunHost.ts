@@ -183,12 +183,14 @@ export class PlanRunHost {
       preview: (job: any) => cleanup.service.preview({ planFile: body.planFile, action: "isolate", verifiedOnly: false, authorizationMode: "confirmed_paths",
         job: { workflowId: "manifest-" + cleanupDigest([body.planFile, job.output_dir]), commandId: "manifest-" + cleanupDigest(job), index: Number(job.index),
           purpose: "replace_outputs", manifest: { declarations: [job], replacement: true } } },
-        (progress: any) => body.reportPlanStageLocal?.("任务 " + job.index + " · " + progress.message)),
-      service: cleanup.service, execute: (id: string) => cleanup.execute(id),
-      verify: (preview: any) => cleanup.service.assertIsolatedSourcesAbsent(preview),
+        (progress: any) => { assertCurrent(); body.reportPlanStageLocal?.("任务 " + job.index + " · " + progress.message); }, undefined, assertCurrent),
+      service: { confirm: (params: any) => cleanup.service.confirm(params, assertCurrent),
+        preflightConfirmed: (id: string) => cleanup.service.preflightConfirmed(id, assertCurrent),
+        status: (id: string) => cleanup.service.status(id, undefined, assertCurrent) }, execute: (id: string) => cleanup.execute(id, assertCurrent),
+      verify: (preview: any) => cleanup.service.assertIsolatedSourcesAbsent(preview, assertCurrent),
       // r87 块4：隔离完成即派发；后台清理只在 rerun_all+回执齐备时被 fire-and-forget 触发，失败不进派发链。
-      prepareEmptyParents: (preview: any) => cleanup.service.prepareEmptyParentCleanup(preview),
-      confirmEmptyParents: (previews: any[], phase: number) => cleanup.service.confirmEmptyParentCleanup(previews, phase),
+      prepareEmptyParents: (preview: any) => cleanup.service.prepareEmptyParentCleanup(preview, true, assertCurrent),
+      confirmEmptyParents: (previews: any[], phase: number) => cleanup.service.confirmEmptyParentCleanup(previews, phase, assertCurrent),
       autoDeleteIsolated: (id: string, parents: any) => cleanup.autoDeleteIsolated(id, parents, assertCurrent),
       ask: (payload: any) => {
         const autonomousChoice = authorizedEmptyRunChoice(payload);

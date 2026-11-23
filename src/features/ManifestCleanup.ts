@@ -25,18 +25,22 @@ export function recordedDeclarations(queue: any, file: string): ManifestDeclarat
 
 /** Only frozen declarations and actual per-output manifests authorize candidates. */
 export async function discoverManifestCandidates(host: any, root: string, file: string, nodes: CleanupNode[], queue: any,
-  explicit: ManifestDeclaration[] = [], pathOnly = false, onProgress?: CleanupProgressSink) {
+  explicit: ManifestDeclaration[] = [], pathOnly = false, onProgress?: CleanupProgressSink, assertCurrent?: () => void) {
+  assertCurrent?.();
+  const client = host.client;
   const declarations = [...explicit];
   const notices: any[] = [], blockers: any[] = [], candidates: CleanupCandidate[] = [];
   // Describe is the existing Scheduler's pure expansion; no sync, preview attempt, or project callback.
   await Promise.all(nodes.filter(node => !explicit.length && node.kind === "remote" && !node.error).map(async node => {
     try {
+      assertCurrent?.();
       const worker = (host.setupConfig.workerTunnels || []).find((row: any) => row.id === node.id);
-      const response = await host.client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(10000),
+      const response = await client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(10000),
         discovery: { planFile: file, condaEnv: worker?.condaEnv || "" } });
       if (Array.isArray(response?.declaredJobs)) declarations.push(...response.declaredJobs);
     } catch (error: any) { notices.push({ code: "DECLARATIONS_QUERY_NOTICE", nodeId: node.id, detail: String(error.message || error) }); }
   }));
+  assertCurrent?.();
   // Historical paths are locators only when current expansion is unavailable.
   // They must not multiply a current PLAN review with every former output root.
   if (!declarations.length) declarations.push(...recordedDeclarations(queue, file));
@@ -61,8 +65,8 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
     let resolve!: (value: any) => void;
     reads.set(key, new Promise(done => { resolve = done; }));
     requests.push(async () => {
-      try { resolve({ info: await host.simpleSftpApiCall("files.cleanup.inspect", {
-        node, target: { relativePath: output, type: "directory" }, manifestOnly: true, allowMissing: true }) }); }
+      try { assertCurrent?.(); resolve({ info: await host.simpleSftpApiCall("files.cleanup.inspect", {
+        node, target: { relativePath: output, type: "directory" }, manifestOnly: true, allowMissing: true }, 0, undefined, undefined, assertCurrent) }); }
       catch (error: any) { resolve({ error: String(error.message || error) }); }
       finally { try { onProgress?.({ phase: "manifests", message: node.id + "：已核对 " + output, completed: ++completed, total: requests.length }); } catch {} }
     });
@@ -71,6 +75,7 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
   await Promise.all(Array.from({ length: Math.min(4, requests.length) }, async () => {
     while (cursor < requests.length) await requests[cursor++]();
   }));
+  assertCurrent?.();
   for (const node of nodes) {
     if (node.error) { blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error }); continue; }
     for (const declaration of selected) {
@@ -91,10 +96,12 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
         // manifest this CSV is visible but protected until exact-path review.
         if (csv && !csv.startsWith(output + "/")) {
           try {
+            assertCurrent?.();
             const result = await host.simpleSftpApiCall("files.cleanup.inspect", {
-              node, target: { relativePath: csv, type: "file" }, allowMissing: true });
+              node, target: { relativePath: csv, type: "file" }, allowMissing: true }, 0, undefined, undefined, assertCurrent);
             if (result.target.missing) continue;
           } catch (error: any) {
+            assertCurrent?.();
             // This is a failed physical-path observation, not an ownership
             // hint that confirmed_paths may discard.
             blockers.push({ code: "NODE_UNREACHABLE", nodeId: node.id,

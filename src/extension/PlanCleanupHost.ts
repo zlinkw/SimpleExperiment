@@ -43,7 +43,7 @@ export class PlanCleanupHost {
     // r17-A: operation records live in the CONSUMED project (per projectRoot); legacy globalStorage
     // location is used only by read-with-migration helpers, never written again.
     this.service = new PlanCleanup({ storageRoot: path.join(projectStateDir(root, "simple-experiment"), "plan-cleanup", cleanupDigest(root)),
-      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations, options?.authorizationMode),
+      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations, options?.authorizationMode, options?.assertCurrent),
       sftp: async (method, params, assertCurrent) => guardCleanupSftpCall(host, root, method, params, assertCurrent),
       restoreGate: (preview, operation) => this.restoreGate(preview, operation),
       currentNode: async id => this.currentNode(id),
@@ -80,7 +80,7 @@ export class PlanCleanupHost {
         const pending = await this.host.isolatedDeleteState(this.root, "get", { originalId });
         return !pending || !pending.settled || pending.reviewId !== reviewId;
       },
-      updateIndexes: (operation, restore) => this.updateIndexes(operation, restore) });
+      updateIndexes: (operation, restore, assertCurrent) => this.updateIndexes(operation, restore, assertCurrent) });
   }
   private assertWorkspace() {
     const current = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -148,25 +148,28 @@ export class PlanCleanupHost {
     this.assertWorkspace();
     return replacementJobGroups(replacementEvidenceQueue(queue, snapshots, projectId), file, declarations, projectId, stablePlanId);
   }
-  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata, onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[], authorizationMode?: "confirmed_paths") {
-    if (this.host.taskLifecycleProtocol === 2 || authorizationMode === "confirmed_paths") return this.collectManaged(file, allowMissing, archivedFiles, removedMetadata, onProgress, job, nativeDeclarations, authorizationMode);
+  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata, onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[], authorizationMode?: "confirmed_paths", assertCurrent?: () => void) {
+    assertCurrent?.();
+    if (this.host.taskLifecycleProtocol === 2 || authorizationMode === "confirmed_paths") return this.collectManaged(file, allowMissing, archivedFiles, removedMetadata, onProgress, job, nativeDeclarations, authorizationMode, assertCurrent);
     this.assertWorkspace();
     const storage = this.host.context.globalStorageUri.fsPath;
     const queue = await jsonWithMigration(this.root, legacyDistributedQueuePath(storage, this.root), distributedQueuePath(storage, this.root), emptyDistributedQueue());
     const ledger = await jsonWithMigration(this.root, legacyPlanSyncLedgerStoragePath(storage, this.root), planSyncLedgerStoragePath(storage, this.root), emptyPlanSyncLedger());
     const registry = await json(path.join(this.root, "simple_cluster/results/project_table_registry.json"), undefined);
+    assertCurrent?.();
     const targets = collectNodeTargets(this.host);
     const nodes = nodesForTargets(this.root, targets);
     const remoteNodes = nodes.filter(node => node.kind === "remote");
     let checkedNodes = 0;
     onProgress?.({ phase: "tasks", message: "并行读取各节点当前任务与传输状态…", completed: 0, total: remoteNodes.length });
+    const client = this.host.client;
     const snapshots = await Promise.all(remoteNodes.map(async node => {
       if (node.error) { onProgress?.({ phase: "tasks", message: node.id + "：身份未核实，保留", completed: ++checkedNodes, total: remoteNodes.length }); return { workerId: node.id, error: node.error }; }
-      try { return { ...await this.host.client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(5000), retiredCommandIds: job ? [job.commandId] : [] }), workerId: node.id, fetchedAt: new Date().toISOString() }; }
+      try { assertCurrent?.(); return { ...await client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(5000), retiredCommandIds: job ? [job.commandId] : [] }), workerId: node.id, fetchedAt: new Date().toISOString() }; }
       catch { return { workerId: node.id, error: "节点当前任务证据不可达" }; }
       finally { onProgress?.({ phase: "tasks", message: node.id + "：任务状态检查已返回", completed: ++checkedNodes, total: remoteNodes.length }); }
     }));
-    this.assertWorkspace();
+    assertCurrent?.(); this.assertWorkspace();
     // Panel/journal rows are history, not evidence that code is still executing.
     // Use current Agent action registries and live cross-window resource leases.
     // Excluding our async call's lease lineage prevents runPlan's replacement
@@ -214,14 +217,14 @@ export class PlanCleanupHost {
   }
   private managedNodes() { return managedNodesOf(this.host, this.root, id => this.currentNode(id)); }
   private async collectManaged(file: string, allowMissing: boolean, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata,
-    onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[], authorizationMode?: "confirmed_paths") {
-    this.assertWorkspace();
+    onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[], authorizationMode?: "confirmed_paths", assertCurrent?: () => void) {
+    assertCurrent?.(); this.assertWorkspace();
     await this.ensureOperationRecordsMigrated();
     const storage = this.host.context.globalStorageUri.fsPath;
     const queue = await jsonWithMigration(this.root, legacyDistributedQueuePath(storage, this.root), distributedQueuePath(storage, this.root), emptyDistributedQueue());
     const ledger = await jsonWithMigration(this.root, legacyPlanSyncLedgerStoragePath(storage, this.root), planSyncLedgerStoragePath(storage, this.root), emptyPlanSyncLedger());
     const registry = await json(path.join(this.root, "simple_cluster/results/project_table_registry.json"), undefined);
-    const nodes = this.managedNodes();
+    assertCurrent?.(); const nodes = this.managedNodes();
     let declarations = nativeDeclarations || job?.manifest?.declarations;
     if (job && !declarations) {
       const plan = queue.plans.find((row: any) => row.id === job.workflowId);
@@ -232,8 +235,8 @@ export class PlanCleanupHost {
       declarations = [{ index: job.index, case: source.case, seed: source.seed, output_dir: source.outputDir, result_csv: source.collectionResultCsv }];
     }
     onProgress?.({ phase: "manifests", message: "读取声明目录内的产物清单…" });
-    const discovered = await discoverManifestCandidates(this.host, this.root, file, nodes, queue, declarations, authorizationMode === "confirmed_paths", onProgress);
-    this.assertWorkspace();
+    const discovered = await discoverManifestCandidates(this.host, this.root, file, nodes, queue, declarations, authorizationMode === "confirmed_paths", onProgress, assertCurrent);
+    assertCurrent?.(); this.assertWorkspace();
     // Retain the original config/reference graph, without importing cached task activity.
     const scope = await collectPlanCleanupEvidence({ root: this.root, planFile: file, queue: emptyDistributedQueue(), ledger,
       registry, resultDir: this.host.resultCsvDirectory || "experiments/results", nodes: nodes.map(node => ({ ...node })), snapshots: [], operations: [],
@@ -318,15 +321,17 @@ export class PlanCleanupHost {
       projectStateFile(this.root, "simple-experiment", "migrations", "plan-cleanup-" + cleanupDigest(this.root) + ".done.json")).catch((error: unknown) => { this.recordsMigration = undefined; throw error; });
     return this.recordsMigration;
   }
-  private async updateIndexes(operation: CleanupOperation, restore: boolean) {
-    this.assertWorkspace();
+  private async updateIndexes(operation: CleanupOperation, restore: boolean, assertCurrent?: () => void) {
+    assertCurrent?.(); this.assertWorkspace();
     await this.ensureOperationRecordsMigrated();
+    assertCurrent?.();
     // An old registered isolation tree has no authority to retire, clear or rewrite the new PLAN/job.
     if (operation.preview.registeredIsolationOperationId) return;
     const originalId = operation.preview.originalOperationId || operation.id;
     const restoreChain = restore ? await this.service.history(originalId) : [];
     const restoreIds = new Set(restoreChain.map(row => row.id));
     const queue = await this.host.loadDistributedQueue(this.root);
+    assertCurrent?.();
     const ids = new Set(operation.preview.scope.runIds);
     const selection = operation.preview.scope.job;
     const deletedRows = (operation.preview.rows || []).filter(row => row.nodeId !== "pluginState" && row.disposition !== "protected");
@@ -372,7 +377,10 @@ export class PlanCleanupHost {
         completedTargets: operation.preview.rows.filter(row => operation.targets[row.id]?.state === "completed").map(row => row.node.id + ":" + row.absolutePath), pendingNodes: operation.pendingNodes };
     }
     }
-    await this.host.saveDistributedQueue(this.root, queue);
+    const isCurrent = () => { try { assertCurrent?.(); return true; } catch { return false; } };
+    assertCurrent?.();
+    await this.host.saveDistributedQueue(this.root, queue, assertCurrent ? { recallAssertCurrent: assertCurrent, projectContextCurrent: isCurrent } : undefined);
+    assertCurrent?.();
     if (!selection) await this.host.updatePlanSyncLedger(this.root, (ledger: any) => {
       for (const entry of Object.values(ledger.entries) as any[]) if (ids.has(entry.runId)) {
         if (restore) { if (restoreIds.has(entry.cleanupOperationId)) delete entry.cleanupOperationId; }
@@ -387,17 +395,21 @@ export class PlanCleanupHost {
         await atomicWriteText(record, JSON.stringify(original, null, 2));
       }
     }
-    this.host.localPlanMetadataUpdatedAt = 0;
+    assertCurrent?.(); this.host.localPlanMetadataUpdatedAt = 0;
     this.host.postState();
   }
-  async execute(id: string) {
+  async execute(id: string, assertCurrent?: () => void) {
+    assertCurrent?.();
     if (this.executing) cleanupError("OPERATION_BUSY");
     this.executing = true;
     try {
       await this.ensureOperationRecordsMigrated();
+      assertCurrent?.();
       const registered = await this.service.registeredIsolationSource(id);
+      assertCurrent?.();
       this.independentExecuting = Boolean(registered);
-      const initial = await this.service.status(id);
+      const initial = await this.service.status(id, undefined, assertCurrent);
+      assertCurrent?.();
       const independent = initial.preview.registeredIsolationOperationId;
       if (independent !== registered) cleanupError("ISOLATED_OPERATION_IDENTITY_CHANGED");
       if (independent) {
@@ -467,24 +479,30 @@ export class PlanCleanupHost {
       }
       const pending = this.host.distributedQueueTickPromise;
       if (pending) await pending;
-      const operation = await this.service.status(id);
+      assertCurrent?.();
+      const operation = await this.service.status(id, undefined, assertCurrent);
+      assertCurrent?.();
       if (operation.state === "completed") return operation;
       this.host.assertArtifactSyncPathsIdle?.(this.root, operation.preview.rows
         .filter(row => ["delete", "move", "isolate"].includes(row.disposition)).map(row => row.relativePath));
-      if (operation.preview.scope.observationMode === "managed_tmux") return await this.service.execute(id);
+      if (operation.preview.scope.observationMode === "managed_tmux") return await this.service.execute(id, undefined, assertCurrent);
       if (operation.preview.scope.job?.purpose === "replace_outputs") {
-        await this.service.preflightConfirmed(id);
+        await this.service.preflightConfirmed(id, assertCurrent);
         const selection = operation.preview.scope.job;
         const queue = await this.host.loadDistributedQueue(this.root);
+        assertCurrent?.();
         const job = replacementLifecycleJob(queue, selection);
         if (!job) cleanupError("JOB_SCOPE_CHANGED");
         const priorIds = new Set((await this.service.history(id)).map(row => row.id));
+        assertCurrent?.();
         if (job.cleanup?.state === "partial" && !priorIds.has(job.cleanup.operationId)) cleanupError("OUTPUT_REPLACEMENT_PENDING");
         job.outputRetiredAt ||= new Date().toISOString();
         job.cleanup = { operationId: id, state: "partial", completedTargets: [], pendingNodes: operation.preview.scope.nodes.map(node => node.id) };
-        await this.host.saveDistributedQueue(this.root, queue);
+        const isCurrent = () => { try { assertCurrent?.(); return true; } catch { return false; } };
+        await this.host.saveDistributedQueue(this.root, queue, assertCurrent ? { recallAssertCurrent: assertCurrent, projectContextCurrent: isCurrent } : undefined);
+        assertCurrent?.();
       }
-      const result = await this.host.withHostOperationLease("cleanupPlan", "清除 PLAN 及关联产物", () => this.service.execute(id),
+      const result = await this.host.withHostOperationLease("cleanupPlan", "清除 PLAN 及关联产物", () => { assertCurrent?.(); return this.service.execute(id, undefined, assertCurrent); },
         { resources: [{ server: "local", project: this.root, target: this.root }] });
       if (operation.preview.action === "delete") return await this.service.status(id);
       return result;

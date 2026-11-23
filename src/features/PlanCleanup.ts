@@ -65,9 +65,9 @@ export type CleanupOperation = { id: string; preview: CleanupPreview; state: "re
   pendingNodes: string[]; error?: string; updatedAt: string; indexed?: boolean; restoredBy?: string; continuedBy?: string;
   nodeChecks?: Record<string, CleanupNodeCheck>; retirementPendingNodes?: string[] };
 export type CleanupPorts = {
-  collect(planFile: string, options?: { archivedFiles: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; onProgress?: CleanupProgressSink; job?: CleanupJobSelection; nativeDeclarations?: CleanupScope["nativeDeclarations"]; authorizationMode?: "confirmed_paths" }): Promise<CleanupScope>;
+  collect(planFile: string, options?: { archivedFiles: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; onProgress?: CleanupProgressSink; job?: CleanupJobSelection; nativeDeclarations?: CleanupScope["nativeDeclarations"]; authorizationMode?: "confirmed_paths"; assertCurrent?: () => void }): Promise<CleanupScope>;
   sftp(method: string, params: any, assertCurrent?: () => void): Promise<any>;
-  updateIndexes(operation: CleanupOperation, restore: boolean): Promise<void>;
+  updateIndexes(operation: CleanupOperation, restore: boolean, assertCurrent?: () => void): Promise<void>;
   restoreGate(preview: CleanupPreview, operation?: CleanupOperation): Promise<void>;
   currentNode?(id: string): Promise<CleanupNode>;
   validateScope?(scope: CleanupScope): Promise<void>;
@@ -222,7 +222,7 @@ export class PlanCleanup {
   private previews = new Map<string, CleanupPreview>();
   private busy = new Set<string>();
   private cancelled = new Set<string>();
-  private observing = new Map<string, Promise<CleanupOperation>>();
+  private observing = new Map<string, { promise: Promise<CleanupOperation>; guarded: boolean }>();
   constructor(private readonly ports: CleanupPorts) {}
   private file(id: string) { if (!/^[a-f0-9]{48}$/.test(id)) cleanupError("INVALID_OPERATION_ID"); return path.join(this.ports.storageRoot, id + ".json"); }
   async registeredIsolationSource(id: string): Promise<string | undefined> {
@@ -248,43 +248,53 @@ export class PlanCleanup {
     }
     await atomicWriteText(this.file(operation.id), JSON.stringify(record, null, 2));
   }
-  async status(id: string, round?: ObservationRound): Promise<CleanupOperation> {
-    const ownRound = round === undefined;
-    const observationRound = round ?? this.newObservationRound();
-    try {
-      const originalText = await fs.readFile(this.file(id), "utf8");
-      const operation = JSON.parse(originalText);
-      const inspectDeletion = operation.preview.action === "delete" && operation.state !== "completed"
-        && !operation.continuedBy && !operation.restoredBy && !this.busy.has(id);
-      if (!inspectDeletion && (operation.preview.scope.observationMode !== "managed_tmux" || !operation.executionRequestedAt)) return operation;
-      if (!this.observing.has(id)) this.observing.set(id, (async () => {
+  async status(id: string, round?: ObservationRound, assertCurrent?: () => void): Promise<CleanupOperation> {
+    assertCurrent?.();
+    const preceding = this.observing.get(id);
+    if (!assertCurrent && preceding && !preceding.guarded) return clone(await preceding.promise);
+    const observe = async () => {
+      if (preceding) await preceding.promise.catch(() => undefined);
+      assertCurrent?.();
+      const ownRound = round === undefined;
+      const observationRound = round ?? this.newObservationRound(assertCurrent);
+      try {
+        const originalText = await fs.readFile(this.file(id), "utf8");
+        assertCurrent?.();
+        const operation = JSON.parse(originalText);
+        const inspectDeletion = operation.preview.action === "delete" && operation.state !== "completed"
+          && !operation.continuedBy && !operation.restoredBy && !this.busy.has(id);
+        if (!inspectDeletion && (operation.preview.scope.observationMode !== "managed_tmux" || !operation.executionRequestedAt)) return operation;
         let observed = inspectDeletion ? await this.observeDeletion(operation, observationRound) : operation;
         if (!inspectDeletion && observed.preview.scope.observationMode === "managed_tmux" && observed.executionRequestedAt)
-          observed = await this.observeManaged(observed);
+          observed = await this.observeManaged(observed, assertCurrent);
         if (observed.state === "completed" && observed.preview.registeredIsolationOperationId && observed.executionRequestedAt
           && await this.isolatedDeletePending(observed)) {
           observed.state = "partial";
           observed.error = "原删除请求的结束状态尚未确认；文件不存在不能证明请求已结束。";
         }
         if (observed.state === "completed" && !observed.indexed) {
-          await this.ports.updateIndexes(observed, observed.preview.action === "restore"); observed.indexed = true;
+          assertCurrent?.(); await this.ports.updateIndexes(observed, observed.preview.action === "restore", assertCurrent); observed.indexed = true;
         }
         // A late old round must never overwrite what a newer round already persisted.
         if (await fs.readFile(this.file(id), "utf8") !== originalText) return JSON.parse(await fs.readFile(this.file(id), "utf8"));
         await this.save(observed); return observed;
-      })().finally(() => this.observing.delete(id)));
-      return clone(await this.observing.get(id)!);
-    }
-    catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
-    finally { if (ownRound) observationRound.closed = true; }
+      } catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
+      finally { if (ownRound) observationRound.closed = true; }
+    };
+    const entry = { guarded: Boolean(assertCurrent), promise: undefined as unknown as Promise<CleanupOperation> };
+    entry.promise = observe().finally(() => { if (this.observing.get(id) === entry) this.observing.delete(id); });
+    this.observing.set(id, entry);
+    const result = await entry.promise;
+    assertCurrent?.();
+    return clone(result);
   }
   private async isolatedDeletePending(operation: CleanupOperation): Promise<boolean> {
     if (this.ports.pendingIsolationDelete) return this.ports.pendingIsolationDelete(operation.preview.registeredIsolationOperationId!, operation.id);
     const tokens = [...new Set(operation.preview.rows.filter(row => row.disposition === "delete").map(row => row.backendToken).filter(Boolean))];
     return !tokens.length || tokens.some(token => operation.isolatedDeleteReceipts?.[token!]?.state !== "ended");
   }
-  private newObservationRound(): ObservationRound {
-    return createObservationRound({ sftp: (method, params) => this.ports.sftp(method, params), digest: cleanupDigest, timeoutMs: CLEANUP_QUERY_TIMEOUT_MS });
+  private newObservationRound(assertCurrent?: () => void): ObservationRound {
+    return createObservationRound({ sftp: (method, params) => { assertCurrent?.(); return this.ports.sftp(method, params, assertCurrent); }, digest: cleanupDigest, timeoutMs: CLEANUP_QUERY_TIMEOUT_MS });
   }
   /** Build one contract observe target from a frozen row; tokens only travel with their own index. */
   private observeTargetOf(row: CleanupRow): ObserveTarget {
@@ -317,13 +327,14 @@ export class PlanCleanup {
     if (entry.state === undefined && entry.status === "present") return "present";
     return "unknown";
   }
-  private async query(row: CleanupRow, method: string, params: any, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS): Promise<any> {
+  private async query(row: CleanupRow, method: string, params: any, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS, assertCurrent?: () => void): Promise<any> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = new AbortController();
     if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(row.node.id)) !== this.nodeIdentity(row.node))
       cleanupError("SERVER_IDENTITY_CHANGED");
+    assertCurrent?.();
     try {
-      return await Promise.race([this.ports.sftp(method, { ...params, signal: params.signal ? AbortSignal.any([params.signal, read.signal]) : read.signal }), new Promise((_, reject) => {
+      return await Promise.race([this.ports.sftp(method, { ...params, signal: params.signal ? AbortSignal.any([params.signal, read.signal]) : read.signal }, assertCurrent), new Promise((_, reject) => {
         timer = setTimeout(() => {
           const error = Object.assign(new Error(row.node.id + "：核实 " + row.absolutePath
           + " 超时；请重试查询，未重新执行文件操作。"), { apiData: { code: "CLEANUP_QUERY_TIMEOUT", nodeId: row.node.id, path: row.absolutePath, method } });
@@ -340,9 +351,9 @@ export class PlanCleanup {
     for (let offset = 0; offset < groups.length; offset += 4)
       await Promise.all(groups.slice(offset, offset + 4).map(async group => { for (const row of group) await read(row); }));
   }
-  private async inspectPresence(row: CleanupRow, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS, observeExecutors = false): Promise<any> {
+  private async inspectPresence(row: CleanupRow, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS, observeExecutors = false, assertCurrent?: () => void): Promise<any> {
     const proof: any = await this.query(row, "files.cleanup.inspect", { node: row.node,
-      target: { relativePath: row.relativePath, type: row.type }, allowMissing: true, manifestOnly: true, presenceOnly: true, observeExecutors }, timeoutMs);
+      target: { relativePath: row.relativePath, type: row.type }, allowMissing: true, manifestOnly: true, presenceOnly: true, observeExecutors }, timeoutMs, assertCurrent);
     if (typeof proof?.target?.missing !== "boolean" && !(proof?.target?.type === row.type && typeof proof?.target?.absolutePath === "string"))
       cleanupError("UNVERIFIED_RESPONSE");
     return proof;
@@ -466,11 +477,11 @@ export class PlanCleanup {
     }
     return false;
   }
-  private async managedCheck(row: CleanupRow): Promise<any> {
+  private async managedCheck(row: CleanupRow, assertCurrent?: () => void): Promise<any> {
     return this.query(row, "files.cleanup.check", { token: row.backendToken, index: row.backendIndex,
-      ...(typeof row.backendDigest === "string" ? { backendDigest: row.backendDigest } : {}) });
+      ...(typeof row.backendDigest === "string" ? { backendDigest: row.backendDigest } : {}) }, CLEANUP_QUERY_TIMEOUT_MS, assertCurrent);
   }
-  private async observeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
+  private async observeManaged(operation: CleanupOperation, assertCurrent?: () => void): Promise<CleanupOperation> {
     let running = false, unresolved = false;
     delete operation.error;
     if (operation.preview.action === "delete" && operation.preview.scope.authorizationMode === "confirmed_paths") {
@@ -485,8 +496,9 @@ export class PlanCleanup {
       }
       for (const [backendToken, group] of groups) {
         try {
+          assertCurrent?.();
           const snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken,
-            ...(typeof group[0]?.backendDigest === "string" ? { backendDigest: group[0].backendDigest } : {}) });
+            ...(typeof group[0]?.backendDigest === "string" ? { backendDigest: group[0].backendDigest } : {}) }, assertCurrent);
           if (snapshot?.statusQueryError) { unresolved = true; operation.error = "清理批量查询未完全成功，可重新查询：" + String(snapshot.statusQueryError); }
           for (const row of group) {
             if (operation.targets[row.id]?.state === "completed" && operation.targets[row.id]?.receipt?.source === "active_query") continue;
@@ -510,7 +522,7 @@ export class PlanCleanup {
       // 已核实的隔离事实由当时的主动查询回执冻结；后续注册隔离删除或查询波动不回滚完成状态。
       if (operation.preview.action === "isolate" && operation.targets[row.id]?.state === "completed") return;
       try {
-        const proof = await this.managedCheck(row);
+        const proof = await this.managedCheck(row, assertCurrent);
         // r98 B1 路径③/④/⑤：观察/刷新时该行已完成——回执同样随其 check 应答（含完成回显）冻结。
         if (proof.state === "completed") { this.captureIsolationReceipt(row, proof);
           operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: proof.verifiedBy, rootIdentity: proof.rootIdentity } };
@@ -597,11 +609,13 @@ export class PlanCleanup {
   }
 
 
-  private async executeManaged(operation: CleanupOperation, dispatch?: { before(token: string, snapshot: any): Promise<void>; acknowledged(token: string, snapshot: any, result: any): Promise<void>; alreadyRunning(token: string, snapshot: any): Promise<void> }): Promise<CleanupOperation> {
-    if (this.busy.has(operation.id)) return this.observeManaged(operation);
+  private async executeManaged(operation: CleanupOperation, dispatch?: { before(token: string, snapshot: any): Promise<void>; acknowledged(token: string, snapshot: any, result: any): Promise<void>; alreadyRunning(token: string, snapshot: any): Promise<void> }, assertCurrent?: () => void): Promise<CleanupOperation> {
+    assertCurrent?.();
+    if (this.busy.has(operation.id)) return this.observeManaged(operation, assertCurrent);
     if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
-    await this.preflightConfirmed(operation.id);
-    if (this.busy.has(operation.id)) return this.observeManaged(operation);
+    await this.preflightConfirmed(operation.id, assertCurrent);
+    assertCurrent?.();
+    if (this.busy.has(operation.id)) return this.observeManaged(operation, assertCurrent);
     this.busy.add(operation.id); this.cancelled.delete(operation.id);
     try {
       if (!dispatch && operation.preview.registeredIsolationOperationId && !this.ports.pendingIsolationDelete) {
@@ -626,37 +640,47 @@ export class PlanCleanup {
         Number(metadata(a)) - Number(metadata(b)) || Number(a.type === "directory") - Number(b.type === "directory")
         || Number(a.category === "PLAN 文件") - Number(b.category === "PLAN 文件"));
       operation.state = "running"; await this.save(operation);
+      assertCurrent?.();
       if (operation.preview.action === "delete" && operation.preview.scope.authorizationMode === "confirmed_paths") {
         // v1.9：确认路径删除按冻结后端批次整批执行，一次执行 + 批量主动查询，绝不逐文件往返。
         await this.executeConfirmedFastBatches(operation, dispatch);
         if ((operation.state as string) === "paused") return operation;
       } else
       for (const row of rows) {
+        assertCurrent?.();
         if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return operation; }
-        let proof = await this.managedCheck(row);
+        let proof = await this.managedCheck(row, assertCurrent);
         // r98 B1 路径③/⑤：执行前核查已见完成（含上次应答丢失后由只读 check 收敛）——回执随 check 应答冻结。
-        if (proof.state === "completed") { this.captureIsolationReceipt(row, proof); operation.targets[row.id] = { state: "completed", receipt: { source: "active_query" } }; continue; }
+        if (proof.state === "completed") { this.captureIsolationReceipt(row, proof); operation.targets[row.id] = { state: "completed", receipt: { source: "active_query" } }; await this.save(operation); assertCurrent?.(); continue; }
+        assertCurrent?.();
         if (!["pending", "executing"].includes(proof.state)) throw new Error("CLEANUP_TARGET_CHANGED：剩余目标须重新预览");
         if (proof.state === "pending") {
           operation.targets[row.id] = { state: "executing" }; await this.save(operation);
           if (operation.preview.action === "isolate") {
             // 隔离是快速重命名事务：错误（如必需输入重叠、目标冲突）必须直接回传，仅排除相关 job；服务器端注册映射保证重试不重复移动。
+            let sendAttempted = false, responseReceived = false;
             try {
-              const response: any = await this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+              assertCurrent?.();
+              sendAttempted = true;
+              const response: any = await this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }, assertCurrent);
+              responseReceived = true;
               // r87 块4 / r98 B1：0.2.111 完成回执随行冻结——这只是移动阶段的本节点事实，不是删除时的新检查，
               // 也不描述为"隔离副本已重新读取核验"。r98：按真实协议读取（路径①execute 直接完成 {ok,receipt}、
               // 路径②alreadyCompleted 重入 {ok,alreadyCompleted,receipt}），硬门+行绑定见 captureIsolationReceipt。
               this.captureIsolationReceipt(row, response);
+              await this.save(operation);
             }
-            catch (error) { operation.targets[row.id] = { state: "pending" }; await this.save(operation); throw error; }
+            catch (error: any) { if (!responseReceived && (!sendAttempted || error?.sftpNotStarted === true)) operation.targets[row.id] = { state: "pending" }; await this.save(operation); throw error; }
           } else {
             // Do not wait for execute transport completion. The fixed capability makes retries idempotent.
-            void this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }).catch(() => undefined);
+            assertCurrent?.();
+            void this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }, assertCurrent).catch(() => undefined);
           }
         }
         const started = Date.now();
         while (true) {
-          proof = await this.managedCheck(row);
+          assertCurrent?.();
+          proof = await this.managedCheck(row, assertCurrent);
           // r98 B1 路径③：execute 应答之后由本行自己的 check 应答冻结回执（含托管观察完成回显 proof.completion）。
           if (proof.state === "completed") { this.captureIsolationReceipt(row, proof); operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: proof.verifiedBy } }; await this.save(operation);
             if (proof.executor?.exitCode !== undefined && proof.executor.exitCode !== null && proof.executor.exitCode !== 0)
@@ -668,13 +692,13 @@ export class PlanCleanup {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
-      operation = await this.observeManaged(operation);
+      assertCurrent?.(); operation = await this.observeManaged(operation, assertCurrent);
       if (operation.state === "completed" && operation.preview.registeredIsolationOperationId && operation.executionRequestedAt
         && await this.isolatedDeletePending(operation)) {
         operation.state = "partial";
         operation.error = "原删除请求的结束状态尚未确认；文件不存在不能证明请求已结束。";
       }
-      if (operation.state === "completed" && !operation.indexed) { await this.ports.updateIndexes(operation, operation.preview.action === "restore"); operation.indexed = true; }
+      if (operation.state === "completed" && !operation.indexed) { assertCurrent?.(); await this.ports.updateIndexes(operation, operation.preview.action === "restore", assertCurrent); operation.indexed = true; }
       await this.save(operation); return clone(operation);
     } catch (error: any) {
       operation.state = "partial"; operation.error = String(error.message || error); await this.save(operation); return clone(operation);
@@ -869,7 +893,8 @@ export class PlanCleanup {
     return entry;
   }
   async preview(params: { planFile: string; action?: "move" | "delete" | "isolate"; verifiedOnly?: boolean; continuationOf?: string; job?: CleanupJobSelection; authorizationMode?: "confirmed_paths";
-    reuseToken?: string; exactPaths?: Array<{ nodeId: string; relativePath: string; type: "file" | "directory" }> }, onProgress?: CleanupProgressSink, round?: ObservationRound): Promise<CleanupPreview> {
+    reuseToken?: string; exactPaths?: Array<{ nodeId: string; relativePath: string; type: "file" | "directory" }> }, onProgress?: CleanupProgressSink, round?: ObservationRound, assertCurrent?: () => void): Promise<CleanupPreview> {
+    assertCurrent?.();
     // UI observations cannot change the frozen preview or authorize execution.
     const notify: CleanupProgressSink = progress => { try { onProgress?.(progress); } catch {} };
     notify({ phase: "discovery", message: params.reuseToken ? "复用本页路径，核对所选处理方式…" : "读取 PLAN 声明及实际产物清单…" });
@@ -913,7 +938,8 @@ export class PlanCleanup {
         if (!["file", "directory"].includes(row.type) || row.nodeId === "pluginState") cleanupError("INVALID_EXACT_PATHS");
         cleanupRelative(row.relativePath);
       }
-      scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: {}, job: params.job, authorizationMode: params.authorizationMode });
+      scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: {}, job: params.job, authorizationMode: params.authorizationMode, assertCurrent });
+      assertCurrent?.();
       const classified = classifyCleanupCandidates(scope);
       for (const row of params.exactPaths) if (!classified.some(candidate => candidate.nodeId === row.nodeId
         && candidate.relativePath === row.relativePath && candidate.type === row.type && !candidate.protectedReason))
@@ -921,7 +947,8 @@ export class PlanCleanup {
       scope.candidates = scope.candidates.filter(candidate => candidate.scopeProtectedReason || params.exactPaths!.some(row => row.nodeId === candidate.nodeId
         && row.relativePath === candidate.relativePath && row.type === candidate.type));
     } else scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: action === "move" ? this.archivedMetadata(completed) : {},
-      removedMetadata: this.removedMetadata(history, completed), onProgress: notify, job: params.job, authorizationMode: params.authorizationMode });
+      removedMetadata: this.removedMetadata(history, completed), onProgress: notify, job: params.job, authorizationMode: params.authorizationMode, assertCurrent });
+    assertCurrent?.();
     if (cleanupJobKey(scope.job) !== cleanupJobKey(params.job)
         || history.length && cleanupJobKey(scope.job) !== cleanupJobKey(history[0].preview.scope.job)) cleanupError("JOB_SCOPE_CHANGED");
     if (history.length && scope.authorizationMode !== "confirmed_paths" && (scope.planKey !== history[0].preview.scope.planKey || scope.planHash !== history[0].preview.scope.planHash)) cleanupError("PREVIEW_CHANGED");
@@ -983,13 +1010,15 @@ export class PlanCleanup {
       notify({ phase: "nodes", message: node.id + "：只读预检 " + rows.length + " 个精确目标" + (chunks.length > 1 ? "（" + chunks.length + " 个有界批次）" : "") + "…", total: scope.nodes.length });
       const reads: any[] = [];
       for (const [index, chunk] of chunks.entries()) {
+        assertCurrent?.();
         if (chunks.length > 1) notify({ phase: "nodes", message: node.id + "：分批只读预检 " + (index + 1) + "/" + chunks.length + "…", total: scope.nodes.length });
         reads.push(await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: backendAuthorizationMode,
           targets: chunk.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
-            expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) }));
+            expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) }, assertCurrent));
       }
       return { chunks, reads };
     }));
+    assertCurrent?.();
     for (const [index, node] of scope.nodes.entries()) {
       const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
       const progress = { phase: "nodes", completed: index, total: scope.nodes.length };
@@ -1037,9 +1066,10 @@ export class PlanCleanup {
           // a new capability containing only the paths the user can approve here.
           const approved = chunkRows.filter(row => row.disposition === action);
           if (approved.length && chunkRows.some(row => row.disposition === "protected")) {
+            assertCurrent?.();
             const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: backendAuthorizationModeFor(scope.authorizationMode),
               targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
-                expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
+                expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) }, assertCurrent);
             if (scope.authorizationMode === "confirmed_paths" && action === "delete") assertFastDeletePreviewSafety(exact.safety, approved.length);
             if (action === "isolate" && Number(exact.safety?.backgroundIsolatedDelete) !== 1) isolateAutoDeleteSupported = false;
             if (cleanupDigest(exact.rootIdentity) !== cleanupDigest(backend.rootIdentity)
@@ -1049,6 +1079,7 @@ export class PlanCleanup {
           }
         }
       } catch (error: any) {
+        assertCurrent?.();
         let code = error.apiData?.code || error.code || "NODE_PREFLIGHT_FAILED";
         // 统一快删升级映射只属于确认删除链；隔离保留自身错误语义，不贴快删文案。
         if (scope.authorizationMode === "confirmed_paths" && action === "delete" && isFastDeleteUpgradeCode(code)) {
@@ -1074,9 +1105,10 @@ export class PlanCleanup {
       const progress = { phase: "protected", completed: index, total: protectedRows.length };
       notify({ ...progress, message: row.node.id + "：只读核对受保护条目，保持原样…" });
       try {
-        const info = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type, expectedOwner: row.expectedOwner } });
+        assertCurrent?.();
+        const info = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type, expectedOwner: row.expectedOwner } }, assertCurrent);
         Object.assign(row, info.target);
-      } catch { row.error ||= "受保护目标未读取或不存在；不会处理"; }
+      } catch { assertCurrent?.(); row.error ||= "受保护目标未读取或不存在；不会处理"; }
       notify({ ...progress, completed: index + 1, message: "受保护条目核对完成，保持原样" });
     }
     for (const row of result.rows.filter(row => row.disposition === action && row.fingerprint)) {
@@ -1086,7 +1118,7 @@ export class PlanCleanup {
     result.rows.push(...completed);
     if (action === "isolate" && isolateAutoDeleteSupported && result.rows.some(row => row.disposition === "isolate")) result.autoDeleteCapability = 1;
     result.digest = cleanupDigest({ action, scope, rows: result.rows, verifiedOnly: result.verifiedOnly });
-    this.previews.set(token, clone(result));
+    assertCurrent?.(); this.previews.set(token, clone(result));
     notify({ phase: "complete", message: "预览检查完成，尚未执行清理" });
     return clone(result);
   }
@@ -1096,9 +1128,11 @@ export class PlanCleanup {
     if (!preview.rows.some(row => row.disposition === preview.action)
       && !(preview.continuationOf && preview.rows.some(row => ["absent", "completed"].includes(row.disposition)))) cleanupError("NO_VERIFIED_TARGETS");
   }
-  async confirm(params: { token: string; digest: string; phase: number; confirm: boolean; exactTargets: string[] }): Promise<CleanupOperation> {
+  async confirm(params: { token: string; digest: string; phase: number; confirm: boolean; exactTargets: string[] }, assertCurrent?: () => void): Promise<CleanupOperation> {
+    assertCurrent?.();
     let preview = this.previews.get(params.token);
-    if (!preview) preview = (await this.status(params.token)).preview;
+    if (!preview) preview = (await this.status(params.token, undefined, assertCurrent)).preview;
+    assertCurrent?.();
     if (Date.now() > preview.expiresAt) cleanupError("PREVIEW_EXPIRED");
     const prior = await fs.readFile(this.file(preview.token), "utf8").then(JSON.parse, (error: any) => {
       if (error.code === "ENOENT") return undefined; throw error;
@@ -1108,27 +1142,33 @@ export class PlanCleanup {
     const exact = preview.rows.filter(row => row.disposition === preview.action).map(row => row.node.id + ":" + row.absolutePath);
     if (params.confirm !== true || params.digest !== preview.digest || cleanupDigest(params.exactTargets) !== cleanupDigest(exact)
       || params.phase !== preview.confirmations + 1 || params.phase > (preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
-    await this.revalidate(preview);
+    await this.revalidate(preview, undefined, assertCurrent);
+    assertCurrent?.();
     if (preview.continuationOf) {
-      const previous = await this.status(preview.continuationOf);
+      const previous = await this.status(preview.continuationOf, undefined, assertCurrent);
+      assertCurrent?.();
       if (previous.continuedBy && previous.continuedBy !== preview.token || previous.restoredBy || this.busy.has(previous.id)) cleanupError("NOT_CONTINUABLE");
     }
     for (const [backendToken, row] of new Map(preview.rows.filter(row => row.disposition === preview!.action).map(row => [row.backendToken!, row]))) {
-      const backend = await this.ports.sftp("files.cleanup.status", { token: backendToken });
+      assertCurrent?.();
+      const backend = await this.ports.sftp("files.cleanup.status", { token: backendToken }, assertCurrent);
+      assertCurrent?.();
       await this.ports.sftp("files.cleanup.confirm", { token: backendToken, digest: row.backendDigest, phase: params.phase,
-        confirm: true, exactTargets: backend.targets.filter((target: any) => !target.missing).map((target: any) => target.absolutePath) });
+        confirm: true, exactTargets: backend.targets.filter((target: any) => !target.missing).map((target: any) => target.absolutePath) }, assertCurrent);
     }
+    assertCurrent?.();
     preview.confirmations = params.phase;
     const operation: CleanupOperation = { id: preview.token, preview: clone(preview), state: "ready", targets: Object.fromEntries(
       preview.rows.filter(row => row.disposition === preview!.action).map(row => [row.id, { state: "pending" }])),
       pendingNodes: [...new Set(preview.blockers.map(row => row.nodeId).filter(Boolean))] as string[], updatedAt: "" };
-    await this.save(operation); this.previews.set(preview.token, clone(preview));
+    await this.save(operation); assertCurrent?.(); this.previews.set(preview.token, clone(preview));
     if (preview.continuationOf) {
-      const previous = await this.status(preview.continuationOf); previous.continuedBy = operation.id; await this.save(previous);
+      const previous = await this.status(preview.continuationOf, undefined, assertCurrent); previous.continuedBy = operation.id; await this.save(previous);
     }
     return clone(operation);
   }
-  private async revalidate(preview: CleanupPreview, operation?: CleanupOperation) {
+  private async revalidate(preview: CleanupPreview, operation?: CleanupOperation, assertCurrent?: () => void) {
+    assertCurrent?.();
     if (preview.action === "restore") { await this.ports.restoreGate(preview, operation); return; }
     if (preview.registeredIsolationOperationId) await this.ports.validateIsolationReview?.(preview.registeredIsolationOperationId);
     else if (!operation?.executionRequestedAt) await this.ports.validateScope?.(preview.scope);
@@ -1143,8 +1183,9 @@ export class PlanCleanup {
       }
       for (const [backendToken, group] of groups) {
         let snapshot: any;
-        try { snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken }); }
-        catch (error: any) { cleanupError("CLEANUP_TARGET_CHANGED", "确认前批量核查未完成：" + String(error?.message || error)); }
+        try { assertCurrent?.(); snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken }, assertCurrent); }
+        catch (error: any) { assertCurrent?.(); cleanupError("CLEANUP_TARGET_CHANGED", "确认前批量核查未完成：" + String(error?.message || error)); }
+        assertCurrent?.();
         for (const row of group) {
           const observation = (snapshot?.observations || [])[row.backendIndex!] || {};
           const state = observation.state || (snapshot?.states || [])[row.backendIndex!];
@@ -1161,7 +1202,8 @@ export class PlanCleanup {
     const ownCompleted = operation && preview.scope.observationMode === "managed_tmux"
       ? preview.rows.filter(row => operation.targets[row.id]?.state === "completed") : [];
     const fresh = await this.ports.collect(preview.scope.planFile, { archivedFiles, removedMetadata: this.removedMetadata(operation ? [operation, ...prior] : prior, [...completed, ...ownCompleted]), job: preview.scope.job,
-      nativeDeclarations: preview.scope.nativeDeclarations });
+      nativeDeclarations: preview.scope.nativeDeclarations, assertCurrent });
+    assertCurrent?.();
     if (fresh.revision !== preview.scope.revision || fresh.planHash !== preview.scope.planHash) cleanupError("PREVIEW_CHANGED");
     const allowedOffline = new Set(preview.verifiedOnly ? preview.blockers.filter(row => ["OFFLINE_NODE", "NODE_UNREACHABLE"].includes(row.code)).map(row => row.nodeId) : []);
     if (fresh.blockers.some(row => !allowedOffline.has(row.nodeId))) cleanupError("ACTIVE_OR_UNVERIFIED_NODE", JSON.stringify(fresh.blockers));
@@ -1169,7 +1211,8 @@ export class PlanCleanup {
       if (operation && preview.rows.some(parent => operation.targets[parent.id]?.state === "completed"
         && (parent.node.id === row.node.id && under(parent.relativePath, row.relativePath)
           || parent.inode === row.inode && parent.device === row.device && cleanupDigest(parent.rootIdentity) === cleanupDigest(row.rootIdentity)))) continue;
-      const current = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type, expectedOwner: row.expectedOwner } });
+      assertCurrent?.();
+      const current = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type, expectedOwner: row.expectedOwner } }, assertCurrent);
       if (current.target.fingerprint !== row.fingerprint) cleanupError("DEPENDENCY_CHANGED");
     }
   }
@@ -1178,13 +1221,15 @@ export class PlanCleanup {
    * 逐目标比对 missing/fingerprint/rootIdentity：缺项、重复、错位、根变化一律 PREVIEW_CHANGED——绝不以数组长度推断成功；
    * 每个目标仍携带自己的 destination/expectedOwner/archiveBatch，失败文案与原逐行分支逐字一致。
    */
-  private async assertReconfirmedTargets(preview: CleanupPreview, rows: CleanupRow[], mode: "absent" | "fingerprint"): Promise<void> {
+  private async assertReconfirmedTargets(preview: CleanupPreview, rows: CleanupRow[], mode: "absent" | "fingerprint", assertCurrent?: () => void): Promise<void> {
     if (!rows.length) return;
     const groups = new Map<string, CleanupRow[]>();
     for (const row of rows) { const key = this.nodeIdentity(row.node); const group = groups.get(key); if (group) group.push(row); else groups.set(key, [row]); }
     for (const group of groups.values()) {
+      assertCurrent?.();
       const check = await this.ports.sftp("files.cleanup.preview", { node: group[0].node, action: preview.action,
-        targets: group.map(row => ({ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner })) });
+        targets: group.map(row => ({ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner })) }, assertCurrent);
+      assertCurrent?.();
       const results = check?.targets;
       // 缺项/超长/错位一律拒绝；后端若回显 relativePath 还须逐位一致（重复与错位在这里挡住，不靠位置约定赌）。
       if (!Array.isArray(results) || results.length !== group.length) cleanupError("PREVIEW_CHANGED", "PREVIEW_CHANGED：复查回包缺项或错位，未执行任何变更");
@@ -1199,10 +1244,12 @@ export class PlanCleanup {
       }
     }
   }
-  async execute(id: string, dispatch?: { before(token: string, snapshot: any): Promise<void>; acknowledged(token: string, snapshot: any, result: any): Promise<void>; alreadyRunning(token: string, snapshot: any): Promise<void> }): Promise<CleanupOperation> {
-    const current = await this.status(id);
+  async execute(id: string, dispatch?: { before(token: string, snapshot: any): Promise<void>; acknowledged(token: string, snapshot: any, result: any): Promise<void>; alreadyRunning(token: string, snapshot: any): Promise<void> }, assertCurrent?: () => void): Promise<CleanupOperation> {
+    assertCurrent?.();
+    const current = await this.status(id, undefined, assertCurrent);
+    assertCurrent?.();
     if (current.state === "completed") return current;
-    if (current.preview.scope.observationMode === "managed_tmux") return this.executeManaged(current, dispatch);
+    if (current.preview.scope.observationMode === "managed_tmux") return this.executeManaged(current, dispatch, assertCurrent);
     if (this.busy.has(id)) cleanupError("OPERATION_BUSY");
     // r87 块3(题面5)：两次 status(id) 之间本端无任何写入，合并为一次纯状态读取；
     // 循环内的 status 暂停闸门保留自己的新鲜观察轮——每次轮询新建一轮，旧轮不得穿过 mutation 复用。
@@ -1215,36 +1262,45 @@ export class PlanCleanup {
       // A moved PLAN/config can disappear before its response reaches us. Settle
       // that frozen receipt first; this endpoint cannot launch another move.
       for (const row of preview.rows.filter(row => operation.targets[row.id]?.state === "executing")) {
-        const response = await this.ports.sftp("files.cleanup.settle", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+        assertCurrent?.();
+        const response = await this.ports.sftp("files.cleanup.settle", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }, assertCurrent);
         if (!["completed", "pending"].includes(response.state)) cleanupError("RECEIPT_UNVERIFIED");
         operation.targets[row.id] = response.state === "completed" ? { state: "completed", receipt: response.receipt } : { state: "pending" };
         await this.save(operation);
       }
-      for (const row of preview.rows.filter(row => operation.targets[row.id]?.state === "completed"))
-        await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex });
-      if (preview.continuationOf || Object.values(operation.targets).some(target => target.state !== "completed")) await this.revalidate(preview, operation);
-      await this.assertReconfirmedTargets(preview, preview.rows.filter(row => row.disposition === "absent"), "absent");
+      for (const row of preview.rows.filter(row => operation.targets[row.id]?.state === "completed")) {
+        assertCurrent?.();
+        await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex }, assertCurrent);
+      }
+      if (preview.continuationOf || Object.values(operation.targets).some(target => target.state !== "completed")) await this.revalidate(preview, operation, assertCurrent);
+      assertCurrent?.();
+      await this.assertReconfirmedTargets(preview, preview.rows.filter(row => row.disposition === "absent"), "absent", assertCurrent);
       // Recheck every unprocessed node before any mutation; successful targets are never resent.
-      await this.assertReconfirmedTargets(preview, preview.rows.filter(row => operation.targets[row.id]?.state === "pending"), "fingerprint");
+      await this.assertReconfirmedTargets(preview, preview.rows.filter(row => operation.targets[row.id]?.state === "pending"), "fingerprint", assertCurrent);
       if (preview.continuationOf) for (const previous of await this.history(preview.continuationOf)) {
         for (const row of previous.preview.rows.filter(row => previous.targets[row.id]?.state === "executing"
           && preview.rows.some(done => done.id === row.id && done.disposition === "completed"))) {
-          const response = await this.ports.sftp("files.cleanup.settle", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+          assertCurrent?.();
+          const response = await this.ports.sftp("files.cleanup.settle", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }, assertCurrent);
           if (response.state !== "completed") cleanupError("RECEIPT_UNVERIFIED");
           previous.targets[row.id] = { state: "completed", receipt: response.receipt }; await this.save(previous);
         }
       }
       operation.state = "running"; delete operation.error; await this.save(operation);
       for (const row of preview.rows.filter(row => operation.targets[row.id])) {
+        assertCurrent?.();
         const state = operation.targets[row.id];
         if (state.state === "completed") continue;
-        if (this.cancelled.has(id) || (await this.status(id)).state === "paused") { operation.state = "paused"; await this.save(operation); return operation; }
+        if (this.cancelled.has(id) || (await this.status(id, undefined, assertCurrent)).state === "paused") { operation.state = "paused"; await this.save(operation); return operation; }
         state.state = "executing"; await this.save(operation);
-        const response = await this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+        try { assertCurrent?.(); } catch (error) { state.state = "pending"; await this.save(operation); throw error; }
+        let response: any;
+        try { response = await this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }, assertCurrent); }
+        catch (error: any) { if (error?.sftpNotStarted === true) { state.state = "pending"; await this.save(operation); } throw error; }
         state.state = "completed"; state.receipt = response.receipt; delete state.error; await this.save(operation);
       }
       operation.state = operation.pendingNodes.length ? "partial" : "completed";
-      if (!operation.indexed) { await this.ports.updateIndexes(operation, preview.action === "restore"); operation.indexed = true; }
+      if (!operation.indexed) { assertCurrent?.(); await this.ports.updateIndexes(operation, preview.action === "restore", assertCurrent); operation.indexed = true; }
       await this.save(operation); return clone(operation);
     } catch (error: any) {
       operation.state = "blocked"; operation.error = String(error.message || error);
@@ -1262,12 +1318,14 @@ export class PlanCleanup {
     if (error) operation.error = error; else delete operation.error;
     await this.save(operation);
   }
-  async preflightConfirmed(id: string): Promise<void> {
-    const operation = await this.status(id);
+  async preflightConfirmed(id: string, assertCurrent?: () => void): Promise<void> {
+    assertCurrent?.();
+    const operation = await this.status(id, undefined, assertCurrent);
+    assertCurrent?.();
     if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
     if (operation.state === "completed") return;
     if (operation.continuedBy || operation.restoredBy || this.busy.has(id)) cleanupError("OPERATION_SUPERSEDED");
-    await this.revalidate(operation.preview, operation);
+    await this.revalidate(operation.preview, operation, assertCurrent);
   }
   async cancel(id: string) {
     const operation = await this.status(id); this.cancelled.add(id);
@@ -1303,10 +1361,11 @@ export class PlanCleanup {
    * r90（413 兼容）：批量只读观察是后端具备能力时的等价优化——某节点批量未成功（能力升级/回包不符/
    * 缺项/行错误/传输异常）时，该节点逐行回退 413 原 inspectPresence 复核链，判定与文案逐字保持；
    * 任何后端下核验次数只增不减，绝不因合并减少一次必要检查。 */
-  async assertIsolatedSourcesAbsent(preview: CleanupPreview): Promise<void> {
+  async assertIsolatedSourcesAbsent(preview: CleanupPreview, assertCurrent?: () => void): Promise<void> {
+    assertCurrent?.();
     const rows = preview.rows.filter(row => row.disposition === "isolate");
     if (!rows.length) return;
-    const round = this.newObservationRound();
+    const round = this.newObservationRound(assertCurrent);
     try {
       const groups = new Map<string, CleanupRow[]>();
       for (const row of rows) { const key = this.nodeIdentity(row.node); const group = groups.get(key); if (group) group.push(row); else groups.set(key, [row]); }
@@ -1314,6 +1373,7 @@ export class PlanCleanup {
       round.plannedGroups = Math.max(round.plannedGroups, entries.length);
       const outcomes = await Promise.all(entries.map(group => observeRound(round, group[0].node as unknown as Record<string, unknown> & { root?: string },
         group.map(row => ({ key: row.id, relativePath: row.relativePath, type: row.type })) as ObserveTarget[]).catch(() => undefined)));
+      assertCurrent?.();
       for (const [index, group] of entries.entries()) {
         const outcome = outcomes[index];
         const decided = outcome !== undefined && !outcome.upgrade && !outcome.failure
@@ -1321,8 +1381,8 @@ export class PlanCleanup {
         if (!outcome || !decided) {
           for (const row of group) {
             let proof: any;
-            try { proof = await this.inspectPresence(row); }
-            catch (error: any) { cleanupError("SOURCE_PATH_UNVERIFIED", row.absolutePath + "：隔离后无法主动核实原路径，未准入该 job：" + String(error.message || error)); }
+            try { proof = await this.inspectPresence(row, CLEANUP_QUERY_TIMEOUT_MS, false, assertCurrent); }
+            catch (error: any) { assertCurrent?.(); cleanupError("SOURCE_PATH_UNVERIFIED", row.absolutePath + "：隔离后无法主动核实原路径，未准入该 job：" + String(error.message || error)); }
             if (proof?.target?.missing !== true) cleanupError("SOURCE_PATH_UNAVAILABLE", row.absolutePath + "：隔离后原路径仍被占用，未准入该 job，未提交任务。");
           }
           continue;
@@ -1345,8 +1405,8 @@ export class PlanCleanup {
    * 已有结论（accepted/failed/unknown）不重发请求，避免制造重复删除执行者。
    * r98 B2：单 token 语义按 (backendToken,backendDigest,节点) 分组逐组提交，各组结论独立落盘，
    * 聚合措辞如实（部分受理=unknown，绝不写"已全部提交"）。 */
-  async prepareEmptyParentCleanup(preview: CleanupPreview, forReplacement = true) { return previewEmptyParents(this.ports, preview, forReplacement); }
-  async confirmEmptyParentCleanup(previews: EmptyParentPreview[], phase: number) { return confirmEmptyParents(this.ports, previews, phase); }
+  async prepareEmptyParentCleanup(preview: CleanupPreview, forReplacement = true, assertCurrent?: () => void) { return previewEmptyParents(this.ports, preview, forReplacement, assertCurrent); }
+  async confirmEmptyParentCleanup(previews: EmptyParentPreview[], phase: number, assertCurrent?: () => void) { return confirmEmptyParents(this.ports, previews, phase, assertCurrent); }
   async executeEmptyParentCleanup(previews: EmptyParentPreview[], assertCurrent?: () => void) { return executeEmptyParents(this.ports, previews, assertCurrent); }
   async autoDeleteIsolated(id: string, parents?: EmptyParentPreview[], assertCurrent?: () => void): Promise<{ state: "accepted" | "failed" | "unknown"; operationId?: string; message?: string }> {
     assertCurrent?.();
