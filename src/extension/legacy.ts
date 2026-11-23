@@ -4383,6 +4383,10 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             throw error;
         }
         WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
+        const invocation = mcpInvocation.getStore();
+        invocation?.permission("experiment");
+        invocation?.permission("sync");
+        invocation?.permission("agents");
         const operationId = makeOpId("workflow-run");
         this.localOperations[operationId] = {
             operationId, type: "workflow-run", status: "running", localSubmissionProgress: true,

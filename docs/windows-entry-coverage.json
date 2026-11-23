@@ -11000,6 +11000,7 @@
         },
         {
           "name": "plan_run",
+          "currentReview": {"status":"source_and_normal_fixture_external_effect_restricted","evidence":"workflow.run封闭schema仅接受planFile/operationId；route与active检查后，新workflow接受前复核experiment、sync、agents，原operationId恢复不变。普通MCP/UI成功路径1/1 exit0，%TEMP%/g004-workflow-accept-normal-20261123.*.log。","boundary":"此前将入队误当接受边界的推断已撤回；已接受工作及共享准备保留原语义。forRun跳过预检，autoPrepare在MCP schema不可传；既有reconcile可查询任务并续接已完成任务的产物同步。未运行撤权专项或真实Worker。"},
           "method": "workflow.run",
           "oldEvidence": "projectTools[name=plan_run]",
           "scope": "local_gateway_plus_worker_effect_restricted",

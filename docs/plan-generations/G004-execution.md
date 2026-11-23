@@ -151,7 +151,7 @@ experiment_active/overview/health按源及原合成观察/告警证据逐项复�
 
 result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义证据见coverage；未查询真实活动结果。
 
-project_connect在异步隧道准备期间撤销MCP授权原仍可能启动；现复核授权及目标，逐端点回调复核。假manager原目标/确认及撤权4/4 `%TEMP%/g004-tunnel-grant-recheck-20261123.*.log`，回调1/1 `%TEMP%/g004-tunnel-grant-callback-20261123.*.log`，均exit0；只读Windows glob失败未改产品，未启动真实SSH或改grant，待build。
+project_connect授权与目标围栏修复、假对象结果及原日志见 `5c832048:docs/plan-generations/G004-execution.md`；未启动真实SSH或改grant，待build。
 
 server_test源码范围见coverage，未真实探测。原runner只读dry-run当前build选择316个作业、compile/fullCheck、0 onDemand；受源码变更影响，旧direct 144、legacy 59及fresh 1条快照存在至少一处漂移（含计划外及可能重叠），须逐调用链核适用，不是已运行/通过数；不批量刷新哈希，不启动矩阵。
 
@@ -162,3 +162,5 @@ Agent inspect/ensure/stop/restart/migrate逐入口核身份、授权、确认及
 PLAN清理9项的列表、预览、观察、确认、执行和恢复边界见coverage；先前逐组记录见 `b8b7e155:docs/plan-generations/G004-execution.md`。未触真实路径或清理。
 
 file_cleanup_preview/inspect/observe_batch 的节点、项目和配套观察契约见coverage；未观察真实文件。
+
+plan_run按workflow_submission接受边界修正前置权限复核；普通MCP/UI正路径1/1 exit0，`%TEMP%/g004-workflow-accept-normal-20261123.*.log`。误将入队作为接受的推断撤回；无撤权专项、真实Worker，详情见coverage。

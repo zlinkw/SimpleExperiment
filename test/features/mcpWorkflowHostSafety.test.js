@@ -11,6 +11,7 @@ function hostFixture() {
   class LocalApiError extends Error { constructor() { super('active'); this.apiData = { blocker: { code: 'ACTIVE_PLAN_RUN_EXISTS' } }; } }
   const Provider = vm.runInNewContext(ts.transpileModule('class Provider {' + method + '}; Provider;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText,
     { WorkflowBinding: binding, workspaceRoot: () => state.root, makeOpId: () => 'workflow-op', LocalApiError,
+      mcpInvocation: { getStore: () => state.invocation },
       assertSingleProjectWorkspace: () => {}, simpleSftpIntegrationReadiness: () => ({ ready: true }),
       uniqueStrings: values => [...new Set(values)], stringArrayField: (value, key) => value[key] || [],
       operationResultPlanFile: row => row.planFile, samePlanSelection: (a, b) => a === b,
@@ -23,6 +24,19 @@ function hostFixture() {
   p.runApiWorkflowOperation = async (_id, _route, owner) => { calls.push('operation'); assert.equal(owner.root, root); };
   return { p, state, root, other, calls, proto: Provider.prototype, ast, source };
 }
+
+test('new workflow acceptance checks its existing project permissions and supports ordinary UI calls', async () => {
+  for (const mcp of [false, true]) {
+    const f = hostFixture(), scopes = [];
+    if (mcp) f.state.invocation = { permission: scope => scopes.push(scope) };
+    const result = await f.p.apiWorkflowRun({});
+    assert.equal(result.started, true);
+    assert.equal(result.requestScope, 'workflow_submission');
+    assert.deepEqual(scopes, mcp ? ['experiment', 'sync', 'agents'] : []);
+    assert.equal(f.p.localOperations[result.operationId].submissionOperationId, 'plan-submit-' + result.operationId);
+    assert.deepEqual(f.calls, ['dirty', 'post', 'operation']);
+  }
+});
 
 test('actual Host API refuses mismatched/switched workspace and active PLAN before creating an orphan operation', async () => {
   const a = hostFixture(); await assert.rejects(a.p.apiWorkflowRun({ workspace: a.other }), /当前/); assert.deepEqual(a.calls, []);
