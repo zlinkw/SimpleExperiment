@@ -426,10 +426,10 @@ test("Host uses the global project service route, actual returned facts and visi
   const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
   const ast = ts.createSourceFile("host.ts", source, ts.ScriptTarget.Latest, true);
   const cls = ast.statements.find(n => ts.isClassDeclaration(n) && n.name?.text === "RealtimeTunnelPanelProvider");
-  const names = ["tensorboardTarget", "postTensorboardAction", "openTensorBoardFromUi", "getTensorBoardStatusFromUi", "stopTensorBoardFromUi", "copyTensorBoardUrlFromUi", "openTensorBoardUrlFromUi", "scalarAgentFetch", "scalarEndpoints", "tensorboardViewerUrl"];
+  const names = ["captureProjectContext", "projectContextIsCurrent", "tensorboardTarget", "tensorboardTargetIsCurrent", "postTensorboardAction", "openTensorBoardFromUi", "getTensorBoardStatusFromUi", "stopTensorBoardFromUi", "copyTensorBoardUrlFromUi", "openTensorBoardUrlFromUi", "scalarAgentFetch", "scalarEndpoints", "tensorboardViewerUrl"];
   const members = cls.members.filter(n => names.includes(n.name?.getText(ast))).map(n => n.getText(ast)).join("\n");
   const calls = [], messages = [], notices = [], opened = [], waits = [], fetched = [];
-  let project = "/projects/current", responseMode = "ready", workerEnabled = true, seq = 0;
+  let project = "/projects/current", workspace = "/local/current", responseMode = "ready", workerEnabled = true, seq = 0, onTimer = () => {}, fetchGate, fetchStarted, noticeGate, clipboardGate, clipboardStarted;
   const worker = { id: "gpu-a", condaEnv: "" }, endpoint = { role: "worker", localHost: "localhost", localPort: 23117 };
   const facts = { status: "completed", running: true, listening: true, tmuxSession: "actual-project_tb", windowId: "@41", port: 6333, logPath: "logs/actual.log" };
   const epClient = { requestJson: async (route, purpose, body, options) => {
@@ -444,14 +444,17 @@ test("Host uses the global project service route, actual returned facts and visi
     AgentTmuxPolicy_1: require(path.join(root, "dist/tunnel/AgentTmuxPolicy.js")),
     makeOpId: () => "op-" + ++seq,
     tunnelHttpOrigin: (host, port) => `http://${host}:${port}`,
-    setTimeout: (done, ms) => { waits.push(ms); done(); }, AbortSignal,
-    URL, Buffer, workspaceRoot: () => "/local/current",
-    fetch: async (url, options) => { fetched.push({ url, options }); return new Response("page", { status: 200 }); },
+    setTimeout: (done, ms) => { waits.push(ms); onTimer(); done(); }, AbortSignal,
+    URL, Buffer, workspaceRoot: () => workspace,
+    UiCommandCancelled: class UiCommandCancelled extends Error {},
+    fetch: async (url, options) => { fetched.push({ url, options }); if (fetchGate) { fetchStarted.resolve(); await fetchGate.promise; } return new Response("page", { status: 200 }); },
     vscode: { workspace: { getConfiguration: () => ({ get: key => ({ "tensorboard.port": 6006, "tensorboard.logdir": "work_dirs" })[key] }) },
-      window: { showInformationMessage: async text => { notices.push(text); }, showErrorMessage: async text => { notices.push(text); } },
-      env: { openExternal: async url => opened.push(url), clipboard: { writeText: async text => opened.push(text) } }, Uri: { parse: text => text } },
+      window: { showInformationMessage: async text => { notices.push(text); return noticeGate ? noticeGate.promise : undefined; }, showErrorMessage: async text => { notices.push(text); } },
+      env: { openExternal: async url => opened.push(url), clipboard: { writeText: async text => { opened.push(text); if (clipboardGate) { clipboardStarted.resolve(); await clipboardGate.promise; } } } }, Uri: { parse: text => text } },
   });
   const host = new Host();
+  host.projectContextGeneration = 1;
+  host.projectContextAbortController = new AbortController();
   host.setupConfig = { remoteTmuxSessionPrefix: "Owner", condaEnv: "/global/env" };
   host.enabledWorkerConfigs = () => workerEnabled ? [worker] : [];
   host.expectedWorkerAgentProjectRoot = () => project;
@@ -510,6 +513,79 @@ test("Host uses the global project service route, actual returned facts and visi
   project = "";
   assert.equal((await host.postTensorboardAction(worker.id, "save-result-policy", { policy: "configured" })).status, "completed");
   assert.equal(policyCalls.length, 1); assert.equal(policyCalls[0][0], worker.id); assert.equal(policyCalls[0][1], "save-result-policy");
+  assert.equal(policyCalls[0][3].signal, host.projectContextAbortController.signal);
+  project = "/projects/current";
+  const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
+  const switchProject = () => { host.projectContextAbortController.abort(); host.projectContextAbortController = new AbortController(); workspace = "/local/another"; host.projectContextGeneration++; };
+  const restoreProject = () => { host.projectContextAbortController.abort(); host.projectContextAbortController = new AbortController(); workspace = "/local/current"; host.projectContextGeneration++; };
+  const originalRequest = epClient.requestJson, originalPost = host.postTensorboardAction;
+  let attempts = 0;
+  epClient.requestJson = async () => { attempts++; throw Object.assign(new Error("busy"), { decision: { reason: "cooldown" } }); };
+  onTimer = switchProject;
+  await assert.rejects(host.postTensorboardAction(worker.id, "start-tensorboard", {}), /切换/);
+  assert.equal(attempts, 1, "no second POST after the project changes during the retry wait");
+  restoreProject();
+  let policyAttempts = 0;
+  host.client.postWorkerAction = async () => { policyAttempts++; throw Object.assign(new Error("busy"), { decision: { reason: "rate_limited" } }); };
+  await assert.rejects(host.postTensorboardAction(worker.id, "save-result-policy", {}), /切换/);
+  assert.equal(policyAttempts, 1, "policy retry also stays with its original project");
+  restoreProject(); onTimer = () => {}; epClient.requestJson = originalRequest;
+  const queued = deferred();
+  epClient.requestJson = async (route, purpose, body, options) => new Promise((resolve, reject) => {
+    assert.equal(options.signal, host.projectContextAbortController.signal);
+    options.signal.addEventListener("abort", () => reject(new Error("queued request cancelled")), { once: true });
+    queued.resolve();
+  });
+  const queuedPromise = host.postTensorboardAction(worker.id, "start-tensorboard", {});
+  await queued.promise; switchProject();
+  await assert.rejects(queuedPromise, /queued request cancelled/);
+  restoreProject(); epClient.requestJson = originalRequest;
+  const start = deferred(); let postCount = 0;
+  host.postTensorboardAction = async () => { postCount++; return start.promise; };
+  const startPromise = host.openTensorBoardFromUi({ endpointId: worker.id });
+  switchProject(); start.resolve(facts);
+  await assert.rejects(startPromise, /切换/); assert.equal(postCount, 1);
+  restoreProject();
+  const status = deferred(), statusStarted = deferred(); postCount = 0;
+  host.postTensorboardAction = async () => { if (++postCount === 1) return facts; statusStarted.resolve(); return status.promise; };
+  const messageCount = messages.length;
+  const openPromise = host.openTensorBoardFromUi({ endpointId: worker.id });
+  await statusStarted.promise;
+  switchProject(); status.resolve(facts);
+  await assert.rejects(openPromise, /切换/); assert.equal(messages.length, messageCount);
+  restoreProject();
+  for (const method of ["getTensorBoardStatusFromUi", "stopTensorBoardFromUi"]) {
+    const pending = deferred(); host.postTensorboardAction = async () => pending.promise;
+    const beforeMessages = messages.length, result = host[method]({ endpointId: worker.id });
+    switchProject(); pending.resolve({ ...facts, running: false });
+    await assert.rejects(result, /切换/); assert.equal(messages.length, beforeMessages); restoreProject();
+  }
+  host.postTensorboardAction = originalPost;
+  const server = deferred(), originalServer = host.startLocalApiServer;
+  host.startLocalApiServer = () => server.promise;
+  const copyCount = opened.length, copyPromise = host.copyTensorBoardUrlFromUi({ endpointId: worker.id });
+  switchProject(); server.resolve({ viewerUrl: () => "http://127.0.0.1:34567/viewer?ticket=fixture" });
+  await assert.rejects(copyPromise, /切换/); assert.equal(opened.length, copyCount);
+  restoreProject(); host.startLocalApiServer = originalServer;
+  host.postTensorboardAction = async () => facts;
+  fetchGate = deferred(); fetchStarted = deferred();
+  const proxyMessages = messages.length, proxyOpened = opened.length;
+  const proxyPromise = host.openTensorBoardFromUi({ endpointId: worker.id });
+  await fetchStarted.promise;
+  switchProject(); fetchGate.resolve();
+  await assert.rejects(proxyPromise, /切换/); assert.equal(messages.length, proxyMessages + 1); assert.equal(opened.length, proxyOpened);
+  restoreProject(); fetchGate = undefined;
+  noticeGate = deferred();
+  await host.openTensorBoardFromUi({ endpointId: worker.id });
+  const beforeLateCopy = opened.length;
+  switchProject(); noticeGate.resolve("复制链接"); await Promise.resolve(); await Promise.resolve();
+  assert.equal(opened.length, beforeLateCopy); restoreProject(); noticeGate = undefined;
+  clipboardGate = deferred(); clipboardStarted = deferred();
+  const beforeNotice = notices.length, pendingCopy = host.copyTensorBoardUrlFromUi({ endpointId: worker.id });
+  await clipboardStarted.promise;
+  switchProject(); clipboardGate.resolve(); await pendingCopy;
+  assert.equal(notices.length, beforeNotice); restoreProject(); clipboardGate = undefined;
+  host.postTensorboardAction = originalPost;
 });
 
 test("scalar HTTP reads bind enabled project identity through redirects and reject stale responses", async () => {

@@ -1,6 +1,6 @@
 # G004 执行登记
 
-本文件cap12000/90%=10800。本次压缩前完整记录见 `8f04bd1f:docs/plan-generations/G004-execution.md`，更早见 `e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
+本文件cap12000/90%=10800。本次压缩前完整记录见 `55b48068:docs/plan-generations/G004-execution.md`，更早见 `8f04bd1f`、`e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
 
 ## 当前边界与历史交付
 
@@ -73,17 +73,7 @@ MCP旧证撤回：总控漏核optionalApi的live.output错误分支，Active/Per
 
 MCP完整identity源码假端literal direct：dispatch 5/5、SFTP routing 20/20、ordinary results 8/8、preflight 3/3，均exit0无skip/timeout；原call及输入见coverage，TEMP/g004-mcp-*-direct-v1-20261124.log为事后从原事件提取stdout，未真实访问Worker/传输/授权。旧四行降历史。登记时首次误匹配历史与current两行写前退出1，限定current后成功。
 
-SFTP mappedBatchDownload仅一个wrapper内存拒绝case经总控审旧119日志及实际闭包有条件继承，工具链未知/120逐项日志缺，余24项未审；未运行真实传输。比较首因仓内缺TypeScript报MODULE_NOT_FOUND，随后借现有TS；首CRLF未归一误报差异，归一后相同。本记录归并首脚本因段首空行断言exit1、写前停止，修正后写入。
-
-总控接续5审定：SFTP旧119再按当前闭包有条件继承mapped脚本文本一项及transferRecovery只读九项/静态两项；均假端或静态，无真实进程/SSH/Python，旧工具链未知、120逐项日志缺，余项仍未审。SE三旧direct只更新实际漂移依赖适用摘要，保原call及旧dist限制。总控只读定位三次误路径已纠正，无写入。
-
-SFTP transferRecovery按总控审定登记31项119旧case条件适用及修后精确cancel Process包装1/1，非一次新full32；旧Python census确曾运行子Python、版本未知，无真实Worker。更新末尾首次因匹配多余句点写前失败，精确定位后写入；inventory比较首CRLF误报及误猜函数不存在均已纠正。
-
-SFTP mapped旧119额外九个内存case经总控完整闭包审核条件继承；fake stream/SSH子进程，不执行真实SSH/Python，历史共享配置只读且内容未冻。旧119余15历史case待审（其中取消已有修后精确补验）。只读定位transfer-busy-snapshot误路径及反序slice、safe-delete技能旧别名不存在均已纠正，无写入或删除。
-
-SFTP mapped旧119额外14个磁盘case只按逐项条件继承；历史确有私有staging写/fsync/rename/覆盖、sibling/junction及原时限断言，真实ResourceOperationLeaseManager还读写默认LOCALAPPDATA全局registry/sidecar、可能rename并process.kill(pid,0)探活，旧registry/共享配置/Node未知；本轮未运行、探活或清理。当前25个119旧case条件适用；剩余API取消经总控审定以修后Process包装call_e7c0bc121a874a1e8ca944a8d8ac2f8c精确1/1替代旧项，误重复call_0b905653bef64d51a297010510609f33保事实不增覆盖。假child、operationId-only，原完整test输入与Node/config/registry未知；25旧项加1修后是条件组合，非新full26。历史cleanupMappedStagingFiles只保留存在partial；原事件和详细限制见coverage。压缩首脚本误按段首选择而断言退出，写前未变。
-
-SFTP transferErrors旧119五项及transferInactivity旧119七项总控按真实提取闭包逐case条件审定；后者真实watch切片5911字符，假时钟/child及真实unref计时器dispose，原Node未知，非新测试或当前性能。首按误猜文案替换coverage写前exit1，按原文修正成功；无产品写入。
+SFTP旧证逐case条件适用：transferRecovery 31旧119加修后cancel Process 1项、mapped 25旧119加修后cancel Process 1项，均非新full文件；transferErrors五项、transferInactivity七项及compression七项各限原case。旧Python census曾运行子Python；mapped磁盘case曾私有写入/rename及真实默认registry/sidecar和pid0探活，旧工具链/配置/registry未知、120逐项日志缺。本轮不重跑、不触实际远端或机器状态；详细原call/首失败/误路径/CRLF误判和纠正见 `55b48068:docs/plan-generations/G004-execution.md` 及coverage。
 
 actionLifecycle三个源码VM夹具漏抽F退役常量，候选仅提取真实声明并置于依赖前、原断言保留，待总控源/效果审与测试；此前rg传Windows通配路径os error 123，改为test根完整查找，未写产品。
 
@@ -98,3 +88,8 @@ SFTP能力描述旧断言修为过期只读/永久双确认；精确case call_f4
 报告批首次零上下文暂存误落其他方法，索引AST核对失败，未提交；只撤自己legacy暂存，改三段带上下文补丁后五方法索引/工作树AST相同。首脚本误判应为两段，写前退出，改三段成功；工作树未受影响。
 
 日志选择绑定原项目：picker返回后有选择才核context，再复制脱敏行；切项目取消无效果，已发复制不冒撤回。原workflowPanelNavigation full7 literal direct call_f0a6c935cf0c42d4a8007e67c38da8e5 7/7、exit0/no session/skip0，日志从原事件事后提取；旧full7降历史。仅fake picker/clipboard和旧dist消费者，不冒新编译/真实窗口/Worker。总控对41、报告5与错误1仅更新legacy当前适用d4→bab，原运行f6/d4快照及事件不改。
+
+TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Worker；原signal进入现有预算队列，切换取消等待不证明已发送请求或远端服务停止。首次测试许可因发现队列缺口冻结，补signal后恢复，未发生重试或未知操作。Host精确call_b93191b7beee4f18acbb0c88e04231f7及MCP箭头call_ef724bbcc9c446d596351c807586e6c0各1/1、literal exit0/no session/skip0；日志事后从真实事件提取，输入/事件SHA及旧dist/fake限制见coverage。未跑完整文件、真实Worker或新build；只读误通配/误路径已纠正。总控内存逆转本组法身回bab、核12旧方法相同，仅已审41/报告5/报告错误1/日志7更新legacy当前适用，原运行快照不改。
+
+本批带上下文索引补丁脚本首次把实际七段误计为六段，写前断言exit1，无文件或索引变化；复核后按七段生成并逐方法核验。
+索引只读AST核验首次因Node默认stdout缓冲不足出现ENOBUFS、git show被终止，未修改索引；增大读取缓冲后重新核验。

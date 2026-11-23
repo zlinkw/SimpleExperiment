@@ -995,6 +995,7 @@ test('actual TensorBoard API returns service facts and a scoped viewer link with
     stopTensorBoardFromUi: async message => ({ ...service, endpointId: message.endpointId, running: false, listening: false, closedWindowIds: ['@41'] }),
     captureProjectContext: () => ({ root: 'D:/project-acceptance' }), projectContextIsCurrent: () => current,
     tensorboardTarget: id => { assert.equal(id, 'worker-a'); },
+    tensorboardTargetIsCurrent: () => current,
     startLocalApiServer: async () => ({ viewerUrl: id => 'http://127.0.0.1:23456/tensorboard/?ticket=fixture&server=' + id }),
   };
   const methods = make.call(host);
@@ -1013,6 +1014,7 @@ test('actual TensorBoard API returns service facts and a scoped viewer link with
   await assert.rejects(methods['tensorboard.status']({ workerId: 'worker-a' }), /actual service failure/);
   current = false;
   await assert.rejects(methods['tensorboard.viewer']({ workerId: 'worker-a' }), /项目已切换/);
+  await assert.rejects(methods['tensorboard.status']({ workerId: 'worker-a' }), /切换/);
 });
 
 test('official MCP client validates named output contracts without losing arrays, extra evidence or errors', async () => {

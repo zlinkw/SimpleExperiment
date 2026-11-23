@@ -2526,21 +2526,24 @@ export class RealtimeTunnelPanelProvider {
             "mcp.call": (params) => mcpOperations(this).call(params.tool, params.arguments, { signal: this.activationAbortController.signal }),
             "mcp.operation": (params) => mcpOperations(this).status(params.operationId),
             "tensorboard.status": async (params) => {
+                const context = this.captureProjectContext(), client = this.client;
                 const endpointId = String(params.workerId || "");
+                const target = this.tensorboardTarget(endpointId);
                 const status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", {
                     port: Number(vscode.workspace.getConfiguration("simpleExperiment").get("tensorboard.port")) || 6006,
                 });
+                if (!this.tensorboardTargetIsCurrent(context, client, endpointId, target)) throw new UiCommandCancelled("项目或 Worker 已切换，未返回旧项目的图表状态。");
                 if (status?.status !== "completed") throw new Error(String(status?.message || "远端状态查询未确认"));
                 return { ...status, endpointId };
             },
             "tensorboard.start": (params) => this.openTensorBoardFromUi({ endpointId: params.workerId }, false),
             "tensorboard.stop": (params) => this.stopTensorBoardFromUi({ endpointId: params.workerId }),
             "tensorboard.viewer": async (params) => {
-                const projectContext = this.captureProjectContext();
+                const projectContext = this.captureProjectContext(), client = this.client;
                 const workerId = String(params.workerId || "");
-                this.tensorboardTarget(workerId);
+                const target = this.tensorboardTarget(workerId);
                 const server = await this.startLocalApiServer();
-                if (!this.projectContextIsCurrent(projectContext)) throw new UiCommandCancelled("项目已切换，未返回其他项目的图表链接。");
+                if (!this.tensorboardTargetIsCurrent(projectContext, client, workerId, target)) throw new UiCommandCancelled("项目已切换或 Worker 已变化，未返回其他项目的图表链接。");
                 const view = params.view || "scalars";
                 if (!["scalars", "native"].includes(view)) throw new Error("未知图表视图");
                 const url = new URL(server.viewerUrl(workerId));
@@ -24791,12 +24794,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
     }
     private async tensorboardViewerUrl(endpointId: string): Promise<string> {
-        const client = this.client, projectDir = this.tensorboardTarget(endpointId).projectDir;
+        const context = this.captureProjectContext(), client = this.client, target = this.tensorboardTarget(endpointId);
         const server = await this.startLocalApiServer();
-        if (this.client !== client || this.tensorboardTarget(endpointId).projectDir !== projectDir) throw new Error("项目已切换，请重新打开当前项目的图表。");
+        if (!this.tensorboardTargetIsCurrent(context, client, endpointId, target)) throw new Error("项目或 Worker 已切换，请重新打开当前项目的图表。");
         const url = new URL(server.viewerUrl(endpointId));
         url.searchParams.set("native", "ready");
-        url.searchParams.set("workspace", String(workspaceRoot() || ""));
+        url.searchParams.set("workspace", String(context.root || ""));
         return url.href;
     }
     private async withScalarRequestTimeout<T>(signal: AbortSignal | undefined, work: (requestSignal: AbortSignal) => Promise<T>): Promise<T> {
@@ -24897,10 +24900,19 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!projectDir.startsWith("/")) throw new Error(`${endpointId} 的远端项目根目录尚未配置，未操作 TensorBoard。`);
         return { worker, endpoint, projectDir };
     }
+    private tensorboardTargetIsCurrent(context: any, client: any, endpointId: string, target: any) {
+        return this.projectContextIsCurrent(context) && this.client === client
+            && this.enabledWorkerConfigs().some(worker => worker.id === endpointId)
+            && client?.endpointById?.get?.(endpointId) === target.endpoint
+            && String(this.expectedWorkerAgentProjectRoot(endpointId) || "") === target.projectDir;
+    }
     async openTensorBoardFromUi(message: any, openExternal = true) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "").trim();
         let remoteReady: boolean | null = null;
-        const { worker, projectDir } = this.tensorboardTarget(endpointId);
+        const context = this.captureProjectContext(), client = this.client, target = this.tensorboardTarget(endpointId);
+        const { worker, projectDir } = target;
+        const isCurrent = () => this.tensorboardTargetIsCurrent(context, client, endpointId, target);
+        const assertCurrent = () => { if (!isCurrent()) throw new UiCommandCancelled("项目或 Worker 已切换；已发送的图表请求请在原项目核查。"); };
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
         const remotePort = Number(cfg.get("tensorboard.port") as any) || 6006;
         const logdir = String(cfg.get("tensorboard.logdir") as any || "work_dirs");
@@ -24908,12 +24920,15 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const body: any = { projectDir, port: remotePort, logdir, condaEnv };
         try {
             const started = await this.postTensorboardAction(endpointId, "start-tensorboard", body);
+            assertCurrent();
             if (started?.status !== "completed") throw new Error(String(started?.message || "远端启动未确认"));
             let status: any;
             for (let i = 0; i < 5; i++) {
                 await new Promise((r) => setTimeout(r, 2000));
+                assertCurrent();
                 remoteReady = null;
                 status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { ...body, opId: makeOpId("get-tensorboard-status") });
+                assertCurrent();
                 if (status?.status !== "completed") throw new Error(String(status?.message || "远端状态查询未确认"));
                 remoteReady = typeof status.running === "boolean" ? status.running : null;
                 if (status.listening === true) break;
@@ -24922,14 +24937,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             remoteReady = status.running;
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...status });
             const proxyCheck = await this.scalarAgentFetch(endpointId, "GET", "/api/tensorboard/ui/", undefined, "application/json", AbortSignal.timeout(5000));
+            assertCurrent();
             if (!proxyCheck.ok) throw new Error(`Agent 隧道中的 TensorBoard 入口返回 HTTP ${proxyCheck.status}；请在 ${endpointId} 部署最新 Agent`);
             const url = openExternal ? await this.tensorboardViewerUrl(endpointId) : "";
+            assertCurrent();
             if (openExternal) await vscode.env.openExternal(vscode.Uri.parse(url));
+            assertCurrent();
             if (openExternal) void vscode.window.showInformationMessage(`TensorBoard 已就绪：${url}（远端 ${status.port} ${status.tmuxSession} ${status.windowId} @ ${endpointId}，日志 ${status.logPath}）`, "复制链接").then((sel) => {
-                if (sel === "复制链接") vscode.env.clipboard.writeText(url);
+                if (sel === "复制链接" && isCurrent()) vscode.env.clipboard.writeText(url);
             });
             return { ...status, endpointId, proxyVerified: true };
         } catch (e) {
+            if (!isCurrent()) throw e;
             const msg = e instanceof Error ? e.message : String(e);
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: remoteReady, listening: null, error: msg });
             void vscode.window.showErrorMessage(`启动 TensorBoard 失败：${msg}`);
@@ -24939,44 +24958,54 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async getTensorBoardStatusFromUi(message: any) {
         const endpointId = String(message?.endpointId || "").trim();
         if (!endpointId) return;
+        const context = this.captureProjectContext(), client = this.client;
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
+        let target: any;
         try {
+            target = this.tensorboardTarget(endpointId);
             const status = await this.postTensorboardAction(endpointId, "get-tensorboard-status", { port: Number(cfg.get("tensorboard.port") as any) || 6006 });
+            if (!this.tensorboardTargetIsCurrent(context, client, endpointId, target)) throw new UiCommandCancelled("项目或 Worker 已切换，未发布旧图表状态。");
             if (status?.status !== "completed") throw new Error(String(status?.message || "远端状态查询未确认"));
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...status });
         } catch (e) {
+            if (!this.projectContextIsCurrent(context) || this.client !== client || target && !this.tensorboardTargetIsCurrent(context, client, endpointId, target)) throw e;
             this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, running: null, listening: null, error: String(e) });
         }
     }
     async stopTensorBoardFromUi(message: any) {
         const endpointId = String(message?.endpointId || "").trim();
         if (!endpointId) throw new Error("缺少服务器 ID");
+        const context = this.captureProjectContext(), client = this.client, target = this.tensorboardTarget(endpointId);
         const stopped = await this.postTensorboardAction(endpointId, "stop-tensorboard", {});
+        if (!this.tensorboardTargetIsCurrent(context, client, endpointId, target)) throw new UiCommandCancelled("项目或 Worker 已切换；已发送的停止请求请在原项目核查。");
         if (stopped?.status !== "completed" || stopped.running !== false) throw new Error(String(stopped?.message || "远端关闭尚未确认"));
         this.view?.webview.postMessage({ type: "tensorboardSwitchStatus", endpointId, ...stopped });
         return { ...stopped, endpointId };
     }
 
     private async postTensorboardAction(endpointId: string, action: string, body: any): Promise<any> {
+        const context = this.captureProjectContext();
         const client: any = this.client;
         const opId = body?.opId || makeOpId(action);
         const projectService = ["start-tensorboard", "stop-tensorboard", "get-tensorboard-status"].includes(action);
-        const projectDir = projectService ? this.tensorboardTarget(endpointId).projectDir : "";
+        const target = projectService ? this.tensorboardTarget(endpointId) : undefined;
+        const projectDir = target?.projectDir || "";
         if (projectService && body?.projectDir && body.projectDir !== projectDir) throw new Error("项目已切换，TensorBoard 查询已停止；请在当前项目重新打开。");
         const fullBody = { ...body, opId, endpointId, ...(projectService ? { action, projectDir, workerId: endpointId,
             sessionPrefix: AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig.remoteTmuxSessionPrefix) } : {}) };
         for (let attempt = 0; attempt < 4; attempt++) {
+            if (!this.projectContextIsCurrent(context) || this.client !== client || projectService && !this.tensorboardTargetIsCurrent(context, client, endpointId, target)) throw new UiCommandCancelled("项目或 Worker 已切换；未继续发送图表请求。");
             if (projectService && action !== "get-tensorboard-status") mcpInvocation.getStore()?.permission("experiment");
             try {
                 if (projectService) {
                     const epClient = client.clients?.get?.(endpointId);
                     if (!epClient) throw new Error("无法定位当前 Worker 客户端");
                     const purpose = action === "stop-tensorboard" ? "stop" : action === "start-tensorboard" ? "run_plan" : "manual_refresh";
-                    return await epClient.requestJson("/api/tensorboard/service", purpose, fullBody, { method: "POST", userInitiated: true });
+                    return await epClient.requestJson("/api/tensorboard/service", purpose, fullBody, { method: "POST", userInitiated: true, signal: context.signal });
                 }
-                if (typeof client.postWorkerAction === "function") return await client.postWorkerAction(endpointId, action, fullBody);
+                if (typeof client.postWorkerAction === "function") return await client.postWorkerAction(endpointId, action, fullBody, { signal: context.signal });
                 const epClient = client.clients?.get?.(endpointId);
-                if (epClient && typeof epClient.postAction === "function") return await epClient.postAction(action, fullBody);
+                if (epClient && typeof epClient.postAction === "function") return await epClient.postAction(action, fullBody, { signal: context.signal });
                 throw new Error("无法定位 Worker 客户端以控制 TensorBoard");
             } catch (error) {
                 const message = String((error as any)?.message || error);
@@ -24991,8 +25020,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async copyTensorBoardUrlFromUi(message: any) {
         const endpointId = String(message?.endpointId || "").trim();
+        const context = this.captureProjectContext(), client = this.client, target = this.tensorboardTarget(endpointId);
         const targetUrl = await this.tensorboardViewerUrl(endpointId);
+        if (!this.tensorboardTargetIsCurrent(context, client, endpointId, target)) throw new UiCommandCancelled("项目或 Worker 已切换，未复制图表链接。");
         await vscode.env.clipboard.writeText(targetUrl);
+        if (!this.tensorboardTargetIsCurrent(context, client, endpointId, target)) return;
         void vscode.window.showInformationMessage(`已复制当前项目 TensorBoard 链接（${endpointId}）：请在 60 秒内首次打开，并保持本机插件窗口运行。复制不会启动服务。`);
     }
     async copyTextFromUi(message: any) {
