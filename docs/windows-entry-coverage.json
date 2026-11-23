@@ -12499,6 +12499,7 @@
         },
         {
           "id": "panel:chooseResultCsvDir:1",
+          "currentReview": {"status":"source_scoped","evidence":"选择目录：面板按钮经 handleMessageCore 到 chooseResultCsvDirFromUi；工作区缺失报错，选择取消抛 UiCommandCancelled，项目切换后停止，所选路径经 normalizeResultCsvDir 和 safeWorkspaceChildPath 词法检查后只写当前 WorkspaceFolder 设置并刷新目录缓存。","boundary":"源码审阅；有 localActionOutcomes 取消夹具和 resultCsvDirectoryConfig 路径契约测试源码，未核本轮对应运行回执；未打开选择器、写实际配置或验证链接路径。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=chooseResultCsvDir]",
           "oldStatus": "concluded_scoped",
@@ -12506,6 +12507,7 @@
         },
         {
           "id": "panel:saveResultCsvDir:1",
+          "currentReview": {"status":"source_scoped","evidence":"保存目录：面板 patch.csvDirectory 经 handleMessageCore 到 saveResultCsvDirFromUi，拒绝空值、根目录、绝对路径和越界相对路径；向原项目 WorkspaceFolder 异步写设置，当前项目仍匹配才更新内存、失效缓存和发布状态。","boundary":"源码审阅及 resultCsvDirectoryConfig 断言源码；未核本轮对应运行回执，未修改真实设置；路径检查为词法边界。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=saveResultCsvDir]",
           "oldStatus": "concluded_scoped",
@@ -12513,6 +12515,7 @@
         },
         {
           "id": "panel:editResultColumnMapping:1",
+          "currentReview": {"status":"source_scoped","evidence":"查看映射：面板命令经 handleMessageCore 检查项目并发布 navigate/openResultMapping，前端消费后打开结果映射摘要；该入口本身不保存映射。","boundary":"源码审阅导航与摘要消费者；未实点界面，保存映射及实际 Agent 同步不在此条证据范围。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=editResultColumnMapping]",
           "oldStatus": "concluded_scoped",
@@ -14583,6 +14586,7 @@
         },
         {
           "name": "chooseResultCsvDir",
+          "currentReview": {"status":"source_scoped","evidence":"invokeApi 将此命令按普通 handleMessageCore 分支路由；选择目录：面板按钮经 handleMessageCore 到 chooseResultCsvDirFromUi；工作区缺失报错，选择取消抛 UiCommandCancelled，项目切换后停止，所选路径经 normalizeResultCsvDir 和 safeWorkspaceChildPath 词法检查后只写当前 WorkspaceFolder 设置并刷新目录缓存。","boundary":"源码审阅；有 localActionOutcomes 取消夹具和 resultCsvDirectoryConfig 路径契约测试源码，未核本轮对应运行回执；未打开选择器、写实际配置或验证链接路径。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -14740,6 +14744,7 @@
         },
         {
           "name": "editResultColumnMapping",
+          "currentReview": {"status":"source_scoped","evidence":"invokeApi 将此命令按普通 handleMessageCore 分支路由；查看映射：面板命令经 handleMessageCore 检查项目并发布 navigate/openResultMapping，前端消费后打开结果映射摘要；该入口本身不保存映射。","boundary":"源码审阅导航与摘要消费者；未实点界面，保存映射及实际 Agent 同步不在此条证据范围。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
@@ -15153,6 +15158,7 @@
         },
         {
           "name": "saveResultCsvDir",
+          "currentReview": {"status":"source_scoped","evidence":"invokeApi 将此命令按普通 handleMessageCore 分支路由；保存目录：面板 patch.csvDirectory 经 handleMessageCore 到 saveResultCsvDirFromUi，拒绝空值、根目录、绝对路径和越界相对路径；向原项目 WorkspaceFolder 异步写设置，当前项目仍匹配才更新内存、失效缓存和发布状态。","boundary":"源码审阅及 resultCsvDirectoryConfig 断言源码；未核本轮对应运行回执，未修改真实设置；路径检查为词法边界。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
