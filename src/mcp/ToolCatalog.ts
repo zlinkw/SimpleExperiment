@@ -179,7 +179,7 @@ export const PROJECT_TOOLS: ProjectTool[] = [
   }, ["workerId"], "sync", undefined, "sftp"),
   tool("sftp_handoff", "handoff.markReady", "Upload this project and mark its handoff ready", { workerId: task.workerId }, ["workerId"], "sync", undefined, "sftp"),
   tool("sftp_from_remote", "sync.fromRemote", "Download this project's saved selected scope from its configured Worker", { workerId: task.workerId }, ["workerId"], "sync", undefined, "sftp"),
-  tool("sftp_remote_directories", "remote.listDirs", "List directories inside the selected Worker's configured project root", { workerId: task.workerId, relativePath: text("Project-relative directory, empty for root") }, ["workerId"], undefined, undefined, "sftp"),
+  tool("sftp_remote_directories", "remote.listDirs", "List directories inside the selected Worker's configured project root", { workerId: task.workerId, relativePath: text("Project-relative directory, empty for root") }, ["workerId"], "sync", undefined, "sftp"),
   tool("sftp_download_mapped", "sync.downloadMappedPaths", "Read exact mapped metric files into memory without saving raw metrics locally", {
     workerId: task.workerId, entries: { type: "array", items: { type: "object", properties: {
       remotePath: text("Source path within the configured Worker project"), localRelativePath: text("Project-relative logical destination"),

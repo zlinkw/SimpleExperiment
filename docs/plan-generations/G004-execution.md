@@ -8,7 +8,7 @@ G004 按 identity+argv 冻结增量证据；最终 package 已通过：361 activ
 
 不触碰真实 Worker、服务器、SSH、tmux、GPU 或用户配置；新阶段仅授权不抢焦点的现有单项目 UI 检查。真实传输/清理、active results与跨项目未测；本次实际本地UI范围见末节。模拟缺失不证明永久删除。原 26 个脏 dist 中，仅包内 20 项已验证并获准同步，其他 6 项、历史资产及夹具保留。
 
-519 专用根重载后项目识别 false→false、缺 adapter，未重配重授；不能称现场完成状态丢失。519 的 341/341、13 gates、试行包及一次安装/Reload 属旧版本，不证明新源码或新 Host。用户曾批准 49 份旧 CLI 测试迁移、50 精确旧路径排除、39 旧源码删除和 B1 单次复验；原旧测试与 Git 历史保留，302 索引和 27 外部引用见 coverage，退休差异不冒业务等价。39 源码经逐项安全预检及直接父目录验证删除，六组提交 `690be905`、`4d003cdc`、`b7d6ce0b`、`3382fcbd`、`4a43d1fc`、`fd593cca`；不重复删除。
+519 重载后识别false且缺adapter，未重配重授；其341/341、13门禁和试行安装均为旧版。用户批准旧CLI迁移及39旧源码删除的精确范围、六组提交与证据见 `0ff5b277:docs/plan-generations/G004-execution.md` 和coverage；不重复删除，不冒业务等价。
 
 ## 候选、失败与复验
 
@@ -99,4 +99,4 @@ SFTP server activate/save/delete 逐工具复核 schema、人工 modal 和同根
 
 SFTP tree、tree_state、inventory逐项核Gateway、Host与已装SFTP路径检查；原假端口回归复用上条日志。此三只读工具当前不声明权限类别，只绑定配置Worker/项目；未访问真实Worker或计算远端哈希，范围不足见coverage。
 
-SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories发现Host无条件附confirm/pathConfirmed，而已装SFTP要求确认；当前工具无权限或真人确认，已交总控裁决，未访问真实服务器或改该入口。一次压缩补丁未匹配、未写入。
+SFTP file_stats/plan_logs按schema、Worker路由及已装后端路径/Plan校验复核，仅假端证据。remote_directories原无条件附confirm/pathConfirmed且缺授权，已按总控裁决改为sync项目授权、根内精确目标及调用前项目/Worker快照复核；假Gateway/Host 18/18 exit0，`%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`。已装120确认函数仅提取VM核缺失/部分/完整因子3/3，`%TEMP%/g004-sftp120-confirmation-vm-20261123.log`。未改真实grant或访问远端。一次压缩补丁未匹配、未写入。

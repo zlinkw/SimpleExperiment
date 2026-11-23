@@ -106,10 +106,10 @@ export function mcpGateway(host: any): ProjectGateway {
           const remoteRoot = target(workerId).remotePath;
           const remotePath = path.posix.resolve(remoteRoot, params.relativePath || ".");
           if (remotePath !== remoteRoot && !remotePath.startsWith(remoteRoot.replace(/\/$/, "") + "/")) throw Error("MCP_PROJECT_DIRECTORY_REQUIRED");
-          Object.assign(request, { remotePath, server: { ...request.server, remotePath }, confirm: true, pathConfirmed: true });
+          Object.assign(request, { remotePath, server: { ...request.server, remotePath } });
         }
         if (root !== (vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || "")) throw Error("MCP_WORKSPACE_CHANGED");
-        if (["upload.files", "upload.workspace", "sync.serverToServerFpsync", "sync.serverToServer", "sync.serverToServerBatch"].includes(method))
+        if (["upload.files", "upload.workspace", "sync.serverToServerFpsync", "sync.serverToServer", "sync.serverToServerBatch", "remote.listDirs"].includes(method))
           mcpInvocation.getStore()?.permission("sync");
         if (method === "upload.workspace" && !Object.keys(request.manifest).length)
           return { ok: true, skipped: true, files: [], message: "当前代码同步范围没有文件。" };

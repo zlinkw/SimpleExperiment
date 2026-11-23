@@ -40,6 +40,34 @@ test('MCP SFTP inventory routes the exact Worker and refuses unscoped hashes',as
  const count=f.calls.length;await assert.rejects(f.gateway.call('sftp_remote_directories',{workerId:'w1',relativePath:'../escape'}),/MCP_PROJECT_DIRECTORY_REQUIRED/);assert.equal(f.calls.length,count);
 });
 
+test('remote directory confirmation comes from the current project grant and stable target',async()=>{
+ const f=fixture();
+ await assert.rejects(f.gateway.call('sftp_remote_directories',{workerId:'w1',confirm:true}),/Unknown/);
+ assert.equal(f.calls.length,0);
+ f.grant.permissions=[];
+ await assert.rejects(f.gateway.call('sftp_remote_directories',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);
+ assert.equal(f.calls.length,0);
+ f.grant.permissions=['sync'];
+ await f.gateway.call('sftp_remote_directories',{workerId:'w1',relativePath:'sub'});
+ const sent=f.calls.at(-1);assert.equal(sent.method,'remote.listDirs');
+ assert.equal(sent.params.remotePath,'/project/one/sub');assert.equal(sent.params.confirm,true);assert.equal(sent.params.pathConfirmed,true);
+ const before=f.calls.length;
+ await assert.rejects(f.gateway.call('sftp_remote_directories',{workerId:'w1',relativePath:'../escape'}),/MCP_PROJECT_DIRECTORY_REQUIRED/);
+ assert.equal(f.calls.length,before);
+ const oldOptions=f.host.sftpServerOptions;
+ f.host.sftpServerOptions=row=>{f.grant.permissions=[];return oldOptions(row)};
+ await assert.rejects(f.gateway.call('sftp_remote_directories',{workerId:'w1'}),/AUTHORIZATION_REQUIRED/);
+ assert.equal(f.calls.length,before);
+ f.grant.permissions=['sync'];
+ f.host.sftpServerOptions=row=>{f.host.workerCodeSyncTargets=()=>[{...row,remotePath:'/changed'}];return oldOptions(row)};
+ await assert.rejects(f.gateway.call('sftp_remote_directories',{workerId:'w1'}),/WORKER_TARGET_CHANGED/);
+ assert.equal(f.calls.length,before);
+ const g=fixture(),previous=vscode.workspace.workspaceFolders;
+ g.host.sftpServerOptions=row=>{vscode.workspace.workspaceFolders=[{uri:{fsPath:root+'-other'}}];return {...row}};
+ try{await assert.rejects(g.gateway.call('sftp_remote_directories',{workerId:'w1'}),/WORKSPACE_CHANGED/);assert.equal(g.calls.length,0)}
+ finally{vscode.workspace.workspaceFolders=previous}
+});
+
 test('MCP transfer receipts retain unknown and cancelling states without retrying',async()=>{
  const f=fixture();assert.equal((await f.gateway.call('sftp_transfers',{})).ok,true);
  const unknown=await f.gateway.call('sftp_transfer_reconcile',{operationId:'op-9',operationInstanceId:'instance-1'});
