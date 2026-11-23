@@ -71,7 +71,7 @@ CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete
 
 后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
 
-旧母集11个缺陷按修复及受控证据逐ID对账；原失败保留，未审分支和外部效果不冒通过。520实际窗口范围见coverage。
+旧母集11缺陷逐ID对账；原失败保留，未审及外部效果不冒通过，实际窗口范围见coverage。
 
 ## 当前探针及构建门禁
 
@@ -85,7 +85,7 @@ CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete
 
 停止路由原猜首Worker、未知时force重发及提前落终态；已按精确归属、单次请求和未知保留意图修复，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。VM 10/10及消费者12/12 exit0，日志 `%TEMP%/g004-stop-routing-terminal-20261123.*.log`、`g004-stop-consumers-terminal-20261123.*.log`；早期 successor/pending/plan/final 原日志保留，未访问真实Worker或Agent。
 
-接替期间另有只读 Windows glob 两次失败、覆盖记录内存断言一次写前失败（外层后续命令显示0）、git-show 默认缓冲不足一次，均未改产品；后者提高只读缓冲后成功。PowerShell 嵌套引号一次解析失败，未执行 rg；随后改用 pwsh7 直接执行。
+接替期间只读glob两次、覆盖记录写前断言、git-show缓冲及PowerShell引号各一次失败，均未改产品；详见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 停止组已同步 `fb874de2`；其后修UI把未知误报completed、Plan停止附无关选择和Worker标识/提示，11/11及消费者12/12 exit0 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`g004-stop-consumers-outcome-current-20261123.*.log`。仅假客户端；Panel仍待build/VM及总控审，不部署或提交。完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
@@ -103,11 +103,11 @@ SFTP file_stats/plan_logs仅源码和假端证据。remote_directories原无条�
 
 静态报告打开两处、复制一处及对应invoke/命令别名：路径与错误VM 3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`；成功打开/复制及链接目标未实测。
 
-草稿审核/拒绝写入后若刷新抛错或保存错误，原UI及拒绝API可能报完成；现UI复用项目绑定API，明确报告“已写入但刷新失败”，不自动重发。方法VM/假写入6/6 exit0 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`，原生命周期49/49 exit0 `%TEMP%/g004-draft-action-lifecycle-final-20261123.*.log`；夹具补齐真实Host已有状态，无真实草稿写入。
+草稿兼容路由此前误入范围，写后刷新失败修复及假写6/6、生命周期49/49日志见 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`、`g004-draft-action-lifecycle-final-20261123.*.log`；无真实写入，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 草稿机制已退役：此前仅检查预览及兼容路由，默认渲染停用，非实际UI点击；各ID与日志见coverage，未查询活动结果或写真实草稿。
 
-用户指出草稿机制已移除，立即停止草稿相关新调查、验证和实现；前述检查源自旧母集及保留兼容入口，不能当作当前功能。范围由总控统一裁决，不删除文件。
+本人指出草稿机制已退役，停止新调查、验证和实现；旧母集/兼容入口不代表当前功能，不删除文件。
 
 MCP task_stop 在登记意图期间若撤销授权或更改Worker配置，原实现仍可发送停止；现发送前重核experiment授权及快照，未知保留意图。假Gateway/Host 3/3 exit0 `%TEMP%/g004-task-stop-auth-complete-20261123.*.log`；首次夹具不存在路径ENOENT及随后实际缺少拒绝的复现均exit1，分别保留 `g004-task-stop-auth-first`、`g004-task-stop-auth-repro` 日志。未访问真实Worker。
 
@@ -132,3 +132,5 @@ planCodeScope及remoteResultInspectionWorkflow受测片段与1e91d0d4一致、�
 syncScopeDeletionRefresh七个受测方法/函数与旧源码一致，planCleanupReconnect所查禁止调用仍不存在，其余依赖不变；复用33/33、13/13夹具旧证，不重跑清理。配套仓只读查远端tag/release及本地资产，120已占、119/120为试行、118为稳定，查询时121尚无同名tag/包；未递版或创建资产。
 
 任务、日志及Plan选择核身份/持久化、项目切换和错误反馈，复用原假宿主证据，未操作真实选择或Worker日志；见coverage。一次压缩补丁未匹配未写入。
+
+planBatchPhysicalPipeline及planRunRecovery受测队列写入/租约和确认/恢复方法与1e91d0d4一致，其余依赖不变，复用2/2、7/7夹具旧证，未重跑清理。
