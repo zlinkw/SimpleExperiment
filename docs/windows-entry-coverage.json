@@ -17149,5 +17149,23 @@
       "afterNewDistPattern": "^plan command status stays pending past 45 and 150 seconds until the real result$",
       "boundary": "原伪时间与断言不变；不运行其他性能case或完整文件"
     }
+  },
+  "g004UiFunnelPreparation4": {
+    "status": "fixture_interface_preparation_pending_new_dist",
+    "notice": {
+      "file": "test/features/planOperationNoticeLifecycle.test.js",
+      "worktreeSha256": "a2c738b9c639f39fcda36d9d9b75f622b6443248b79edee5a2f1626befa34d72",
+      "check": "node --check exit0",
+      "afterNewDist": "full file once, 20 seconds"
+    },
+    "resultSync": {
+      "file": "test/features/resultSyncFailureVisibility.test.js",
+      "worktreeSha256": "bd809b24a1da99aaf4a4dd50a99ec7e3e1c4fdb7080bd963bd9d94a709d0cff7",
+      "indexSha256": "a252832e694bb19dafb67ca025f0ad23e39cd2b0d7f7479675d0c0538dbae076",
+      "indexCheck": "node --check stdin exit0",
+      "check": "node --check exit0 on mixed worktree; index contains only first three fixture/session hunks",
+      "afterNewDist": "existing full-file authorization once, private fixture files and rename; no real remote"
+    },
+    "boundary": "未执行旧dist或声称全文件通过；保旧证历史和其他槽候选。"
   }
 }

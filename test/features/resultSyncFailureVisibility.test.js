@@ -63,7 +63,7 @@ function fixture({ errorChoice, finishChoice } = {}) {
     method("\n    finishOperationProgressNotice(", " submissionNoticeTone("),
   ].join(",")} };`, sandbox);
   const host = {
-    ...sandbox.methods, localOperations: {}, manualResultSyncCounts: new Map(),
+    ...sandbox.methods, captureProjectContext: () => ({ root: "/fixture" }), projectContextIsCurrent: () => true, localOperations: {}, manualResultSyncCounts: new Map(),
     operationNoticeSessions: new Map(), context: { subscriptions: [] },
     postUiCommandStatus(_id, status, command, message, extra) { statuses.push(status); terminal.push({ status, command, message, ...extra }); },
     planSubmissionOperationId: () => "op", submissionStillCurrent: () => true,
@@ -192,7 +192,7 @@ test("A cleared-selection wait closes its native progress session silently while
   for (const silent of [false, true]) {
     const f = fixture({ finishChoice: silent ? undefined : "查看日志" });
     let finished = 0;
-    f.host.operationNoticeSessions.set("artifact-key", { title: "重试产物同步", reports: [], closed: false, finishResolve: () => { finished++; } });
+    f.host.operationNoticeSessions.set("artifact-key", { title: "重试产物同步", reports: [], closed: false, isCurrent: () => true, finishResolve: () => { finished++; } });
     f.host.finishOperationProgressNotice("artifact-key", "cancelled", "所选任务已被本地清退或被新的运行替代，本次等待已结束。", silent ? { silent: true } : undefined);
     await new Promise(resolve => setImmediate(resolve)); // flush 按钮 .then
     assert.equal(finished, 1, "session 的 done 释放照旧（silent 不吞释放）");
@@ -208,7 +208,7 @@ test("A cleared-selection wait closes its native progress session silently while
 test("a non-silent progress finish keeps the native button routing to the execution panel", async () => {
   const f = fixture({ finishChoice: "打开面板" });
   let finished = 0;
-  f.host.operationNoticeSessions.set("k", { title: "t", reports: [], closed: false, finishResolve: () => { finished++; } });
+  f.host.operationNoticeSessions.set("k", { title: "t", reports: [], closed: false, isCurrent: () => true, finishResolve: () => { finished++; } });
   f.host.finishOperationProgressNotice("k", "cancelled", "普通取消原因。", undefined);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(finished, 1);

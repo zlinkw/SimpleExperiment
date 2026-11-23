@@ -19,17 +19,17 @@
 
 缓存、Plan恢复、Git绑定及SFTP取消/交接/下载范围的原验证、失败和限制见8f04bd1f及coverage；未知执行器未确认结束，旧119/120日志与工具链缺口仍在，旧316项规划过期。
 
-输出模板项目围栏 `fedd8bc9`/`7dfd6db5` 假端4/4；首2/3失败及审核页5个确认变体见历史记录 `d70e1b40`/`3a916416`。未build或真实删除。
+输出模板项目围栏 `fedd8bc9`/`7dfd6db5` 假端4/4；首失败及确认变体见 `d70e1b40`/`3a916416`，未build或真实删除。
 
-隔离永久删除 `0275a980` 和暂存槽保护原身份、节点/根/路径/类型及双确认；未知回执不因文件缺失认结束，旧版抹除身份不可恢复，SFTP尚无已证原执行器完成查询。自动过期仅只读提示。SFTP源码 `1ed12173`，auth v5 3/3、expiry v1 3/3、batch parent v1精确10/10；SE候选未提交，真实state假端v4 10/10，隔离假service v9 11/11、v11 12/12及消费者v1/v2各1/1，v10首11/12错误码断言失败；日志及原限制见 `cee2e38d:docs/plan-generations/G004-execution.md` 和coverage。无真实删除/build。resultSync与slot两消费者及planRunIsolateRerun精确case仅获准新dist后运行，不跑其他world。两次误路径只读失败保留。
+隔离永久删除 `0275a980` 与暂存槽保原身份、节点/根/路径/类型及双确认；未知回执不因目标不存在认执行结束，SFTP尚无已证原执行器完成查询，自动过期只提示。原测试、首失败、日志和误路径见 `cee2e38d:docs/plan-generations/G004-execution.md` 及coverage。无真实删除/build；相关消费者仅获准新dist后按原范围运行。
 
-服务器队列/手动派发/替换、传输/同步/后台清理及Git覆盖围栏已按原项目和身份审定，假端结果、首失败、日志与非真实效果完整见 `60c8b277:docs/plan-generations/G004-execution.md` 及coverage；包装非direct，final fresh和新dist消费者仍待批准。
+服务器队列、派发、同步及Git覆盖围栏原验证、首失败、日志和限制见 `60c8b277:docs/plan-generations/G004-execution.md` 及coverage；final fresh和新dist消费者仍待批准。
 
 配置读取、Worker删除确认及隧道/离线入口假端原验证、失败和限制见 `17692f55:docs/plan-generations/G004-execution.md` 及coverage；配置检查与rename非原子，异步保存可能部分写入，无真实Worker或配置效果。Panel仍待build及真实脚本VM，plan阈值首失败保同历史。
 
 47a1681d旧build规划316项exit0，执行规划首拒legacy漂移exit1；依赖漂移为重叠导航，不能批量重绑或判通过。原日志、细分计数见 `c8912955:docs/plan-generations/G004-execution.md`。
 
-召回路径的排队判定、Scheduler互斥与原请求身份核实已源审并同步 `9412b48c`；Host假端v11 16/16、Python抽函数v2 1/1、原消费者精确项均exit0。旧协议消费者v1 4/5失败及v2/v3修正、所有原日志和未知回执限制详见 `d766909a:docs/plan-generations/G004-execution.md`；不重发未知请求，未运行真实Worker或build。
+召回路径原身份和排队围栏已同步 `9412b48c`；原验证、首失败、日志及未知回执限制见 `d766909a:docs/plan-generations/G004-execution.md`，不重发未知请求，未运行真实Worker或build。
 
 提交取消/恢复、归档复制及失败job重排均已按原项目与身份做发布边界；源码提交、假端结果、首失败、角色交接和限制见 `79d2d2ad:docs/plan-generations/G004-execution.md` 及coverage，未访问真实Worker或删除。
 
@@ -90,3 +90,5 @@ UI状态funnel和PLAN通知候选按原项目绑定晚到状态及延后交互�
 第三准备批四fixture仅补context接口；tmux full1、stop精确2、preflight精确1均literal exit0/no session/skip0，原事件、实际ca1d输入与事后日志见coverage。stop含真实私有TEMP结果写、flush/rename及named-pipe，fixture保留；Worker/SFTP为fake。Speed仅node --check exit0，未运行性能case；其原正确性case待新dist精确运行。preflight首补丁落入相似host，在任何测试前发现并移至正确fixture；不冒其他case或新dist通过。
 
 Speed实测工作树23f48e15，索引LF归一后121b3e83，归一文本相同；非同字节。coverage首次JSON全量格式化已发现并按HEAD原格式修复，第一次脚本因空格格式假设退出1且未写入，纠正后精确更新。
+
+第四准备批Notice三处host与ResultSync前三处fixture/session接口补齐；node --check各exit0，未运行旧dist。ResultSync其他槽逻辑保留工作树不纳本批；新dist后Notice全文件与ResultSync既有全文件范围才可执行，后者含私有目录真实写/rename。只读git rev-parse首次未引用upstream触发PowerShell ParserError exit1，引用后确认三HEAD及upstream一致，非Git变更失败。

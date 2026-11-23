@@ -48,7 +48,7 @@ function fixture() {
     method('submissionNoticeTone(message, result)', 'submissionNoticeText(message, result)'),
     method('postUiCommandStatus(clientActionId', 'notifyLocalActionStarted('),
   ].join(',')} };`, sandbox);
-  const host = { ...sandbox.methods, operationNoticeSessions: new Map(), context: { subscriptions: [] },
+  const host = { ...sandbox.methods, captureProjectContext: () => ({ root: '/project' }), projectContextIsCurrent: () => true, operationNoticeSessions: new Map(), context: { subscriptions: [] },
     localOperations: {}, planSubmissionOperationId: () => '', view: { webview: { postMessage: (row) => posts.push(row) } } };
   return { host, progressEntries, notices, warnings, logLines, posts };
 }
@@ -255,7 +255,7 @@ function funnelFixture() {
     method('reportOperationNotice(key, text)', 'finishOperationProgressNotice('),
     method('finishOperationProgressNotice(', 'submissionNoticeTone(message, result)'),
   ].join(',')} };`, sandbox);
-  const host = { ...sandbox.methods, operationNoticeSessions: new Map(), context: { subscriptions: [] },
+  const host = { ...sandbox.methods, captureProjectContext: () => ({ root: '/project' }), projectContextIsCurrent: () => true, operationNoticeSessions: new Map(), context: { subscriptions: [] },
     localOperations: {}, planSubmissionOperationId: () => '', view: { webview: { postMessage: (row) => posts.push(row) } },
     beginSimpleSftpCapabilityLaunch() { if (host.throwOnLaunch) throw new Error('能力读取异常'); launches.push(1); },
     finishPlanSubmissionProgress() {}, recordActionError() {}, postState() {} };
@@ -437,7 +437,7 @@ test('direct API plan actions settle early failures without retiring a submitted
     ['cancelled', new Error('late failure'), 'cancelled'],
   ]) {
     const record = { status: initial }, originalError = error;
-    const host = { localOperations: { submission: record }, planRetryInFlight: new Set(), actionBody: value => value,
+    const host = { captureProjectContext: () => ({ root: '/project' }), projectContextIsCurrent: () => true, localOperations: { submission: record }, planRetryInFlight: new Set(), actionBody: value => value,
       planSubmissionOperationId: () => 'submission', beginPlanSubmissionProgress() {}, reportPlanStage() {},
       runActionCommandLeased: async () => { throw originalError; },
       finishPlanSubmissionProgress(_message, status, text) { record.status = status; record.message = text; record.finishedAt = 'now'; },
