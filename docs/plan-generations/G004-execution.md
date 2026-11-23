@@ -124,3 +124,5 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 打开Plan时项目可在异步文件检查期间切换；现复用项目绑定打开器，定向3/3 exit0 %TEMP%/g004-open-plan-project-guard-20261123.*.log，6b4e5651已同步、待build；未打开真实编辑器或其他项目。
 
 本轮只读glob一次失败、git show因Node默认缓冲ENOBUFS失败后只读成功；coverage写入脚本两次及本执行登记压缩首稿均写前报错，无文件写入。
+
+结果规则保存、映射保存及运行前同步过去未向已有逐Worker循环传项目上下文，切项目后可能继续向剩余Worker发送；155d0593绑定原项目，同步后再核项目才刷新。假Worker受控检查1/1、两类真实方法VM 1/1、调用链断言2/2 exit0，日志 %TEMP%/g004-adapter-sync-boundary-20261123.*.log、g004-adapter-ui-project-switch-final-20261123.*.log、g004-adapter-ui-bindings-20261123.*.log。首次VM夹具语法失败exit1见 g004-adapter-ui-project-switch-20261123.*.log；未访问真实Worker或写真实配置，待build。
