@@ -28,7 +28,7 @@ function extractConst(source, name) {
   return source.slice(start, end + 1);
 }
 
-test("local and draft PLAN counts preserve explicitly empty cases", async () => {
+test("local PLAN counts preserve explicitly empty cases", async () => {
   require('../_helpers/registerTsRequire');
   const ts = require('typescript');
   const builder = require('../../src/features/PlanBuilder.ts');
@@ -46,16 +46,6 @@ test("local and draft PLAN counts preserve explicitly empty cases", async () => 
     ['suite: s\nbase_config: config.yaml\nseeds: [0, 42]\ncases: [a, b]\n', 4],
   ];
   for (const [yaml, expected] of plans) assert.equal(local.parse('plan.yaml', yaml).jobCount, expected);
-  const draftCode = ts.transpileModule(declaration('src/features/DraftPlans.legacy.ts', 'reconcileDraftPlansCore') + '\nthis.reconcile = reconcileDraftPlansCore;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
-  for (const [yaml, expected] of plans) {
-    const sandbox = { walkYamlFiles: async () => ['root/tmp/plan/p.yaml'], DRAFT_PLAN_ROOT: 'tmp/plan', loadMetadata: async () => new Map(),
-      path, fs: {stat: async () => ({birthtime:new Date(),mtime:new Date()})}, readSafeWorkspaceText: async () => yaml, MAX_DRAFT_TEXT_BYTES: 1,
-      validateDraftReferences: () => ({configRefs:[],issues:[],ok:true}), draftContentHash: () => 'hash', baseRecord: () => ({}),
-      normalizeWorkspacePath: x => x, TERMINAL_DRAFT_STATUSES: new Set(), DRAFT_STATUSES: [], parsePlanSummary: builder.parsePlanSummary,
-      unique: x => x, promotionTargetFor: () => '', saveMetadata: async () => {}, Date };
-    vm.runInNewContext(draftCode, sandbox);
-    const result = await sandbox.reconcile('root', []); assert.equal(result.drafts[0].jobCount, expected);
-  }
 });
 
 test("failure notification links to the full operation log without duplicating logged commands", async () => {
@@ -357,12 +347,14 @@ test("retired draft promotion returns an explicit error", async () => {
 
 test("action catalog and invoke reject an unexposed command", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
-  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let arrow,method;
+  const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let arrow,method,retired;
   const visit=node=>{if(ts.isPropertyAssignment(node)&&node.name.getText(ast)==='"actions.list"')arrow=node.initializer.getText(ast);
+    if(ts.isVariableStatement(node)&&node.declarationList.declarations.some(d=>d.name.getText(ast)==='RETIRED_DRAFT_COMMANDS'))retired=node.getText(ast);
     if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='invokeApi')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
+  assert.ok(retired);
   const sandbox={API_EXECUTABLE_COMMANDS:new Set(['openPlan','runPlan']),uiActionCommands:new Set(['runPlan']),API_CONFIRM_COMMANDS:new Set(['runPlan']),
     actionCommandMap:{runPlan:'plan/run'},stringField:(p,k)=>p[k]||''};
-  vm.runInNewContext(ts.transpileModule('class Host {'+method+' makeCatalog(){return '+arrow+'} };this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
+  vm.runInNewContext(ts.transpileModule(retired+'\nclass Host {'+method+' makeCatalog(){return '+arrow+'} };this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
   const host=new sandbox.Host(),catalog=await host.makeCatalog()();assert.equal(catalog.count,2);assert.equal(catalog.actions.find(x=>x.command==='runPlan').confirm,true);
   await assert.rejects(host.invokeApi({command:'invented'}),/not exposed/);
 });
@@ -370,7 +362,7 @@ test("action catalog and invoke reject an unexposed command", async () => {
 test("API selection commands reach local handlers while remote confirmation remains required", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS), methods={}, declarations={};
-  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','API_EXECUTABLE_COMMANDS','API_LOCAL_ACTION_COMMANDS']);
+  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','RETIRED_DRAFT_COMMANDS','API_EXECUTABLE_COMMANDS','API_LOCAL_ACTION_COMMANDS']);
   const visit=node=>{if(ts.isMethodDeclaration(node)&&['invokeApi','handleMessageCore','selectPlanFromUi','selectExperimentFromUi'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
     if(ts.isVariableStatement(node)) for(const d of node.declarationList.declarations) if(wanted.has(d.name.getText(ast))) declarations[d.name.getText(ast)]=node.getText(ast);
     ts.forEachChild(node,visit)};visit(ast);
@@ -405,7 +397,7 @@ test("API selection commands reach local handlers while remote confirmation rema
 test("API local actions preserve confirmation, leases and business gate", async () => {
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS),methods={},decl={};
-  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','API_EXECUTABLE_COMMANDS','API_LOCAL_ACTION_COMMANDS','hostOperationUiCommands','actionCommandMap','READ_ONLY_HOST_LEASE_UI_COMMANDS']);
+  const wanted=new Set(['uiActionCommands','SAFE_WEBVIEW_COMMANDS','API_INTERNAL_COMMANDS','RETIRED_DRAFT_COMMANDS','API_EXECUTABLE_COMMANDS','API_LOCAL_ACTION_COMMANDS','hostOperationUiCommands','actionCommandMap','READ_ONLY_HOST_LEASE_UI_COMMANDS']);
   const funcs=new Set(['hostOperationLeaseActionForUiCommand','readOnlyHostLeaseUiCommand']);
   const visit=node=>{if(ts.isMethodDeclaration(node)&&['invokeApi','handleMessageCore'].includes(node.name.getText(ast)))methods[node.name.getText(ast)]=node.getText(ast);
     if(ts.isFunctionDeclaration(node)&&node.name&&funcs.has(node.name.text))decl[node.name.text]=node.getText(ast);
@@ -570,9 +562,9 @@ test("opening a PLAN propagates failure without changing selection", async () =>
   const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);let method;
   const visit=node=>{if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='openWorkspacePlanFromUi')method=node.getText(ast);ts.forEachChild(node,visit)};visit(ast);
-  const sandbox={workspaceRoot:()=>'/project',stringField:(p,k)=>p[k]||'',openWorkspaceFile:async()=>{throw new Error('open failed')},path};
+  const sandbox={workspaceRoot:()=>'/project',stringField:(p,k)=>p[k]||'',path};
   vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const host=new sandbox.Host();host.projectContextGeneration=1;let selected=false;host.selectPlanFromUi=()=>{selected=true};
+  const host=new sandbox.Host();host.projectContextGeneration=1;host.openWorkspaceFileForProjectContext=async()=>{throw new Error('open failed')};let selected=false;host.selectPlanFromUi=()=>{selected=true};
   await assert.rejects(host.openWorkspacePlanFromUi({file:'experiments/plans/a.yaml'}),/open failed/);assert.equal(selected,false);
 });
 
@@ -583,7 +575,7 @@ test("result table reconstruction failure prevents opening stale output", async 
   const sandbox={pluginProjectAdapterRules:()=>({}),DEFAULT_RESULT_CSV_DIR:'results',readLatestResultExport:async()=>({tables:[{tableKey:'a'}]}),
     regenerateLatestResultTables:async()=>{throw new Error('rebuild failed')}};
   vm.runInNewContext(ts.transpileModule('class Host {'+method+'};this.Host=Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,sandbox);
-  const host=new sandbox.Host();host.captureProjectContext=()=>({root:'/project'});host.readProjectResultCatalog=async()=>({datasets:[{tables:[{tableKey:'a',path:'a.csv'}]}]});
+  const host=new sandbox.Host();host.captureProjectContext=()=>({root:'/project'});host.projectContextIsCurrent=context=>context.root==='/project';host.readProjectResultCatalog=async()=>({datasets:[{tables:[{tableKey:'a',path:'a.csv'}]}]});
   host.withProjectResultPublicationLease=async(_root,_dir,fn)=>fn();let opened=false;host.openWorkspaceFileForProjectContext=async()=>{opened=true};
   await assert.rejects(host.openLocalResultTableFromUi({tableKey:'a'}),/rebuild failed/);assert.equal(opened,false);
 });

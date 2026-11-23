@@ -25,9 +25,7 @@
 
 隔离永久删除 `0275a980` 和暂存槽保护原身份、节点/根/路径/类型及双确认；未知回执不因文件缺失认结束，旧版抹除身份不可恢复，SFTP尚无已证原执行器完成查询。自动过期仅只读提示。SFTP源码 `1ed12173`，auth v5 3/3、expiry v1 3/3、batch parent v1精确10/10；SE候选未提交，真实state假端v4 10/10，隔离假service v9 11/11、v11 12/12及消费者v1/v2各1/1，v10首11/12错误码断言失败；日志及原限制见 `cee2e38d:docs/plan-generations/G004-execution.md` 和coverage。无真实删除/build。resultSync与slot两消费者及planRunIsolateRerun精确case仅获准新dist后运行，不跑其他world。两次误路径只读失败保留。
 
-服务器队列、手动派发与替换审核绑定原项目/client及batchId，保原回执与共享只读；源审后假端dispatch v3和正常各2/2、replacement 4/4、snapshot autofallback 6/6、completed 17/17，日志TEMP/g004-{dispatch-context-v3,dispatch-normal-v1,plan-run-context-v1,snapshot-autofallback-v1,snapshot-completed-v1}-20261124；dispatch v1参数错误、v2缺AbortController为1/2保留。传输/同步/后台清理假端isolated 2/2、profile 5/5、upload v2 1/1、code sync v2 2/2、SFTP caller v2 3/3；code sync v1缺fake首1/2、upload及caller旧输入均保留，prepare/path各2/2。原日志、调用和六批提交及误写命令事实见 `cee2e38d:docs/plan-generations/G004-execution.md`；包装非direct，最终按批准fresh，manual11及mode3待新dist，无真实外部效果。
-
-Git覆盖项目围栏假端v2 3/3、v1 2/2；日志与边界见 `33b70559`，无真实覆盖或删除。
+服务器队列/手动派发/替换、传输/同步/后台清理及Git覆盖围栏已按原项目和身份审定，假端结果、首失败、日志与非真实效果完整见 `60c8b277:docs/plan-generations/G004-execution.md` 及coverage；包装非direct，final fresh和新dist消费者仍待批准。
 
 总控更新plan时首次候选16267字符触发写前断言退出1，外层后续diff-check显示0；文件未写。缩短后16183字符并UTF8复读通过，原事实保留。
 
@@ -89,3 +87,13 @@ SFTP transferRecovery按总控审定登记31项119旧case条件适用及修后�
 SFTP mapped旧119额外九个内存case经总控完整闭包审核条件继承；fake stream/SSH子进程，不执行真实SSH/Python，历史共享配置只读且内容未冻。旧119余15历史case待审（其中取消已有修后精确补验）。只读定位transfer-busy-snapshot误路径及反序slice、safe-delete技能旧别名不存在均已纠正，无写入或删除。
 
 SFTP mapped旧119额外14个磁盘case只按逐项条件继承；历史确有私有staging写/fsync/rename/覆盖、sibling/junction及原时限断言，真实ResourceOperationLeaseManager还读写默认LOCALAPPDATA全局registry/sidecar、可能rename并process.kill(pid,0)探活，旧registry/共享配置/Node未知；本轮未运行、探活或清理。当前25个119旧case条件适用；剩余API取消经总控审定以修后Process包装call_e7c0bc121a874a1e8ca944a8d8ac2f8c精确1/1替代旧项，误重复call_0b905653bef64d51a297010510609f33保事实不增覆盖。假child、operationId-only，原完整test输入与Node/config/registry未知；25旧项加1修后是条件组合，非新full26。历史cleanupMappedStagingFiles只保留存在partial；原事件和详细限制见coverage。压缩首脚本误按段首选择而断言退出，写前未变。
+
+SFTP transferErrors旧119五项及transferInactivity旧119七项总控按真实提取闭包逐case条件审定；后者真实watch切片5911字符，假时钟/child及真实unref计时器dispose，原Node未知，非新测试或当前性能。首按误猜文案替换coverage写前exit1，按原文修正成功；无产品写入。
+
+actionLifecycle三个源码VM夹具漏抽F退役常量，候选仅提取真实声明并置于依赖前、原断言保留，待总控源/效果审与测试；此前rg传Windows通配路径os error 123，改为test根完整查找，未写产品。
+
+旧actionLifecycle 49/49依总控裁决降eligible，原证不改；首次按缩进JSON定位写前exit1，改用紧凑格式成功。另rg的scripts通配参数os123未修改文件。
+
+actionLifecycle首次负向筛选因Node匹配祖先文件而误跑49项、47通过2失败及8项退役case，真实call_bd25aac30e03459c87c7f59af19b211c、exit1及原输出保coverage；总控明确筛选责任。修两fake并用已审正向pattern，literal direct call_dfd352dfc6be420a825781de13c474b7 41/41、exit0、无skip/session，八旧业务未运行；旧dist消费者仍旧编译。两日志均从原事件事后提取，旧49 wrapper降历史，精确输入及SHA保coverage。
+
+SFTP能力描述旧断言修为过期只读/永久双确认；精确case call_f4cf3bcdf3f941bfa0585d02a22b2cd2 1/1 exit0，无SSH/删除/监听。两测试文件已scoped同步953fba2a，三HEAD一致；非完整api文件或新包。compression旧119七case仅条件适用，其余两项及73文件整体不冒通过，日志与条件见coverage。
