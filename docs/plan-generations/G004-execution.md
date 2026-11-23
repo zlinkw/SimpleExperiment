@@ -39,7 +39,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 ## 最终打包与生成物同步
 
-原 package 在构建 HEAD `f66d36946ade4b911a75636d6f2fc1f28c65111b` 完成，receipt `simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json`，13 gates exit0、input=end、并发 1、锁释放；原 selection 保持该构建 HEAD，不冒称适用于后续提交。包 `simple-experiment-0.5.520.vsix` 2919747 字节，SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`；manifest、运行闭包、实际 ZIP/磁盘、Panel 三个脚本与 10890 检查通过。20 个包内生成物经逐字节核验后分组提交 `fea89fbd`、`18cd5836`、`120b9384`，6 个不入包的脏文件保留。首组普通 git add 返回 exit1（dist ignore 提示）但实际7个已跟踪文件均已暂存；总控核验 index 后批准直接提交，后两组使用精确 tracked update，未 force。
+原520 package构建 `f66d3694`，receipt `simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json`，13 gates exit0；包2919747字节，SHA256 `aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba`。闭包、Panel及10890检查通过；20个生成物分组提交，6个旧脏文件保留。首git add exit1但7个已跟踪项实际暂存，总控审后提交；完整事实见 `49e1cebd:docs/plan-generations/G004-execution.md`，旧包不覆盖后续源码。
 
 试行 Release `v0.5.520` 已发布，`prerelease=true`、`draft=false`，远端 tag 指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`；VSIX 与同名 SHA256 资产已上传，隔离下载的 SHA256 与已验证包一致，manifest 校验 exit0。实际 ReleaseClient 核实 0.5.482 可见权威 0.5.483、0.5.520 不降级，SFTP 0.2.120 不降至权威 0.2.118。
 
@@ -57,7 +57,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 用户先授权只读快照，后明确允许直接控制电脑；总控激活专用 VS Code 窗口 87954600 并观察真实 520 面板，同根、原 PLAN、低流量开，Worker/GPU/tmux 显示未查询或未核实。计划搜索 `ui_u01_empty_515` 后仅一个匹配、批量选中0、当前 PLAN 不变，随后清空搜索。资源树导航 element 146 点击因坐标越窗失败，未成功操作；随后用滚动条回顶部。
 
-总控核源码边界后仅点一次工作区识别，提示已发现5个 Plan。首次坐标点击未选中继续按钮；等待期间出现 stalled 提示，不能据此判定死锁。通知中心对原继续按钮 element 755 实际点击后出现本地工作区已识别、黄色横幅消失且识别按钮恢复，未再点最终可选通知或重跑识别。Escape 还退出辅助侧栏最大化，总控随后用 element 998 恢复原全宽布局。未改 adapter、PLAN、Worker 或授权。原截图内联，完整事件见总控 rollout `01a2040c-d282-7d92-9542-abcdc0689d37`：失败 `call_b6b1cc14073a4379a34eb71c1279d99a`、通知 `call_ce52cfc3cf994c67b99dbbc4a67536af`、继续 `call_6170ac73209349e7b29ca28a840b40bd`、布局恢复 `call_2ce6b8d367b4476cbaf1117eba34d4c9`；不另造截图文件。
+总控一次工作区识别发现5个Plan；首次坐标未选中继续，期间stalled不能判定死锁，原继续按钮实际点击后识别成功。Escape退出侧栏最大化后已恢复；未改adapter、PLAN、Worker或授权。完整原事件ID及截图位置见 `49e1cebd:docs/plan-generations/G004-execution.md` 与总控rollout，未重跑识别。
 
 同一 45080 实例经真实稳定 MCP 只读回 `projectOnboardingCompleted=true`、status 520/offline_import；panel ready，heartbeat documentHidden=false、render health unknown（probe pending）、section failures 空。operation_list 返回 total 0，不能单独证明锁释放。新增完整响应 `%TEMP%/g004-520-after-ui-recognition-20261123.json`，launcher exit0、stderr空；未再次识别或清锁。真实 Worker、SSH、Agent、GPU、tmux、训练、删除和跨项目仍未测。
 
@@ -118,3 +118,7 @@ SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-aut
 task_list只复核当前项目归并、取消及unknown源码，禁止真实任务查询，退役CLI证据不冒充现行MCP通过；task_dispatch复用同任务假Gateway 5/5及假Host 11/11，未触真实派发、GPU或Worker。边界见coverage。
 
 本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付。配套仓src commit `28087f3` 已普通推送抓取一致，真实handler内存替身8/8、原结算3/3 exit0，日志 `%TEMP%/g004-sftp-cancel-identity-final2-20261123.*.log`、`g004-sftp-cancel-settlement-final-20261123.*.log`；首复现2/4 exit1保留 `g004-sftp-cancel-identity-first-20261123.*.log`。源审前未build/package/安装，已装120仍有缺陷，未操作真实传输。一次执行文档压缩补丁未匹配、未写入。
+
+总控已审通过配套源diff；原transferRecovery精确消费者1/1 exit0 `%TEMP%/g004-sftp-cancel-consumer-20261123.*.log`，verify-runtime exit0且核23文件 `%TEMP%/g004-sftp-verify-runtime-20261123.*.log`。未递版、组装或安装；package原全套尚须逐证据核可复用范围并审收。
+
+Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retention/backup/inspection源码片段与1e91d0d4逐段一致、其余依赖字节不变，复用原15/15及10/10，更新两条该次输入；不重跑旧清理替身。并非全部build依赖已对账。
