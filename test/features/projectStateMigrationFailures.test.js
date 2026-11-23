@@ -96,6 +96,15 @@ test("offline import and clear retain the current and legacy values when saving 
   assert.equal(reset, 0);
   assert.equal(rendered, 0);
 });
+test("offline import does not pause the new project after the bundle read", async () => {
+  let currentRoot = "C:/a", pauses = 0, saves = 0;
+  const host = { projectContextGeneration: 1, pauseRealtimeStream: async () => { pauses++; }, persistProjectOfflineBundleState: async () => { saves++; } };
+  const picker = { window: { showQuickPick: async () => ({ kind: "file" }), showOpenDialog: async () => [{ fsPath: "C:/fixture.json" }] } };
+  const importer = method("async importOffline", "async handleMessage", ["workspaceRoot", "vscode", "OfflineImport_1", "keys"],
+    [() => currentRoot, picker, { importOfflineBundle: async () => { currentRoot = "C:/b"; host.projectContextGeneration++; return { ok: true, bundle: {} }; } }, keys]).importOffline;
+  await importer.call(host);
+  assert.equal(pauses, 0); assert.equal(saves, 0);
+});
 function method(start, end, dependencies, values) {
   const from = source.indexOf(`    ${start}(`);
   const to = source.indexOf(`    ${end}(`, from + 1);

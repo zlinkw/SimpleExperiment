@@ -14648,6 +14648,7 @@
         },
         {
           "name": "simpleExperiment.showTunnelEndpointRegistry",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"源码打开endpointRegistryState的JSON预览；0.5.492旧实窗显示配置端口。","boundary":"仅配置清单，不证明端口可达；本轮未打开窗口。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.showTunnelEndpointRegistry]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14662,6 +14663,7 @@
         },
         {
           "name": "simpleExperiment.restartRealtimeStream",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"源码在线时重连当前client，等待后核generation与client，失败呈现；0.5.501旧记录有重连计数。","boundary":"本轮未重连；旧低流量下不证明SSE连接。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.restartRealtimeStream]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14669,6 +14671,7 @@
         },
         {
           "name": "simpleExperiment.pauseRealtimeStream",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"源码断开当前client并在generation匹配时刷新状态；0.5.498旧实窗状态为paused。","boundary":"本轮未断开真实流。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.pauseRealtimeStream]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14676,6 +14679,7 @@
         },
         {
           "name": "simpleExperiment.resumeRealtimeStream",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"源码进入resumeNetwork；0.5.501旧实窗恢复后低流量配置仍使流断开。","boundary":"旧记录不证明本轮SSE已连接，本轮未恢复网络。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.resumeRealtimeStream]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14683,6 +14687,7 @@
         },
         {
           "name": "simpleExperiment.pauseAllNetworkActivity",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"源码暂停预算与当前client并断开，再按当前generation更新状态及调度；0.5.502旧实窗操作证据保留。","boundary":"本轮未改变真实网络活动。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.pauseAllNetworkActivity]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14698,6 +14703,7 @@
         },
         {
           "name": "simpleExperiment.openTunnelStatus",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"源码将buildState输出为JSON文档；0.5.492旧实窗验证工作区及版本。","boundary":"旧localEndpoint不是实际连接证据，本轮未调用。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.openTunnelStatus]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14712,6 +14718,7 @@
         },
         {
           "name": "simpleExperiment.manualRefresh",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"源码离线分支刷新本机识别，在线协议2分支主动读取Worker任务快照；旧0.5.493记录另有在线查询。","boundary":"本轮未执行任务查询；旧项目快照不代表当前现场。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.manualRefresh]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14719,6 +14726,7 @@
         },
         {
           "name": "simpleExperiment.importOfflineBundle",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"源码经格式及路径对话框，读取前及成功后、暂停实时流前核原项目；假导入与保存失败回归2/2，0.5.502历史实窗另有导入记录。","boundary":"本轮未重新导入、断流或修改真实项目状态；待build。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.importOfflineBundle]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",

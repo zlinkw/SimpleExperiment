@@ -6952,6 +6952,8 @@ return this.testTunnel(true);
             void vscode.window.showErrorMessage(result.error || "离线 bundle 导入失败。");
             return;
         }
+        if (generation !== this.projectContextGeneration || root !== workspaceRoot())
+            return;
         await this.pauseRealtimeStream();
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
