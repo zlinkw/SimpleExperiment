@@ -56,7 +56,7 @@ export class PlanRunHost {
     if (value.root !== this.root || value.operationId !== id) throw Error("提交恢复记录不属于当前项目。");
     return value;
   }
-  async save(body: any) {
+  async save(body: any, options?: { assertCurrent?: () => void }) {
     const id = body.submissionOperationIdLocal;
     if (!id) return;
     const input: any = {};
@@ -68,7 +68,7 @@ export class PlanRunHost {
     const value = { root: this.root, operationId: id, input: safeInput, recovery: body.runRecovery || {}, replacement: body.runReplacement || {} };
     // Cleanup preview tokens are opaque approvals; server credentials never enter the input.
     if (value.input.options) { delete value.input.options.workers; delete value.input.options.agentToken; delete value.input.options.env; }
-    await atomicWriteText(this.file(id), JSON.stringify(value));
+    await atomicWriteText(this.file(id), JSON.stringify(value), { beforeRename: options?.assertCurrent ? async () => options.assertCurrent!() : undefined });
   }
   /** Hold key normalization: empty CSV "" and undefined are equivalent, matching the declaration-key write path. */
   static holdOutputKey(output: unknown, csv: unknown): string {

@@ -8878,7 +8878,8 @@ return this.testTunnel(true);
     async resumePlanSubmission(requestedId, requestedPlanFile = "") {
         const id = this.localOperations[requestedId]?.submissionOperationId || requestedId;
         if (!id.startsWith("plan-submit-") || this.resumedSubmissions.has(id)) throw new Error("这次提交正在处理，请勿重复点击。");
-        const root = workspaceRoot(), store = new PlanRunHost(this, root), saved = await store.load(id);
+        const context = this.captureProjectContext(), root = context.root, store = new PlanRunHost(this, root), saved = await store.load(id);
+        if (!this.projectContextIsCurrent(context)) throw new UiCommandCancelled("项目已切换；未恢复提交。");
         if (requestedPlanFile && normalizePlanSelectionKey(requestedPlanFile) !== normalizePlanSelectionKey(saved.input.planFile)) throw new Error("恢复记录属于其他 PLAN，未继续。");
         if (saved.recovery.cancelled) throw new Error("这次提交已取消，请从 PLAN 发起新的运行。");
         const body = { ...saved.input, workspace: root, submissionOperationIdLocal: id, runRecovery: saved.recovery, runReplacement: saved.replacement };
@@ -8898,12 +8899,16 @@ return this.testTunnel(true);
         return { ok: true, operationId: id, status: "checking_workers", nextAction: "operations.list" };
     }
     async cancelPlanRunSubmission(id) {
-        const store = new PlanRunHost(this, workspaceRoot()), saved = await store.load(id);
+        const context = this.captureProjectContext(), root = context.root;
+        const assertCurrent = () => { if (!this.projectContextIsCurrent(context)) throw new UiCommandCancelled("项目已切换；未继续取消提交。"); };
+        const store = new PlanRunHost(this, root), saved = await store.load(id);
+        assertCurrent();
         saved.recovery.cancelled = true;
-        await store.save({ ...saved.input, submissionOperationIdLocal: id, runRecovery: saved.recovery, runReplacement: saved.replacement });
+        await store.save({ ...saved.input, submissionOperationIdLocal: id, runRecovery: saved.recovery, runReplacement: saved.replacement }, { assertCurrent });
+        assertCurrent();
         this.distributedSubmissionAborts.get(id)?.abort(new UiCommandCancelled("本次提交已取消。"));
         if (this.activeRetentionClaims instanceof Set) this.activeRetentionClaims.delete(String(saved.input?.retentionSubmissionId || ""));
-        void releaseRetentionClaim(workspaceRoot(), String(saved.input?.retentionSubmissionId || ""), this.hostOperationLease);
+        void releaseRetentionClaim(root, String(saved.input?.retentionSubmissionId || ""), this.hostOperationLease);
         this.runConfirmation.cancel(id);
         if (this.localOperations[id]) this.localOperations[id].retryableSubmission = false;
         this.finishPlanSubmissionProgress({ clientActionId: id.slice("plan-submit-".length) }, "cancelled", "本次提交已取消；已完成的文件处理不回滚，未发送的任务不再提交。");
