@@ -27392,13 +27392,18 @@ return "历史服务器";
         const context = this.captureProjectContext();
         if (!context.root) throw new Error("请先打开本地项目工作区。");
         const directory = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
+        const isCurrent = () => this.projectContextIsCurrent(context) && (this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) === directory;
         await this.withProjectResultPublicationLease(context.root, directory, async () => {
+            if (!isCurrent()) throw new UiCommandCancelled("项目或结果目录已变化，未刷新本地结果。");
             const exported = await readLatestResultExport(context.root, directory);
-            if (exported) await regenerateLatestResultTables(context.root, directory, exported, () => this.projectContextIsCurrent(context));
+            if (!isCurrent()) throw new UiCommandCancelled("项目或结果目录已变化，未刷新本地结果。");
+            if (exported) await regenerateLatestResultTables(context.root, directory, exported, isCurrent);
         });
+        if (!isCurrent()) throw new UiCommandCancelled("项目或结果目录已变化，未刷新本地结果。");
         await this.refreshLocalResultCatalogForProject(context);
 }
     private async refreshLocalResultCatalogForProject(context): Promise<void> {
+        if (!this.projectContextIsCurrent(context)) throw new UiCommandCancelled("项目或结果配置已变化，未显示过期的本地结果。");
         this.cancelResultCatalogRefresh();
         this.resultCatalogDirtyGeneration = (Number(this.resultCatalogDirtyGeneration) || 0) + 1;
         this.resultCatalogRefreshError = "";
@@ -27417,7 +27422,7 @@ return "历史服务器";
             this.postState();
             this.refreshResultCatalogForCurrentInterest();
         } catch (error) {
-            if (this.projectContextIsCurrent(context)) {
+            if (this.projectContextIsCurrent(context) && this.resultCatalogKey(context.root, pluginProjectAdapterRules(context.root).planDatasetMapping || {}) === key) {
                 this.resultCatalogRefreshError = errorMessage(error);
                 this.resultCatalogStatus = this.hasResultCatalogForRoot(context.root) ? "stale" : "error";
                 this.postState();

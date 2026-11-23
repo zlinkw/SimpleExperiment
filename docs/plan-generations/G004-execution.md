@@ -1,6 +1,6 @@
 # G004 执行登记
 
-本文件cap12000/90%=10800。本次压缩前完整记录见 `17692f55:docs/plan-generations/G004-execution.md`，更早见 `55b48068`、`8f04bd1f`、`e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
+本文件cap12000/90%=10800。本次压缩前完整记录见 `60657928:docs/plan-generations/G004-execution.md`，更早见 `17692f55`、`55b48068`、`8f04bd1f`、`e8edf782`、`33b70559`、`43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
 
 ## 当前边界与历史交付
 
@@ -52,11 +52,7 @@ send原消费者经效果审的精确选择依次1/1、2/2、1/1、2/2、2/2，�
 
 草稿退役F及反向消费者：源码94a9a0c1/88b351a6，历史路径与失败保留；退役拒绝假端5/5、catalog 1/1均Process包装，最终runner及新dist项另待，临时draftRetirementBoundary不stage。原日志、已退役旧测试限制及只读/写前失败见 `385b94d5:docs/plan-generations/G004-execution.md` 与coverage，不恢复草稿业务。
 
-派发消费者夹具绑定原项目context：manualLaunchMessage独立同步 `1b3d44a7`；gpuMemory、gpuQuota各原精确1/1 exit0，日志 `%TEMP%/g004-manual-context-{memory,quota}-v1-20261124.{out,err}.log`。原4文件全量旧证仅按审定闭包条件适用，未新跑WSL或整个GPU文件。workerPreparationPipeline两处等价夹具同步 `2213f8d6`，原完整8/8 exit0，日志 `%TEMP%/g004-worker-preparation-context-v1-20261124.{out,err}.log`；均内存fake/Process包装，最终runner同身份fresh按批准候选，未执行真实Worker或新dist。
-
-证据登记一次因误写 SimpleSftpProgressWait 路径在写前退出1；核实际 `src/core` 后修正，JSON解析通过，未改业务文件。
-
-MCP旧证撤回：总控漏核optionalApi的live.output错误分支，Active/Persisted/Health/Failure/Inspect/History/LogsConfig及QuerySchema旧direct降历史ineligible，原call/日志保留。fake仅对live.output返回-32601，七原单文件依次6/4/6/6/6/9/1项通过、同步 `8d356e69`，QuerySchema 4/4同步 `b11a66a3`，均exit0且无真实网络/Worker/删除。Active与Query为literal direct；六项串行循环调用真实通过但parser不支持，最终冻结后各runner fresh一次。选行两次重复匹配、对象路径及PowerShell花括号错误，另本记录压缩两候选触阈值10806/10823，均写前失败，已纠正。
+派发context假端、workerPreparation及MCP optionalApi夹具修正的精确结果、原日志和首失败见 `60657928:docs/plan-generations/G004-execution.md` 及coverage；原旧direct撤回保历史，六项真实串行循环非parser支持direct，最终需各fresh。未触真实Worker/WSL/网络或新dist；写前路径、选行及压缩失败仍保原记录。
 
 
 接替：旧执行实核turn结束并已释放，先归档后发现原rollout路径失效（coverage八引用；读ENOENT exit1），立即反归档恢复原路径及事件，旧chat保持未归档；不得改绑或重算证据。新Terra/high/default match/continue，总控唯一指针已更新。panelMessageDispatch真实常量slice候选首次因误判CRLF写前assert退出1，按原LF修正未测试；另五同因消费者待补并交审。coverage更新脚本两次因末行JSON带数组结束符解析失败，均写前退出；修正后五旧direct仅按审定闭包更新legacy适用摘要，保原事件和限制。projectCodeSyncState新16bbee 7/7为literal direct、fixture 0df10641，旧d287属于已撤回94d9；维持15最终fresh。
@@ -89,3 +85,5 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 结果汇总围栏准备批：planArchiveRefreshAndSettings精确错误case call_69ee9ab99b47429485ca328ca73adc73 1/1、614.1091ms、literal exit0/no session/skip0；真实方法AST取尚未提交候选，fake update抛原错误，日志从原事件事后提取。overview旧dist消费者只做node --check exit0，待新dist后精确回归，不冒实际效果。新focused/manifest与生产候选仍未提交或运行；manifest首次误以sourceScript全文查找而写前断言退出1，核实际四个结构化entries后登记，保原slot脏项。
 
 结果汇总生产候选：context/client绑定手动和自动发布、同owner共享及异owner等待原请求，旧timer和错误不污染新项目，catalog等待后重核；已发布文件不冒撤回。新focused原full4 call_f6ca9fc55c6d4d168d84c6636f65424b 4/4、1122.7508ms、literal exit0/no session/skip0；事后日志、事件与执行输入见coverage。私有TEMP真实写PLAN/表格、staging rename/flush和named-pipe协调，fixture保留；无真实Worker/删除/Python。输出事件SHA首次消息手抄caf0错误，原事件复核纠正为cb0，未改原事件。只读rg使用Windows通配一次失败，改用glob后成功。旧overview待新dist，不冒完整结果域/新build；总控仅六组已审旧证legacy适用更新，原执行快照保留。
+
+本地catalog捕获原项目与结果目录，lease及读取后核验，目录变化不得启动旧重建；过期context不得取消当前catalog Worker或改状态，读后仅原key可发布错误。新focused原full4 call_c84463999af64496a68c104bb60753ae 4/4、1370.5293ms、literal exit0/no session/skip0，事件及事后日志见coverage；真实方法AST配内存fake，无真实线程、文件写、远端或删除。总控内存逆转两方法cc61→0613，仅八组已审旧证更新legacy当前适用，原运行快照保留；大文件和新dist未跑。
