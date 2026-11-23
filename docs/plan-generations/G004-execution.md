@@ -105,7 +105,7 @@ SFTP file_stats/plan_logs仅源码和假端证据。remote_directories原无条�
 
 草稿审核/拒绝写入后若刷新抛错或保存错误，原UI及拒绝API可能报完成；现UI复用项目绑定API，明确报告“已写入但刷新失败”，不自动重发。方法VM/假写入6/6 exit0 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`，原生命周期49/49 exit0 `%TEMP%/g004-draft-action-lifecycle-final-20261123.*.log`；夹具补齐真实Host已有状态，无真实草稿写入。
 
-草稿提升预览按项目、草稿状态和成功debug校验，复用受控证据；提升本身明确退役。默认草稿渲染已停用，历史自定义保存仍可能经兼容路由进入；审核/拒绝的近期修复是宿主兼容路由，非实际UI点击。各ID范围与日志见coverage，未查询活动结果或写真实草稿。
+草稿机制已退役：此前仅检查预览及兼容路由，默认渲染停用，非实际UI点击；各ID与日志见coverage，未查询活动结果或写真实草稿。
 
 用户指出草稿机制已移除，立即停止草稿相关新调查、验证和实现；前述检查源自旧母集及保留兼容入口，不能当作当前功能。范围由总控统一裁决，不删除文件。
 
@@ -117,4 +117,4 @@ SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-aut
 
 task_list只复核当前项目归并、取消及unknown源码，禁止真实任务查询，退役CLI证据不冒充现行MCP通过；task_dispatch复用同任务假Gateway 5/5及假Host 11/11，未触真实派发、GPU或Worker。边界见coverage。
 
-本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付；先核该仓规则、版本及Git，审前不构建/安装，不操作真实传输。一次执行文档压缩补丁未匹配、未写入。
+本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付。配套仓src commit `28087f3` 已普通推送抓取一致，真实handler内存替身8/8、原结算3/3 exit0，日志 `%TEMP%/g004-sftp-cancel-identity-final2-20261123.*.log`、`g004-sftp-cancel-settlement-final-20261123.*.log`；首复现2/4 exit1保留 `g004-sftp-cancel-identity-first-20261123.*.log`。源审前未build/package/安装，已装120仍有缺陷，未操作真实传输。一次执行文档压缩补丁未匹配、未写入。

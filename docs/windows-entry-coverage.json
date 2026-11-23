@@ -11676,7 +11676,7 @@
         {
           "name": "sftp_transfer_cancel",
           "method": "transfers.cancel",
-          "currentReview": {"status":"current_defect","evidence":"Gateway要求sync授权，传原operationId及可选instance/transferId；假后端仅验透传 %TEMP%/g004-mcp-remote-directories-auth-20261123.*.log。已装SimpleSFTP 0.2.120 extension.js:4758-4789 先更新operationId账本，再优先按transferId独立选目标，二者不一致可取消另一传输；本人已授权配套仓最小修复及试行交付。","boundary":"静态可达，未进行真实取消或访问传输；未修复，不能称身份安全通过。"},
+          "currentReview": {"status":"candidate_fixed_not_deployed","evidence":"Gateway传原operationId及可选instance/transferId；已装SimpleSFTP 0.2.120先更新operation账本、再按transferId独立选目标，错配可能取消另一传输。本人授权配套仓修复，源码commit 28087f3；实际handler假控制器与ledger 8/8及原结算3/3 exit0，%TEMP%/g004-sftp-cancel-identity-final2-20261123.*.log、g004-sftp-cancel-settlement-final-20261123.*.log；首复现2/4 exit1保留。","boundary":"候选待总控源审与交付，现装120仍有缺陷；未实际取消或访问真实传输。"},
           "oldEvidence": "projectTools[name=sftp_transfer_cancel]",
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
