@@ -4,7 +4,7 @@ const {queryProject}=require('../../src/mcp/ProjectQueries.ts');
 const FAILURE_KEYS=['id','status','health_status','updated_at'];
 function writeProject(root,files){for(const [name,body] of Object.entries(files)){const target=path.join(root,name);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,body,'utf8')}}
 async function queryFixture(args,{cwd}){
- const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method)};
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')throw Object.assign(Error('method not found'),{apiCode:-32601});throw Error('unexpected RPC '+method)};
  const name='experiment_'+args[1],id=args[2]&&!args[2].startsWith('--')?args[2]:undefined;
  return {stdout:JSON.stringify(await queryProject(cwd,rpc,name,{id,full:args.includes('--full')}))};
 }
@@ -117,7 +117,7 @@ test('MCP experiment references preserve aliases and missing identity detail',as
   {global_job_id:'exp-1',run_id:'run-9001',runtimeRunId:'run-stale-alias',id:'raw-1',case:'case-a',tmux:'simple:run-9001',type:'run',status:'running',stage:'run',updated:new Date().toISOString()},
   {global_job_id:'exp-2',type:'run',status:'success',stage:'run',updated:'2026-01-01T00:00:00Z'}
  ])});
- const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};throw Error('unexpected RPC '+method)};
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')throw Object.assign(Error('method not found'),{apiCode:-32601});throw Error('unexpected RPC '+method)};
  for(const id of ['exp-1','run-9001','run-stale-alias','case-a','raw-1','simple:run-9001']){
   const result=await queryProject(dir,rpc,'experiment_inspect',{id});assert.equal(result.summary.id,'exp-1',id);
  }
