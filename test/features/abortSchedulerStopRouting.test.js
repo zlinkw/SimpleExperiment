@@ -2,6 +2,9 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
+const ts = require("typescript");
+const { runOperationMatchesTarget } = require("../../dist/features/RunOperations");
 
 function readWithLegacyFallback(primary, legacy) {
   const p = path.join(__dirname, primary);
@@ -27,13 +30,12 @@ test("abortSchedulerFromUi routes through an identity-bound stop and reconciles 
   // 统一走 stopExperimentRouted -> postWorkerTunnelAction stop-scheduler-operation
   assert.match(body, /stopExperimentRouted\(\{/);
   assert.match(body, /action:\s*"stop-scheduler-operation"/);
-  // 依据 remainingActiveEvidence 确认清理，非空则重试并置 failed
+  // 未确认时保留运行记录，不重复发送停止请求。
   assert.match(body, /remainingActiveEvidence/);
-  assert.match(body, /if \(remaining\.length\)\s*\{\s*const retry:[\s\S]{0,100}stopExperimentRouted\(\{/, "should retry stop when remaining evidence exists");
+  assert.equal((body.match(/stopExperimentRouted\(\{/g) || []).length, 1);
   assert.match(body, /result\.matchedOperations\.includes\(operationId\)/, "requires remote target confirmation");
   assert.match(body, /op\.status = "cancelled"/, "successful stop marks cancelled");
-  assert.match(body, /op\.status = "failed"/, "lingering tmux marks failed");
-  assert.match(body, /remainingSummary/, "failed path reports the exact returned activity identity");
+  assert.match(body, /remainingSummary/, "unknown path reports the exact returned activity identity");
   assert.doesNotMatch(body, /zlk-sch-/, "failed path does not invent a tmux prefix");
 });
 
@@ -58,7 +60,107 @@ test("abortSchedulerFromUi clears scoped UI caches but preserves unowned temp fi
 test("normal stop forwards the clicked operation id through actionBody", () => {
   assert.match(extensionSource, /stopExperimentRouted\(\{ \.\.\.body, operationId: stringField\(message, "operationId"\)/);
   assert.match(extensionSource, /confirmed\.map\(String\)\.includes\(String\(request\.targetOperationId/);
-  assert.match(extensionSource, /candidates = \[\{ operationId: target\.operationId, planFile: target\.planFile, type: "run-plan"/, "reloaded single Worker can stop an explicit remote operation");
+  assert.match(extensionSource, /operationId: target\.operationId, planFile: target\.planFile, type: "run-plan"/, "explicit Worker can stop an explicit remote operation");
+});
+
+function stopHarness(response, initial = true) {
+  const source = ts.createSourceFile("legacy.ts", extensionSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const methods = [];
+  function visit(node) {
+    if (ts.isMethodDeclaration(node) && ["stopExperimentRouted", "abortSchedulerFromUi"].includes(node.name?.getText(source))) methods.push(node.getText(source));
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  assert.equal(methods.length, 2);
+  const warnings = [], calls = [], cleared = [];
+  const context = {
+    Error, Date, Object, Array, String, Number, Map, Set,
+    vscode: { window: { showWarningMessage: (msg) => warnings.push(msg), showErrorMessage: () => {}, showInformationMessage: () => {} } },
+    uniqueStrings: (xs) => [...new Set(xs.filter(Boolean))],
+    stringField: (row, key) => String(row?.[key] || ""),
+    stringArrayField: (row, keys) => { const value = [keys].flat().map((key) => row?.[key]).find((v) => Array.isArray(v) || typeof v === "string"); return Array.isArray(value) ? value : value ? [value] : []; },
+    numberField: (row, key) => Number(row?.[key] || 0),
+    operationResultPlanFile: (row) => String(row?.planFile || ""),
+    usableSelectionKey: (value) => value,
+    operationTerminal: (row) => ["completed", "failed", "cancelled"].includes(row?.status),
+    LONG_RUNNING_OPERATION_ACTIONS: new Set(["run-plan"]), planSubmitProgress: { isLocal: () => false },
+    makeOpId: () => "stop-1", workspaceRoot: () => "C:/project",
+    DistributedPlanQueue: { canonicalProjectId: () => "project" },
+    resultStatus: (record) => record.status,
+    stringFromRecord: (row, keys) => keys.map((key) => row?.[key]).find(Boolean) || "",
+  };
+  vm.createContext(context);
+  const code = ts.transpileModule(`class Harness { ${methods.join("\n")} }; this.Harness = Harness;`, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText;
+  vm.runInContext(code, context);
+  const provider = new context.Harness();
+  const row = { operationId: "op-1", planFile: "p.yaml", type: "run-plan", status: "running", schedulerOwnerWorkerId: "worker-b" };
+  Object.assign(provider, {
+    localOperations: initial ? { "op-1": row } : {},
+    projectTopologyAssessment: () => ({ mode: "single_worker" }),
+    enabledWorkerConfigs: () => [{ id: "worker-a" }, { id: "worker-b" }],
+    resolveWorkerEndpointId: (id) => ["worker-a", "worker-b"].includes(id) ? id : "",
+    stopExperimentMatchesTarget: runOperationMatchesTarget,
+    client: { postWorkerAction: async (...args) => { calls.push(args); return response; } },
+    markLocalOperationsDirty() {}, postState() {},
+    cleanupSchedulerTmpForOp: () => ({ message: "" }),
+    clearLocalOperationCachesForOp: () => cleared.push("cache"),
+    clearOperationStatusProbe: () => cleared.push("probe"), clearOperationWatchdog: () => cleared.push("watchdog"),
+  });
+  return { provider, calls, warnings, cleared };
+}
+
+test("exact Worker binding and explicit remote identity govern stops", async () => {
+  const response = { status: "completed", stopBoundary: "local_command", matchedOperations: ["op-1"] };
+  const a = stopHarness(response);
+  await a.provider.stopExperimentRouted({ operationId: "op-1", planFile: "p.yaml" });
+  assert.equal(a.calls.length, 1); assert.equal(a.calls[0][0], "worker-b");
+  const b = stopHarness(response, false);
+  await b.provider.stopExperimentRouted({ operationId: "op-1", planFile: "p.yaml", workerId: "worker-a" });
+  assert.equal(b.calls[0][0], "worker-a");
+  const unbound = stopHarness(response);
+  delete unbound.provider.localOperations["op-1"].schedulerOwnerWorkerId;
+  for (const [fixture, body] of [
+    [stopHarness(response, false), {}], [unbound, {}], [stopHarness(response), { workerId: "missing" }], [stopHarness(response), { workerId: "worker-a" }], [stopHarness(response), { workerId: "worker-b", planFile: "other.yaml" }],
+  ]) {
+    await assert.rejects(fixture.provider.stopExperimentRouted({ operationId: "op-1", planFile: "p.yaml", ...body }));
+    assert.equal(fixture.calls.length, 0);
+  }
+});
+
+test("matched but pending reply retains stop intent and does not finalize", async () => {
+  const fixture = stopHarness({ status: "accepted", matchedOperations: ["op-1"] });
+  await assert.rejects(fixture.provider.abortSchedulerFromUi({ operationId: "op-1", planFile: "p.yaml" }));
+  assert.equal(fixture.calls.length, 1);
+  assert.equal(fixture.provider.localOperations["op-1"].status, "running");
+  assert.equal(fixture.provider.localOperations["op-1"].stopIntent.state, "pending");
+  assert.deepEqual(fixture.cleared, []);
+});
+
+test("remaining activity keeps intent and state without a second stop or cache clearing", async () => {
+  const fixture = stopHarness({ status: "completed", matchedOperations: ["op-1"], remainingActiveEvidence: [{ kind: "window", value: "w1" }] });
+  await fixture.provider.abortSchedulerFromUi({ operationId: "op-1", planFile: "p.yaml" });
+  assert.equal(fixture.calls.length, 1);
+  assert.equal(fixture.provider.localOperations["op-1"].status, "running");
+  assert.equal(fixture.provider.localOperations["op-1"].stopIntent.state, "pending");
+  assert.deepEqual(fixture.cleared, []); assert.match(fixture.warnings[0], /window:w1/);
+});
+
+test("matched legacy reply without stop evidence remains unconfirmed", async () => {
+  const fixture = stopHarness({ status: "completed", matchedOperations: ["op-1"] });
+  await fixture.provider.abortSchedulerFromUi({ operationId: "op-1", planFile: "p.yaml" });
+  assert.equal(fixture.calls.length, 1);
+  assert.equal(fixture.provider.localOperations["op-1"].status, "running");
+  assert.equal(fixture.provider.localOperations["op-1"].stopIntent.state, "pending");
+  assert.deepEqual(fixture.cleared, []);
+});
+
+test("confirmed stop clears only its caches and ends the local record", async () => {
+  const fixture = stopHarness({ status: "completed", stopBoundary: "local_command", matchedOperations: ["op-1"] });
+  await fixture.provider.abortSchedulerFromUi({ operationId: "op-1", planFile: "p.yaml" });
+  assert.equal(fixture.calls.length, 1);
+  assert.equal(fixture.provider.localOperations["op-1"].status, "cancelled");
+  assert.equal(fixture.provider.localOperations["op-1"].stopIntent, undefined);
+  assert.deepEqual(fixture.cleared, ["cache", "probe", "watchdog"]);
 });
 
 test("stop-scheduler-operation uses the original command and window boundary without session or PID gates", () => {

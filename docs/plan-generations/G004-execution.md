@@ -35,17 +35,13 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow、resultCollectionPerformance 与 freshResultHost 的精确结果、数量和边界见 coverage 与 Git `6afb2ed0:docs/plan-generations/G004-execution.md`。这些是替身/夹具，未证明真实删除、Worker 或 UI；freshResultHost 续接验证曾 20.389 秒超时，用户许可修复后原限额复验 1/1、7.513 秒，原日志和事件保留。旧shell/tmux/GPU/租约、automaticScopeContent等10项与旧job005/030/031、041/111/149/154/165/232/233/296/298逐项证据、skip和未知工具链同样见该版本及coverage，不重跑。
 
-本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 均 exit0；后者发现文件环境限自建夹具，均无真实 Worker 或 SFTP。原事件采用静态字面量命令变量包装，旧 G004 核验器不识别；经总控裁决仅增加该完整包装的静态识别及反例，不执行 JavaScript。原精确 G004 pattern 单次复验 1/1 exit0，8.662 秒，日志 `%TEMP%/g004-520-static-wrapper-retest-20261123.log`；业务测试未重跑，原事件与日志保留。
+本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 均 exit0，仅自建夹具，无真实 Worker 或 SFTP。静态命令包装识别修复及反例的原 G004 pattern 复验 1/1 exit0、8.662秒，日志 `%TEMP%/g004-520-static-wrapper-retest-20261123.log`；业务测试未重跑，原事件与日志保留，详见 `c2c60767:docs/plan-generations/G004-execution.md`。
 
-核验器补丁只作用显式 G004 证据解析；旧 runner 的 39 个 test 注册及函数体相对补丁前逐 AST 比较，只有 G004 目标 case 改变，既有历史与其他直接 case 适用性保持，冻结当前依赖；G004 case 使用本轮原始新复验证据。规划器已读取本次两条真实直接事件与日志。
+核验器仅改 G004 证据解析；39 个旧 case 的逐 AST 对账及两条真实直接事件见 `c2c60767:docs/plan-generations/G004-execution.md`。
 
 总控审定旧67/68/69、91/222/225、226/227/252、141/340/341按各自受限历史范围继承，旧工具链或69根字节未知，未重跑或证明真实WSL/tmux/Worker；340仅继承现存30项。219/284原超时及用户例外、289唯一fresh原20秒1/1 exit0、4508ms均保留，精确计数及日志见Git `6afb2ed0:docs/plan-generations/G004-execution.md`。
 
-此前只读 package dry-run exit0：361 active、6 onDemand、hook zero；该次 selection 随后提交会变化，最终运行必须重算。当时规划器对现有覆盖核验后明确剩 219/284 两项阻断（后获用户明确例外）；289 的 10 项依赖、两项工具摘要和空 compiledInputs 已独立核对，当时尚待执行，最终结果见下文。
-
-用户明确批准 219/284 仅本任务历史功能覆盖，原日志分别 20857.309ms、20119.841ms 及 passed/0/tree 保留，不重跑、不放宽未来 20 秒。发现 G004 原 outer timeout 额外加 killGrace，已将 G004 fresh 外层截止改为原测试 timeout；超时后的树结算仍保留，若迟到 exit0 也记录 timeout；普通 profile 原行为不变。原 G004 精确 pattern 单次 1/1 exit0、8746.1323ms，测试替身覆盖两种期限、超时和迟到成功；日志 %TEMP%/g004-520-deadline-verification-20261123.log。39 注册 case 相对补丁前仅 G004 case 改变，历史默认 runner 不走新期限分支。
-
-期限补丁未提交时，真实 planner 因 runner 脏文件将 6 个按需项全部恢复，变为 367 active/0 onDemand，其中 3 项未审，故实际拒绝（exit1）；未运行这些项。待正常同步后重新计算选择与证据，不能以提交前数量冒充当前结果。
+历史 dry-run、219/284 用户例外、外层期限修复和脏树 planner 拒绝的逐项细节及原日志保留于 `c2c60767:docs/plan-generations/G004-execution.md`。旧选择不代表当前 build；未运行 planner 拒绝的三项。
 
 ## 最终打包与生成物同步
 
@@ -90,3 +86,9 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 原 `npm run build` 实际包含全量测试域与禁止重跑的删除场景，因此未启动。总控审定按原任务增量证据机制支持build子集：原全部compile/fullCheck、身份、失败、产物与选择门禁不缩，assemble凭据仍仅package。当前脏树只读规划build 316、package 367、build无新增identity，按需0；这不是原520包361/6或构建通过。G004原pattern在新增子集、缺项、错entry及aggregate断言后1/1 exit0，原日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log` 与 `%TEMP%/g004-build-incremental-aggregate-20261123.*.log`，runner两文件commit `6afb2ed0` 已推送。首只读planner因 `src/extension/legacy.ts` 依赖漂移拒绝；仍需逐项适用对账与总控审定调度，不能批改摘要或执行禁区。总控两次只读路径猜错/Windows glob错误未触产品。
 
 旧执行会话已结束并归档；其60条direct记录的122个原事件哈希及session身份核实一致，仅更新coverage中精确rollout路径，原日志不移动或删除。新增7个真实同根520 MCP只读结果与plan_list合成局部证据见coverage；未扩大到其他参数、真实Worker或跨项目。全部单项目母集调查仍在进行。执行记录压缩前两稿分别11639、11331字符触发assert，均写入前退出，原文件未变。
+
+## 停止路由候选
+
+两个实际面板入口经 `abortSchedulerFromUi`/`stopExperimentRouted` 原会在归属不明时猜首 Worker，并在 remaining 非空时自动 force 重发、提前落终态。候选要求明确 Worker 或精确 operationId/Plan 的一致本地归属；显式无效或冲突不发送，无本地记录但有明确 Worker 与身份保留远端原命令/窗口核验。先登记本地停止意图并排队持久化；只发一次，未知、remaining 或未确认活动保留记录和意图，不清缓存或置终态；真实确认才按原范围结束。未访问真实 Worker 或 Agent。原 stop VM 文件最终10/10 exit0、3562ms，`%TEMP%/g004-stop-routing-terminal-20261123.*.log`；相关消费者12/12 exit0，`%TEMP%/g004-stop-consumers-terminal-20261123.*.log`。早期成功日志 `g004-stop-routing-successor`、`g004-stop-routing-pending`、`g004-stop-routing-plan`、`g004-stop-routing-final` 均保留。源候选与探针共用 Host 文件，待分离暂存；用户界面包仍旧520。
+
+接替期间另有只读 Windows glob 两次失败、覆盖记录内存断言一次写前失败（外层后续命令显示0）、git-show 默认缓冲不足一次，均未改产品；后者提高只读缓冲后成功。PowerShell 嵌套引号一次解析失败，未执行 rg；随后改用 pwsh7 直接执行。

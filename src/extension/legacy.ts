@@ -19487,12 +19487,15 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async stopExperimentRouted(body) {
         const topology = this.projectTopologyAssessment();
-        const explicitWorkers = uniqueStrings([
-            this.resolveWorkerEndpointId(stringField(body, "workerId")),
-            ...stringArrayField(body, "selectedWorkerIds").map((value) => this.resolveWorkerEndpointId(value) || value),
-        ].filter(Boolean));
+        const requestedWorkers = uniqueStrings([stringField(body, "workerId"), ...stringArrayField(body, "selectedWorkerIds")].filter(Boolean));
+        const enabledWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || ""));
+        const explicitWorkers = uniqueStrings(requestedWorkers.map((value) => {
+            const resolved = this.resolveWorkerEndpointId(value);
+            if (!resolved || !enabledWorkers.includes(resolved)) throw new Error(`指定的 Worker ${value} 不存在或未启用，未发送停止命令。`);
+            return resolved;
+        }));
         if (explicitWorkers.length > 1)
-            return undefined;
+            throw new Error("停止操作必须指定唯一 Worker。");
         const explicitWorker = explicitWorkers[0] || "";
         const target = {
             planFile: operationResultPlanFile(body),
@@ -19508,30 +19511,42 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             && (!operationTerminal(item) || String(item.status || "").trim().toLowerCase() === "stale")
             && LONG_RUNNING_OPERATION_ACTIONS.has(String(item.type || "").toLowerCase())
             && !planSubmitProgress.isLocal(item)
+            && String(item.operationId || "") === target.operationId
+            && !!operationResultPlanFile(item)
             && this.stopExperimentMatchesTarget(item, target)
         ));
         if (!target.operationId || !target.planFile)
             throw new Error("缺少明确的运行记录和 Plan，已阻止中止操作。");
         if (!candidates.length) {
-            if (!explicitWorker && topology.mode !== "single_worker")
+            const knownPlan = operationResultPlanFile(this.localOperations?.[target.operationId]);
+            const normalizePlan = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+            if (knownPlan && normalizePlan(knownPlan) !== normalizePlan(target.planFile))
+                throw new Error("本地运行记录与指定 Plan 不一致，未发送停止命令。");
+            if (!explicitWorker)
                 throw new Error(`未找到 ${target.planFile} 的活动调度归属 ${target.operationId}，未发送停止命令。`);
-            candidates = [{ operationId: target.operationId, planFile: target.planFile, type: "run-plan", status: "running" }];
+            candidates = [this.localOperations?.[target.operationId] || { operationId: target.operationId, planFile: target.planFile, type: "run-plan", status: "running" }];
         }
         const byOwner = new Map();
         for (const record of candidates) {
-            const owner = explicitWorker
-                || this.runOperationWorkerId(record)
-                || (String(this.enabledWorkerConfigs()[0]?.id || ""));
-            if (!owner) return undefined;
+            const boundWorkers = uniqueStrings([
+                String(record.schedulerOwnerWorkerId || ""), String(record.resultOwnerWorkerId || ""),
+                ...stringArrayField(record, ["selectedWorkerIds", "selectedWorkerId"]),
+            ].filter(Boolean).map((value) => this.resolveWorkerEndpointId(value) || value));
+            if (boundWorkers.length > 1 || (explicitWorker && boundWorkers.length && boundWorkers[0] !== explicitWorker))
+                throw new Error("运行记录的 Worker 归属不一致，未发送停止命令。");
+            const owner = explicitWorker || boundWorkers[0] || "";
+            if (!owner || !enabledWorkers.includes(owner)) throw new Error("运行记录缺少明确且已启用的 Worker 归属，未发送停止命令。");
             if (!byOwner.has(owner)) byOwner.set(owner, []);
             byOwner.get(owner).push(record);
         }
+        if (byOwner.size !== 1) throw new Error("运行记录的 Worker 归属不唯一，未发送停止命令。");
         const matchedOperations = [];
         const terminatedSessions = [];
         const terminatedPids = [];
         const reconciledOperations = [];
         const remainingActiveEvidence = [];
         const localStopConfirmed = [];
+        let unconfirmedStop = false;
         for (const [workerId, rows] of byOwner) {
             const stopOperationId = makeOpId("stop-scheduler-operation");
             const request = {
@@ -19564,13 +19579,20 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 request.pid ||= Number(row.pid || row.checkedPid || 0);
                 request.tmuxSession ||= String(row.tmuxSession || row.session || row.checkedTmuxSession || "");
             }
+            for (const row of rows) {
+                const operationId = String(row.operationId || "");
+                const existing = this.localOperations[operationId];
+                this.localOperations[operationId] = { ...(existing || row), stopIntent: { commandId: target.operationId, workerId, requestedAt: new Date().toISOString(), state: "pending" } };
+            }
+            this.markLocalOperationsDirty();
+            this.postState();
             const result = request.stopBoundary === "local_command" ? await this.client.postWorkerAction(workerId, "stop-scheduler-operation", request) : await this.postWorkerTunnelAction(workerId, "stop-scheduler-operation", request, {
                 title: "stopExperiment",
                 confirm: false,
             });
             const record = result && typeof result === "object" ? result : {};
             const confirmed = Array.isArray(record.matchedOperations) ? record.matchedOperations : Array.isArray(record.matched_operations) ? record.matched_operations : [];
-            if (resultStatus(record) === "failed" || !confirmed.map(String).includes(String(request.targetOperationId || "")))
+            if (resultStatus(record) !== "completed" || record.ok === false || !confirmed.map(String).includes(String(request.targetOperationId || "")))
                 throw new Error(stringFromRecord(record, ["message"]) || "远端未确认停止目标，已保留本地运行状态。");
             if (record.stopBoundary === "local_command" && record.cacheRetired === true) localStopConfirmed.push(...confirmed);
             terminatedSessions.push(...stringArrayField(record, "terminatedSessions"), ...stringArrayField(record, "terminated_sessions"));
@@ -19579,12 +19601,19 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             for (const row of rows) {
                 const operationId = String(row.operationId || "");
                 matchedOperations.push(operationId);
+                if (remainingActiveEvidence.length) continue;
+                if (operationTerminal(this.localOperations[operationId])) {
+                    this.localOperations[operationId].stopIntent = undefined;
+                    continue;
+                }
                 if (!operationTerminal(this.localOperations[operationId])) {
                     const now = new Date().toISOString();
                     const orphan = record.stopBoundary !== "local_command" && !terminatedSessions.length && !terminatedPids.length && Number(record.stoppedTaskCount || 0) === 0;
+                    if (orphan) unconfirmedStop = true;
                     // 定案：取消 stale 终态；orphan（无可杀 pid/tmux）保持 running，由用户自行判断、手动中止/清理，不再标记 stale。
                     this.localOperations[operationId] = {
-                        ...row,
+                        ...this.localOperations[operationId],
+                        stopIntent: orphan ? this.localOperations[operationId].stopIntent : undefined,
                         status: orphan ? "running" : resultStatus(record) === "failed" ? "failed" : record.stopBoundary === "local_command" ? "cancelled" : "completed",
                         message: orphan
                             ? "停止对账未发现活动 pid/tmux；未自动终结，请用户自行判断，必要时手动中止/清理。"
@@ -19602,7 +19631,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         this.markLocalOperationsDirty();
         this.postState();
         return {
-            ok: !remainingActiveEvidence.length,
+            ok: !remainingActiveEvidence.length && !unconfirmedStop,
             stopped: terminatedSessions.length + terminatedPids.length,
             matchedOperations,
             terminatedSessions: uniqueStrings(terminatedSessions),
@@ -24324,20 +24353,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             void vscode.window.showWarningMessage(msg);
             throw new Error(msg);
         }
-        // 解析调度归属 Worker，失败时降级到首个启用 Worker，绝不抛错阻断中止。
-        let workerId = "";
+        const workerId = String(message?.workerId || "").trim();
         try {
-            workerId = this.planSchedulerWorkerId({
-                schedulerOwnerWorkerId: String(message?.workerId || ""),
-                options: { schedulerOwnerWorkerId: String(message?.workerId || ""), workerId: String(message?.workerId || "") },
-            } as any);
-        } catch {}
-        if (!workerId) {
-            workerId = this.resolveWorkerEndpointId(String(message?.workerId || "")) || this.enabledWorkerConfigs()[0]?.id || "";
-        }
-        try {
-            // 统一走 stop-scheduler-operation：服务端执行 tmux kill-session + SIGTERM/SIGKILL + deregister，
-            // 并返回 remainingActiveEvidence 供前端确认 tmux/pid 已清理。不再仅写控制文件（abort_cleanup）。
             const result: any = await this.stopExperimentRouted({
                 operationId,
                 planFile,
@@ -24346,36 +24363,23 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             } as any);
             if (!result || !Array.isArray(result.matchedOperations) || !result.matchedOperations.includes(operationId))
                 throw new Error("远端未确认目标调度器，已保留运行记录。");
-            // 若仍有残留活动证据（tmux/pid 仍存活），再发一次 stop 触发服务端 SIGKILL 兜底分支。
-            let remaining: any[] = (result && Array.isArray(result.remainingActiveEvidence) ? result.remainingActiveEvidence : []) || [];
-            if (remaining.length) {
-                const retry: any = await this.stopExperimentRouted({
-                    operationId,
-                    planFile,
-                    workerId,
-                    action: "stop-scheduler-operation",
-                    manualStopType: "force",
-                } as any);
-                remaining = (retry && Array.isArray(retry.remainingActiveEvidence) ? retry.remainingActiveEvidence : []) || [];
+            const remaining: any[] = Array.isArray(result.remainingActiveEvidence) ? result.remainingActiveEvidence : [];
+            if (!result.ok || remaining.length) {
+                const remainingSummary = remaining.map((item: any) => typeof item === "string" ? item : `${String(item?.kind || "activity")}:${String(item?.value || "unknown")}`).join(", ");
+                void vscode.window.showWarningMessage("停止尚未确认，运行记录和停止意图已保留。请核对精确 Worker 和任务后再重试。" + (remainingSummary ? " " + remainingSummary : ""));
+                return;
             }
             // 旧 tmp 文件只靠 Plan/operation 子串无法证明所有权；保留其文件，避免误删同名项目或新 run 状态。
             const tempCleanup = this.cleanupSchedulerTmpForOp(operationId, planFile);
             this.clearLocalOperationCachesForOp(operationId);
-            // 依据 stop 结果落本地终态：确认已清理才置 cancelled；否则 failed 并提示手动 tmux kill。
             const op: any = (this as any).localOperations?.[operationId];
             const now = new Date().toISOString();
-            const remainingSummary = remaining.map((item: any) => `${String(item?.kind || "activity")}:${String(item?.value || "unknown")}`).join(", ");
-            if (op) {
-                if (remaining.length) {
-                    op.status = "failed";
-                    op.message = "已发送中止但仍有未确认的活动证据（" + (remainingSummary || JSON.stringify(remaining)) + "）；请核对回执中的精确 Worker、PID 或 tmux 身份。";
-                } else {
-                    op.status = "cancelled";
-                    op.message = "已中止 " + operationId + " / " + planFile + (op.pid ? " pid=" + op.pid : "") + "；调度状态保留 7 天用于排错，到期后可在缓存回收审核中按完整路径清理。";
-                }
+            if (op && !operationTerminal(op)) {
+                op.status = "cancelled";
+                op.message = "已中止 " + operationId + " / " + planFile + (op.pid ? " pid=" + op.pid : "") + "；调度状态保留 7 天用于排错，到期后可在缓存回收审核中按完整路径清理。";
                 op.finishedAt = now;
                 op.reconciledAt = now;
-                op.reconcileReason = remaining.length ? "abort:remaining" : "abort:stopped";
+                op.reconcileReason = "abort:stopped";
                 op.updatedAt = now;
                 (this as any).markLocalOperationsDirty();
             }
@@ -24383,11 +24387,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             (this as any).postState();
             this.clearOperationStatusProbe(operationId);
             this.clearOperationWatchdog(operationId);
-            if (remaining.length) {
-                void vscode.window.showWarningMessage("中止后仍有活动证据未确认（" + (remainingSummary || JSON.stringify(remaining)) + "）。请检查对应 Worker 的精确进程或 tmux 身份。");
-            } else {
-                void vscode.window.showInformationMessage("已中止 " + operationId + " / " + planFile + "（tmux/pid 已确认终止）。" + (tempCleanup.message || ""));
-            }
+            void vscode.window.showInformationMessage("已确认中止 " + operationId + " / " + planFile + "。" + (tempCleanup.message || ""));
         } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             void vscode.window.showErrorMessage("中止失败：" + msg);
