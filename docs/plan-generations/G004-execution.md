@@ -33,29 +33,13 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当时 1 项待运行；最终结果见下文，不得把未知或未测写成通过。
 
 
-接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow 和 resultCollectionPerformance 的原单项合成结果、数量、模拟删除及网络等精确边界保留在 coverage 和 `f36cb6a3:docs/plan-generations/G004-execution.md`；自建 fixture 保留，未证明真实删除、Worker 或 UI。
-
-freshResultHost 26/26 原日志跨 exec/write_stdin 同 session；续接验证曾在 20.389 秒退出而超时，经用户许可修复后原限额复验 1/1、7.513 秒。原日志/事件、超时与复验详情见 `9d5cae9f:docs/plan-generations/G004-execution.md`，不抹去失败。
-
-旧 shell、tmux、GPU 和租约历史逐项适用性、原计数与日志见 coverage 及 `f66d3694:docs/plan-generations/G004-execution.md`。工具链未知照实保留；旧 37 为 40 pass/1 skip；219 原 11/11 但 20857.309ms，经用户批准仅本任务历史继承，不称当前硬件验证。只读旧 blob 比较曾 ENOBUFS，调整读取缓冲后成功，原事件保留。
-
-automaticScopeContent 8/8、tunnelClient 13/13、latestResultExportDarwinLock 7/7、hostOperationLeaseIntegration 4/4、planCodeScope 12/12、cacheCleanupPanel 10/10、metricsDownloadEndToEnd 18/18、pluginLogRetention 15/15、resourceLeaseCompatibility 1/1 和 resultCandidateMetadataExclusion 4/4 均为本轮限定合成回归，原日志、事件、依赖和真实效果边界见 coverage 与 `cb44bd81:docs/plan-generations/G004-execution.md`；此前 latestResultExport 被误称 onDemand，已更正为 active，未重跑。
-
-旧 job 005/030/031、041/111/149/154/165/232/233/296/298 的逐项历史来源、计数、平台 skip、夹具边界与未知工具链保留于 coverage 和 `6f829e1d:docs/plan-generations/G004-execution.md`；未重跑。
+接替后 planCleanup、planCleanupReconnect、planIsolatedReview/Lifecycle/Boundaries、planBatchPhysicalPipeline、localMetadataChanges、syncScopeDeletionRefresh、tmuxCloseHttp、resultSyncFailureVisibility、clearedOutputReplacement、manifestCleanup、planJobDeleteRequeueCoverage/Production、remoteResultInspectionWorkflow、resultCollectionPerformance 与 freshResultHost 的精确结果、数量和边界见 coverage 与 Git `6afb2ed0:docs/plan-generations/G004-execution.md`。这些是替身/夹具，未证明真实删除、Worker 或 UI；freshResultHost 续接验证曾 20.389 秒超时，用户许可修复后原限额复验 1/1、7.513 秒，原日志和事件保留。旧shell/tmux/GPU/租约、automaticScopeContent等10项与旧job005/030/031、041/111/149/154/165/232/233/296/298逐项证据、skip和未知工具链同样见该版本及coverage，不重跑。
 
 本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 均 exit0；后者发现文件环境限自建夹具，均无真实 Worker 或 SFTP。原事件采用静态字面量命令变量包装，旧 G004 核验器不识别；经总控裁决仅增加该完整包装的静态识别及反例，不执行 JavaScript。原精确 G004 pattern 单次复验 1/1 exit0，8.662 秒，日志 `%TEMP%/g004-520-static-wrapper-retest-20261123.log`；业务测试未重跑，原事件与日志保留。
 
 核验器补丁只作用显式 G004 证据解析；旧 runner 的 39 个 test 注册及函数体相对补丁前逐 AST 比较，只有 G004 目标 case 改变，既有历史与其他直接 case 适用性保持，冻结当前依赖；G004 case 使用本轮原始新复验证据。规划器已读取本次两条真实直接事件与日志。
 
-总控批准旧 67/68/69 历史继承；68 原 parity 证明所选 Python 核心，69 所选根与原字节未记录，仅按同任务历史与相邻 parity 人工推断，未排除当时临时更改或覆盖。真实 WSL/tmux/Agent 本轮未执行。
-
-总控审定旧 91/222/225 原记录分别 1/1、1/1、6/6，仅为隔离 tmux、合成 CPU 与源验证夹具历史；未知旧工具链，本轮未重跑或验证真实 Worker。
-
-总控审定旧 226/227/252 原记录分别 1/1、2/2、3/3；227 未证明可选 0.5.325 复现，252 隔离 tmux 为历史证据，未做当前 WSL、真实 Worker 或训练。
-
-总控审定旧 141/340/341：141 原 25/25，仅历史合成调度；340 原 34/34 含已授权退休的 4 个 CLI 项，仅继承现存 30 项；341 原 15/15 仅旧隔离 Git 与双 Node。均未重跑，旧工具链未知。
-
-job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4508ms、tree confirmed，20 秒限制未延长。219/284 按用户明确的本任务历史例外继承、不重跑。
+总控审定旧67/68/69、91/222/225、226/227/252、141/340/341按各自受限历史范围继承，旧工具链或69根字节未知，未重跑或证明真实WSL/tmux/Worker；340仅继承现存30项。219/284原超时及用户例外、289唯一fresh原20秒1/1 exit0、4508ms均保留，精确计数及日志见Git `6afb2ed0:docs/plan-generations/G004-execution.md`。
 
 此前只读 package dry-run exit0：361 active、6 onDemand、hook zero；该次 selection 随后提交会变化，最终运行必须重算。当时规划器对现有覆盖核验后明确剩 219/284 两项阻断（后获用户明确例外）；289 的 10 项依赖、两项工具摘要和空 compiledInputs 已独立核对，当时尚待执行，最终结果见下文。
 
@@ -98,3 +82,11 @@ job 289 为唯一 fresh，最终 package 内原精确 pattern 1/1 exit0，wall 4
 后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
 
 旧母集11个 current_defect 按真实修复提交及原受控回归逐ID复核，新增 currentReview=fixed_scoped；原问题与失败保留，未审分支和真实Worker、Git hook等外部效果不冒通过。识别另有520实际窗口成功，详见 coverage 对应行。
+
+## 当前探针及构建门禁
+
+探针候选真实RAF完成后补同一 heartbeat ACK，hidden/generation保护保留；Host对probe-pending保留上次渲染序号和停滞计数。原完整文件11/13 exit1，真实ACK协议及经用户明确批准的offscreen旧夹具修正后13/13 exit0，日志 `%TEMP%/g004-render-full-current-20261123.*.log`；真实进度模块与同ID双ACK、计数及timer的Host文件6/6 exit0，日志 `%TEMP%/g004-render-host-progress-20261123.*.log`。原首失败 `%TEMP%/g004-render-probe-20261123.*.log` 保留；源修未构建或部署。
+
+原 `npm run build` 实际包含全量测试域与禁止重跑的删除场景，因此未启动。总控审定按原任务增量证据机制支持build子集：原全部compile/fullCheck、身份、失败、产物与选择门禁不缩，assemble凭据仍仅package。当前脏树只读规划build 316、package 367、build无新增identity，按需0；这不是原520包361/6或构建通过。G004原pattern在新增子集、缺项、错entry及aggregate断言后1/1 exit0，原日志 `%TEMP%/g004-build-incremental-runner-20261123.*.log` 与 `%TEMP%/g004-build-incremental-aggregate-20261123.*.log`，runner两文件commit `6afb2ed0` 已推送。首只读planner因 `src/extension/legacy.ts` 依赖漂移拒绝；仍需逐项适用对账与总控审定调度，不能批改摘要或执行禁区。总控两次只读路径猜错/Windows glob错误未触产品。
+
+旧执行会话已结束并归档；其60条direct记录的122个原事件哈希及session身份核实一致，仅更新coverage中精确rollout路径，原日志不移动或删除。新增7个真实同根520 MCP只读结果与plan_list合成局部证据见coverage；未扩大到其他参数、真实Worker或跨项目。全部单项目母集调查仍在进行。执行记录压缩前两稿分别11639、11331字符触发assert，均写入前退出，原文件未变。
