@@ -44,7 +44,7 @@ export class PlanCleanupHost {
     // location is used only by read-with-migration helpers, never written again.
     this.service = new PlanCleanup({ storageRoot: path.join(projectStateDir(root, "simple-experiment"), "plan-cleanup", cleanupDigest(root)),
       collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations, options?.authorizationMode),
-      sftp: async (method, params) => guardCleanupSftpCall(host, root, method, params),
+      sftp: async (method, params, assertCurrent) => guardCleanupSftpCall(host, root, method, params, assertCurrent),
       restoreGate: (preview, operation) => this.restoreGate(preview, operation),
       currentNode: async id => this.currentNode(id),
       validateScope: async scope => {
@@ -524,8 +524,8 @@ export class PlanCleanupHost {
   /** r87 块4：后台清隔离副本的旁路提交——只走 service 的门（能力、回执齐备、job 级完成），
    * 与上面人工审核链的"目的地缺失证明"完全无关，也不共用它的授权。传输异常由 service 落 unknown，
    * 门拒绝（能力缺失/回执不全）由派发侧 fire-and-forget 的处理器落日志与通知，不影响已派发任务。 */
-  async autoDeleteIsolated(id: string, parents?: import("../features/IsolationEmptyParents").EmptyParentPreview[]) {
-    await this.ensureOperationRecordsMigrated(); return this.service.autoDeleteIsolated(id, parents);
+  async autoDeleteIsolated(id: string, parents?: import("../features/IsolationEmptyParents").EmptyParentPreview[], assertCurrent?: () => void) {
+    assertCurrent?.(); await this.ensureOperationRecordsMigrated(); assertCurrent?.(); return this.service.autoDeleteIsolated(id, parents, assertCurrent);
   }
   // r17-B anchor rule: every reader of the old operation-record location takes the migration
   // first — a fresh window opening the isolated-review bridge must still find (byte-import)

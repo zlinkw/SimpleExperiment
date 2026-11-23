@@ -6,13 +6,13 @@ import { assertFastDeletePreviewSafety, fastDeleteUpgradeError, isFastDeleteUpgr
 /** r17-D consumerRoot: 每个 files.cleanup.* 请求都携带本主机的冻结消费项目绝对 root（令牌台账的
  * 归属就写在这个项目内）。remote 的 node.root 绝不参与归属；调用方传入的同名字段一律被冻结 root
  * 覆盖——服务端只认这份原主会话上下文携带的身份，缺它后端会明确拒绝而不是猜 cwd。 */
-export async function guardCleanupSftpCall(host: any, consumerRoot: string, method: string, params: any): Promise<any> {
+export async function guardCleanupSftpCall(host: any, consumerRoot: string, method: string, params: any, assertCurrent?: () => void): Promise<any> {
   if (typeof method === "string" && method.startsWith("files.cleanup.")) {
     if (!consumerRoot) cleanupError("WORKSPACE_CHANGED", "消费项目根未冻结，未发送任何清理请求。");
     params = { ...params, consumerRoot };
   }
   let result: any;
-  try { result = await host.simpleSftpApiCall(method, params); }
+  try { result = await host.simpleSftpApiCall(method, params, 0, undefined, undefined, assertCurrent); }
   catch (error: any) {
     // 旧引擎以 UNKNOWN_ACTION / UPDATE_REQUIRED 拒绝确认快速链时：统一"需要更新"错误，零确认零执行。
     if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths" && params.action === "delete"

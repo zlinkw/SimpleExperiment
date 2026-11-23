@@ -283,7 +283,7 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
           else ports.progress("旧副本后台清理未成功（job " + index + "，" + isolateTargets + "，状态 " + outcome.state
             + (outcome.operationId ? "，维护号 " + outcome.operationId : "") + "，不影响已启动的新任务）：" + (outcome.message || "未返回原因")
             + "；副本仍在清理区，可稍后人工复核删除。");
-        }, (error: any) => ports.progress("旧副本后台清理未受理（job " + index + "，" + isolateTargets + "，不影响已启动的新任务）："
+        }, (error: any) => ports.progress("旧副本后台清理未全部确认（job " + index + "，" + isolateTargets + "，不影响已启动的新任务）："
           + String(error?.message || error)));
       }
     }

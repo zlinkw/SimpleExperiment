@@ -181,7 +181,7 @@ export class PlanRunHost {
       // r87 块4：隔离完成即派发；后台清理只在 rerun_all+回执齐备时被 fire-and-forget 触发，失败不进派发链。
       prepareEmptyParents: (preview: any) => cleanup.service.prepareEmptyParentCleanup(preview),
       confirmEmptyParents: (previews: any[], phase: number) => cleanup.service.confirmEmptyParentCleanup(previews, phase),
-      autoDeleteIsolated: (id: string, parents: any) => cleanup.autoDeleteIsolated(id, parents),
+      autoDeleteIsolated: (id: string, parents: any) => cleanup.autoDeleteIsolated(id, parents, assertCurrent),
       ask: (payload: any) => {
         const autonomousChoice = authorizedEmptyRunChoice(payload);
         if (autonomousChoice) return Promise.resolve(autonomousChoice);

@@ -66,7 +66,7 @@ export type CleanupOperation = { id: string; preview: CleanupPreview; state: "re
   nodeChecks?: Record<string, CleanupNodeCheck>; retirementPendingNodes?: string[] };
 export type CleanupPorts = {
   collect(planFile: string, options?: { archivedFiles: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; onProgress?: CleanupProgressSink; job?: CleanupJobSelection; nativeDeclarations?: CleanupScope["nativeDeclarations"]; authorizationMode?: "confirmed_paths" }): Promise<CleanupScope>;
-  sftp(method: string, params: any): Promise<any>;
+  sftp(method: string, params: any, assertCurrent?: () => void): Promise<any>;
   updateIndexes(operation: CleanupOperation, restore: boolean): Promise<void>;
   restoreGate(preview: CleanupPreview, operation?: CleanupOperation): Promise<void>;
   currentNode?(id: string): Promise<CleanupNode>;
@@ -1347,9 +1347,11 @@ export class PlanCleanup {
    * 聚合措辞如实（部分受理=unknown，绝不写"已全部提交"）。 */
   async prepareEmptyParentCleanup(preview: CleanupPreview, forReplacement = true) { return previewEmptyParents(this.ports, preview, forReplacement); }
   async confirmEmptyParentCleanup(previews: EmptyParentPreview[], phase: number) { return confirmEmptyParents(this.ports, previews, phase); }
-  async executeEmptyParentCleanup(previews: EmptyParentPreview[]) { return executeEmptyParents(this.ports, previews); }
-  async autoDeleteIsolated(id: string, parents?: EmptyParentPreview[]): Promise<{ state: "accepted" | "failed" | "unknown"; operationId?: string; message?: string }> {
+  async executeEmptyParentCleanup(previews: EmptyParentPreview[], assertCurrent?: () => void) { return executeEmptyParents(this.ports, previews, assertCurrent); }
+  async autoDeleteIsolated(id: string, parents?: EmptyParentPreview[], assertCurrent?: () => void): Promise<{ state: "accepted" | "failed" | "unknown"; operationId?: string; message?: string }> {
+    assertCurrent?.();
     const operation = await this.status(id);
+    assertCurrent?.();
     if (operation.preview.action !== "isolate") cleanupError("NOT_ISOLATED_OPERATION");
     if (Number(operation.preview.autoDeleteCapability) !== 1)
       cleanupError("SFTP_ISOLATE_AUTODELETE_UPGRADE_REQUIRED", "旧副本不会自动清理：自动清理需更新 SimpleSFTP 到 0.2.111；副本已安全隔离在清理区，可稍后在 Plan 卡片人工复核删除（永久删除仍需两次确认）。");
@@ -1381,17 +1383,21 @@ export class PlanCleanup {
       const recorded = prior.get(key);
       if (recorded) { results.push(recorded); continue; }
       const anchor = group[0];
+      try { assertCurrent?.(); } catch (error: any) {
+        throw Error("项目或连接已变化；已有 " + results.filter(row => row.state === "accepted").length + " 组后台清理已受理，其余组未发送。" + String(error?.message || error));
+      }
       let state: "accepted" | "failed" | "unknown"; let operationId: string | undefined; let reason: string | undefined;
       try {
         const parent = parents?.find(row => row.node.id === anchor.node.id && row.sourceIsolationTokens.includes(anchor.backendToken!));
         const response: any = await this.ports.sftp("files.cleanup.isolatedMaintenanceDelete", { token: anchor.backendToken, digest: anchor.backendDigest,
           ...(parent ? { parentCleanupToken: parent.token } : {}),
-          targets: group.map(row => ({ index: row.backendIndex, relativePath: row.relativePath, destination: row.destination })) });
+          targets: group.map(row => ({ index: row.backendIndex, relativePath: row.relativePath, destination: row.destination })) }, assertCurrent);
         state = response?.state === "accepted" || response?.state === "already_accepted" ? "accepted" : response?.state === "failed" ? "failed" : "unknown";
         if (typeof response?.operationId === "string") operationId = response.operationId;
         // 附带项（读侧兜底，单列待核）：插件端失败原因可能在 reason 或 message——先 reason 回退 message，不改任何判定与措辞强度。
         if (state !== "accepted") reason = String(response?.reason || response?.message || "后台清理请求未成功返回，隔离与已派发任务不受影响。");
       } catch (error: any) {
+        if (error?.sftpNotStarted === true) throw Error("请求在发送前停止；已有 " + results.filter(row => row.state === "accepted").length + " 组后台清理已受理，其余组未发送。" + String(error?.message || error));
         // 该组传输结果未知：绝不自动重发删除，落真实原因；其余组继续各自提交。
         // r98 补：插件的拒绝走 fail(code,message=code,{reason})（cleanup-file-api.js :311-312）——抛错路径的具体原因在
         // error.apiData.reason，error.message 往往只是码名；先 apiData.reason 回退 message。仍记 unknown（拒绝结果
@@ -1415,16 +1421,18 @@ export class PlanCleanup {
         + results.filter(row => row.state !== "accepted").map(row => row.nodeId + "：" + row.destinations.join("、")
           + "（" + (row.state === "failed" ? "未受理" : "结果未知") + (row.error ? "：" + row.error : "") + "）").join("；")
         + "；副本仍在清理区，可稍后人工复核删除，隔离与已派发任务不受影响。";
-    await this.save(operation);
     if (state === "accepted" && parents?.length) {
-      try { await this.executeEmptyParentCleanup(parents); }
+      let interruptedBeforeSend = false;
+      const guard = () => { try { assertCurrent?.(); } catch (error) { interruptedBeforeSend = true; throw error; } };
+      try { guard(); await this.executeEmptyParentCleanup(parents, guard); }
       catch (error: any) {
-        operation.autoDeleteState = "unknown";
-        operation.autoDeleteError = "旧副本已提交清理，但空目录尚未确认移除：" + String(error?.message || error) + "；可在隔离产物审核入口重新核实。";
+        operation.autoDeleteState = interruptedBeforeSend ? undefined : "unknown";
+        operation.autoDeleteError = "旧副本已提交清理，" + (interruptedBeforeSend ? "未发送的空目录批次已暂停" : "空目录尚未确认移除") + "：" + String(error?.message || error) + "；可在隔离产物审核入口重新核实。";
         await this.save(operation);
         return { state: "unknown", operationId: operation.autoDeleteOperationId, message: operation.autoDeleteError };
       }
     }
+    await this.save(operation);
     return { state, ...(operation.autoDeleteOperationId ? { operationId: operation.autoDeleteOperationId } : {}),
       ...(operation.autoDeleteError ? { message: operation.autoDeleteError } : {}) };
   }

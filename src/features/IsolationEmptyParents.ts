@@ -53,12 +53,13 @@ export async function confirmEmptyParents(ports: Ports, previews: EmptyParentPre
     row.confirmations = phase;
   }
 }
-export async function executeEmptyParents(ports: Ports, previews: EmptyParentPreview[]): Promise<number> {
+export async function executeEmptyParents(ports: Ports, previews: EmptyParentPreview[], assertCurrent?: () => void): Promise<number> {
   let removed = 0;
   for (const row of previews) {
     await current(ports, row.node);
     if (row.confirmations !== 2) cleanupError("CONFIRM_REQUIRED");
-    const result = await ports.sftp("files.cleanup.execute", { token: row.token, digest: row.digest, index: 0 });
+    assertCurrent?.();
+    const result = await ports.sftp("files.cleanup.execute", { token: row.token, digest: row.digest, index: 0 }, assertCurrent);
     if (result?.state !== "completed") cleanupError("EMPTY_PARENT_CLEANUP_UNVERIFIED");
     removed += Number(result.receipt?.emptyDirectoriesRemoved || 0);
   }
