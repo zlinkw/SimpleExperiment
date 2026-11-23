@@ -23,6 +23,12 @@
 
 总控另审syncScopeDeletionRefresh、localIndexSharedIdentity、syncScopeWorkerAuthority、syncScopeStagingIdentityWiring四direct，实际14个相关方法和静态锚点对385b按LF归一相同，其余依赖/Node同，仅legacy适用f6a9→ca1d。原私有TEMP/watcher/租约/父writer及旧dist seam、模拟清理rename保留，未新执行/真实Worker。首次合读输出截断未用作证明，已按真实提取点补读。
 
+总控另审planStructuralValidationCache、agentTmuxPolicy、projectFileIndex、preflightStages四direct，仅legacy适用f6a9→ca1d：实际11个方法及相应substring边界与385b按LF归一相同，其他依赖及Node/Python/PyYAML摘要匹配。原私有TEMP索引/配置/日志、抽函数Python写及假端效果保留；本次未运行Python/测试，不证明真Worker或新compiled。
+
+总控另审agentPreparation、schedulerContract、windowsWorkflow、projectRootMap、hubRuntimeRemoval、setupGuide六direct，仅legacy适用f6a9→ca1d：23个实际方法及相关源码断言相同，其他依赖/外部输入匹配。原私有目录、假端、旧dist渲染及未触达权限分支限制保留，不证明新模板、真实Worker或本次运行。
+
+总控另审MCP taskDispatch、preflight、nativeLifecycle三direct，仅legacy适用f6a9→ca1d：三个实际方法与提取边界对385b按LF归一相同，其他依赖及Node匹配。原假授权、队列、目标与私有索引限制保留，不扩recentLogs，不证明真实Worker或新dist。
+
 隔离受影响case由总控另行逐case审定，只准真实compile后各原20秒正向pattern一次、串行，未运行，不将精确项冒成原full或替代新身份：Review的`^初选 PLAN 未到原生启动边界仍可审核已登记的精确隔离目标$`及`^新 command 换代不阻止已确认的精确隔离目标$`；Lifecycle的`^页面关闭与未知回执独立留痕，迟到完成核实后退出列表$`；ledger的`^a 隔离前失败 \+ b 成功：旧派发资格保留，已登记目标仍可审核；0 字节损坏原样保留$`及`^真实入口：初始集合冻结、别名去重、已登记目标可审核、账本故障提交不受阻$`。前三项私有TEMP写账本并真实rename保留，后两项私有账本写和零字节损坏保留；均为fake Worker/后端，未运行或真实删除。
 
 rerun仅准`^permanent deletion only ever targets registered clean-batch paths; a same-name new output at the original path is never touched$`新compile后一次：真实私有TEMP状态JSON/staging/rename，目标操作为内存Map，未访问真Worker/删除，fixture保留。只读定位首次错误Windows通配os123已纠正，未执行测试；原五旧pattern未找到，不冒历史授权。
