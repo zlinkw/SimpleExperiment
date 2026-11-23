@@ -13165,7 +13165,8 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-drawer-pin=tree]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_live_observation_and_source","evidence":"Prior authorized window observed both pin states and restored them (g003CurrentDrawerPinToggles). Current click handler calls toggleDrawerPinned for tree, updates pin class, aria state and saved layout; no fresh click.","boundary":"Historical window observation only; pending Panel candidate has not passed build or current rendered-script gate."}
         },
         {
           "id": "noncommand:id=planBatchSelectVisible",
@@ -13188,21 +13189,24 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=gpuMergeToggle]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_observation_or_controlled_ui","evidence":"Prior actual zero-row toggle and 2026-11-21 rendered script/fake DOM with two synthetic GPU rows checked merge, persistence and reload; see nonCommandButtonCandidates localLogicReview. Current handler toggles state and saves it.","boundary":"Original observation or synthetic input only; no current real GPU, Worker or log query. New Panel candidate remains unbuilt and not visually validated."}
         },
         {
           "id": "noncommand:id=gpuDenseSettingsBtn",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=gpuDenseSettingsBtn]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_observation_or_controlled_ui","evidence":"Prior g003CGpuDisplayOptions opened the options; current delegated handler toggles the same local gear.","boundary":"Original observation or synthetic input only; no current real GPU, Worker or log query. New Panel candidate remains unbuilt and not visually validated."}
         },
         {
           "id": "noncommand:id=gpuDenseGearClose",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=gpuDenseGearClose]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_observation_or_controlled_ui","evidence":"Prior g003CGpuDisplayOptions closed the options; current delegated handler hides the same local gear.","boundary":"Original observation or synthetic input only; no current real GPU, Worker or log query. New Panel candidate remains unbuilt and not visually validated."}
         },
         {
           "id": "noncommand:tmux refresh list",
@@ -13223,21 +13227,24 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-tmux-follow=toggle]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_observation_or_controlled_ui","evidence":"2026-11-21 rendered-handler VM/fake DOM checked pause and resume; current click calls setTmuxLogFollow without a host message.","boundary":"Original observation or synthetic input only; no current real GPU, Worker or log query. New Panel candidate remains unbuilt and not visually validated."}
         },
         {
           "id": "noncommand:data-tmux-follow=latest",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-tmux-follow=latest]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_observation_or_controlled_ui","evidence":"2026-11-21 rendered-handler VM/fake DOM checked jump to latest; current click only adjusts local scroll position.","boundary":"Original observation or synthetic input only; no current real GPU, Worker or log query. New Panel candidate remains unbuilt and not visually validated."}
         },
         {
           "id": "noncommand:data-tmux-attach-copy=true",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-tmux-attach-copy=true]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_only","evidence":"Prior tmuxWorkerAndRichLog 8/8 used fake host/window, checked exact attachment identity and rejects changed or unknown targets.","boundary":"Only original fake/empty inputs. No actual clipboard, Worker, tmux, SSH or capture query; new Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-main-view=workspace",
@@ -13290,14 +13297,16 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-tmux-filter=all]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_only","evidence":"Prior empty-state click and 2026-11-21 fake-selection handler: all clears task/pane selection, keeps selected fake Worker and emits user capture intent.","boundary":"Only original fake/empty inputs. No actual clipboard, Worker, tmux, SSH or capture query; new Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-tmux-filter",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-tmux-filter]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_only","evidence":"Historical tmuxOtherSessionsDisclosure:40-68 used fake Worker/window; current filter handler retains explicit target.","boundary":"Only original fake/empty inputs. No actual clipboard, Worker, tmux, SSH or capture query; new Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-tmux-clear-task-tabs=1",
@@ -13318,14 +13327,16 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-tmux-pane]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_only","evidence":"Historical tmuxOtherSessionsDisclosure:40-68 used a fake pane and Worker; current handler persists the exact selected pane.","boundary":"Only original fake/empty inputs. No actual clipboard, Worker, tmux, SSH or capture query; new Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-tmux-worker",
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-tmux-worker]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_controlled_producer_only","evidence":"Prior tmuxWorkerAndRichLog 8/8 used fake Worker/window, selection and stale replies; current delegated handler calls selectTmuxWorker.","boundary":"Only original fake/empty inputs. No actual clipboard, Worker, tmux, SSH or capture query; new Panel candidate remains unbuilt."}
         },
         {
           "id": "noncommand:data-section-retry",
@@ -13668,7 +13679,8 @@
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-drawer-pin=inspector]",
           "oldStatus": "concluded_scoped",
-          "scope": "single_project_local_or_mixed"
+          "scope": "single_project_local_or_mixed",
+          "currentReview": {"status":"prior_live_observation_and_source","evidence":"Prior authorized window observed both pin states and restored them (g003CurrentDrawerPinToggles). Current click handler calls toggleDrawerPinned for inspector, updates pin class, aria state and saved layout; no fresh click.","boundary":"Historical window observation only; pending Panel candidate has not passed build or current rendered-script gate."}
         },
         {
           "id": "noncommand:data-expand-key",
