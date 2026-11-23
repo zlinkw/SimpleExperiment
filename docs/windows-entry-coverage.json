@@ -12417,6 +12417,7 @@
         },
         {
           "id": "panel:reloadPanel:1",
+          "currentReview": {"status":"controlled_scoped_pending_panel_build","evidence":"恢复按钮经 handleMessageCore 调用 reloadPanelHtml；正常分支关闭低效果模式并重新生成面板，渲染器需重置时复用 resetUnresponsivePanelRenderer 的单次挂起与生命周期保护。该内部命令不暴露普通 invoke API。","boundary":"复用 %TEMP%/g004-520-panel-message-dispatch-20261123.log 21/21 中假宿主消息路由；当前源码Panel修复尚待build与真实脚本VM，未重载当前窗口或声称新实现已安装。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=reloadPanel]",
           "oldStatus": "concluded_scoped",
