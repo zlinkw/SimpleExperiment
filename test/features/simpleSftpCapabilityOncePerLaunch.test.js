@@ -96,6 +96,7 @@ function fixture() {
   const posts = [];
   const host = Object.assign({
     assertTransferRootSafety: () => {}, // transfer boundary is exercised by projectRootMap tests
+    captureProjectContext: () => ({ root: "C:/workspace" }), projectContextIsCurrent: () => true,
     simpleSftpCapLaunch: 0, simpleSftpCapShared: undefined,
     projectFileObservationIndex: undefined,
     postUiCommandStatus: (...args) => posts.push(args), localOperations: {}, planSubmissionOperationId: () => "op-current",

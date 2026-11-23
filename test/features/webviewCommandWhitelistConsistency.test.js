@@ -95,7 +95,7 @@ test("training recovery reports real completion, cancellation and rejected evide
   };
   const api = vm.runInNewContext(compiled + "\nsubject;", scope);
   const payload = { command: "retryDistributedJob", planId: "run", jobIndex: 0, clientActionId: "recovery-status" };
-  const owner = { ...api, panelLifecycleState: "ready", extensionRuntimeVersionState: () => ({ reloadRequired: false }),
+  const owner = { ...api, captureProjectContext: () => ({ root: "/fixture" }), projectContextIsCurrent: () => true, panelLifecycleState: "ready", extensionRuntimeVersionState: () => ({ reloadRequired: false }),
     postUiCommandStatus: (id, status, command, message) => statuses.push({ id, status, command, message }), beginSimpleSftpCapabilityLaunch: () => undefined,
     finishPlanSubmissionProgress() {}, recordActionError() {}, postState() {},
   };

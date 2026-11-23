@@ -82,3 +82,7 @@ TensorBoard将发送、等待、返回、链接及延后复制绑定原项目/Wo
 UI状态funnel准备批三fixture只补项目context接口，原断言不变；action正向41 call_29f28a31a4924c71ac8b3ac4c949216c 41/41、debug call_dc97c8a2dae041138e626008cc0275de 1/1、manual call_de97cfa059ce431a94756b2a177ded93 4/4，均literal exit0/no session/skip0，原事件和事后日志见coverage。运行时legacy 77c含尚未提交funnel/列表候选，之后生产已变；旧dist及fake限制保留，未执行退役草稿。coverage登记首两次误匹配重复call历史行而写前退出1，按精确callId筛选后成功。只读rg误用PowerShell大括号触发ParserError，改真实目录查询。总控计划首次16221触发阈值exit1且误报通过，归并后严格复读通过；非测试失败。实际funnel/PLAN通知候选及其他反向消费者尚未全部审核或同步。
 
 总控仅对上述三direct审核yield guard差异，当前legacy适用77c→847c，原77c执行快照和各事件保留；旧三identity仅历史。计划再写首16213触发阈值exit1，首压缩patch原文不符写前失败，纠正后严格复读通过，均非测试失败。
+
+UI状态funnel和PLAN通知候选按原项目绑定晚到状态及延后交互，过期只留原事实日志；无明确PLAN终态记unknown，原key进度仍释放。原full8 call_4605148c8afb4006ba83b3543fbd4c06 8/8、2734.9677ms、literal exit0/no session/skip0；五真实方法AST配fake工作/UI/定时器，无真实任务/网络/写文件，事件与事后日志见coverage。新fixture四域登记待与生产同批；其余源码及新dist消费者尚需补接口和审查，不冒完整UI或新build通过。
+
+第二准备批四fixture补原context接口，whitelist full9、runtime精确2、selected精确2、SFTP能力精确1，均literal exit0/no session/skip0，完整事件/argv、未提交ca1d执行输入与事后日志见coverage；假端、无真Worker/网络/文件写，不冒其他case或新dist。三旧完整fixture身份因测试变化降历史。TS静态枚举证选项不匹配祖先、SIMPLE_RETRY_BASELINE未设置；首只读rg引号触发PowerShell ParserError，纠正后枚举成功。总控计划首候选16466写前exit1，压缩后阈值通过；非测试失败。

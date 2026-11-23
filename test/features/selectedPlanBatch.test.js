@@ -195,7 +195,7 @@ test('the real command wrapper preserves batch success, cancellation and partial
   {localCommandReleasesAfterTrigger:()=>false,PLAN_SUBMISSION_COMMANDS:new Set(),OperationOutcome_1:{operationOutcomeFor:()=>({})},isResultSyncCommand:()=>false,
    hostOperationLeaseActionLabel:()=>'',actionErrorSuggestion:()=>'',compactSensitiveText:s=>s,vscode:{window:{showInformationMessage(){},showErrorMessage:async()=>{}}}});
  for(const selectionOnly of [true,false])for(const status of ['completed','failed','cancelled']){
-  const sent=[],h={postUiCommandStatus:(...args)=>sent.push(args),beginSimpleSftpCapabilityLaunch(){},finishPlanSubmissionProgress(){},recordActionError(){},postState(){}};
+  const sent=[],h={captureProjectContext:()=>({root:'/fixture'}),projectContextIsCurrent:()=>true,postUiCommandStatus:(...args)=>sent.push(args),beginSimpleSftpCapabilityLaunch(){},finishPlanSubmissionProgress(){},recordActionError(){},postState(){}};
   await fn.call(h,'batch','runAllPlans',{},async()=>({selectionOnly,status,message:'batch '+status}));
   assert.equal(sent.at(-1)[1],status);assert.equal(sent.at(-1)[3],'batch '+status);
  }
