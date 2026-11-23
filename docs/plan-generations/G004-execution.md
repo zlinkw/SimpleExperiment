@@ -87,7 +87,7 @@ SFTP tree、tree_state、inventory源码及假端口范围见coverage；三只�
 
 SFTP file_stats/plan_logs仅源码和假端证据。remote_directories原无条件附确认且缺授权，现按sync授权、根内目标和调用前快照复核；假Gateway/Host 18/18 `%TEMP%/g004-mcp-remote-directories-auth-20261123.*.log`，已装120确认函数VM 3/3 `%TEMP%/g004-sftp120-confirmation-vm-20261123.log`，无真实grant或远端操作。一次压缩补丁未匹配未写入，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
-静态报告打开两处、复制一处及对应invoke/命令别名：路径与错误VM 3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`；成功打开/复制及链接目标未实测。
+静态报告路径及错误VM 3/3 exit0，`%TEMP%/g004-report-read-errors-20261123.*.log`；成功打开/复制未实测。
 
 草稿兼容路由此前误入范围，写后刷新失败修复及假写6/6、生命周期49/49日志见 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`、`g004-draft-action-lifecycle-final-20261123.*.log`；无真实写入，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
@@ -105,7 +105,7 @@ task_list只复核当前项目归并、取消及unknown源码，禁止真实任�
 
 本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付。配套仓src commit `28087f3` 已普通推送抓取一致，真实handler内存替身8/8、原结算3/3 exit0，日志 `%TEMP%/g004-sftp-cancel-identity-final2-20261123.*.log`、`g004-sftp-cancel-settlement-final-20261123.*.log`；首复现2/4 exit1保留 `g004-sftp-cancel-identity-first-20261123.*.log`。源审前未build/package/安装，已装120仍有缺陷，未操作真实传输。一次执行文档压缩补丁未匹配、未写入。
 
-配套源diff已审通过；transferRecovery和mappedBatchDownload消费者各1/1、verify-runtime核23文件exit0，原日志及119/120证据缺口见 `0f6ea82b:docs/plan-generations/G004-execution.md`；SSH为替身，未递版组装安装。
+配套源diff已审通过；两个消费者各1/1、verify-runtime核23文件exit0，原日志及119/120证据缺口见 `0f6ea82b:docs/plan-generations/G004-execution.md`；SSH为替身。
 
 Experiment增量证据逐job核验、方法切片及日志保留于 coverage 和 0a662506:docs/plan-generations/G004-execution.md；此前 runner 255/256 等原证不等于当前 build。固定 actionLifecycle 包装已按原事件、原日志和外层退出核验，首轮和负例各1/1，历史草稿断言仅为既有事实。source变化须逐项复核，不能批量改快照。
 
@@ -121,7 +121,7 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 
 打开Plan时项目可在异步文件检查期间切换；现复用项目绑定打开器，定向3/3 exit0 %TEMP%/g004-open-plan-project-guard-20261123.*.log，6b4e5651已同步、待build；未打开真实编辑器或其他项目。
 
-本轮只读glob一次失败、git show因Node默认缓冲ENOBUFS失败后只读成功；coverage写入脚本两次及本执行登记压缩首稿均写前报错，无文件写入。
+只读glob与git show缓冲失败及coverage脚本、压缩首稿失败均未写入，详见 `0f6ea82b:docs/plan-generations/G004-execution.md`。
 
 结果规则保存、映射保存及运行前同步过去未向已有逐Worker循环传项目上下文，切项目后可能继续向剩余Worker发送；155d0593绑定原项目，同步后再核项目才刷新。假Worker受控检查1/1、两类真实方法VM 1/1、调用链断言2/2 exit0，日志 %TEMP%/g004-adapter-sync-boundary-20261123.*.log、g004-adapter-ui-project-switch-final-20261123.*.log、g004-adapter-ui-bindings-20261123.*.log。首次VM夹具语法失败exit1见 g004-adapter-ui-project-switch-20261123.*.log；未访问真实Worker或写真实配置，待build。
 
@@ -133,7 +133,7 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 
 日志历史实际仅显示最多50行，五处按钮原提示“完整日志”不准确；候选更正为“日志尾部”，保留独立完整日志入口，待Panel build。未请求真实日志。
 
-配套包历史证据进一步核对：agentLifecycle 与 agentPythonResolution 的测试、agent-lifecycle.js及其读取的Python源从119到当前28087f3无变化；120汇总分别记1及12通过，但逐项原日志缺失，历史工具链及执行细节不补造。当前未运行Agent、Python解析或WSL。
+配套agentLifecycle及agentPythonResolution相关测试与源从119到28087f3无变化；120汇总1及12通过但原日志缺失，工具链未知，见 `0f6ea82b:docs/plan-generations/G004-execution.md`；未运行Agent或WSL。
 
 MCP resource_available 原将明确过期、离线或degraded的缓存GPU状态按空闲判可用；现返回unknown。真实查询方法配假RPC 1/1 `%TEMP%/g004-resource-stale-gateway-20261123.*.log`，源码函数1/1 `%TEMP%/g004-resource-degraded-20261123.*.log`，均exit0；首次补丁未匹配、未写入。缺状态或只有旧时间戳仍不能证明新鲜；未查询真实GPU、任务或Worker，待构建。
 
@@ -144,3 +144,5 @@ MCP resource_available 原将明确过期、离线或degraded的缓存GPU状态�
 log_read遇无效空响应原可退回模糊匹配缓存，现明确报错；分页、空结果、无效响应及错误假Gateway/Worker 1/1 exit0 `%TEMP%/g004-log-read-invalid-20261123.*.log`，未查询真实日志，待build。
 
 TensorBoard四个MCP入口的目标、授权及终态按源码逐项复核，详见coverage；未启动、查询或停止真实服务。
+
+tmux_list/capture源码和假Gateway路由证据范围见coverage；未访问真实Worker、窗口或日志。

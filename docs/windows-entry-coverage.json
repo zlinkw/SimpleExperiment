@@ -11135,6 +11135,7 @@
         },
         {
           "name": "tmux_list",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"Gateway要求明确已配置Worker；Host按该Worker请求tmux/list，调用不发布面板消息；异常以ok=false、available=false及错误返回。原假Gateway/Host路由证据11/11 %TEMP%/g004-520-mcp-project-ops-successor-20261123.log仅覆盖对应参数透传。","boundary":"未查询真实Worker或tmux，无法证明远端窗口列表。"},
           "method": "tmux.list",
           "oldEvidence": "projectTools[name=tmux_list]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11143,6 +11144,7 @@
         },
         {
           "name": "tmux_capture",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"目录要求Worker与精确window；Host编码窗口请求完整capture，不向面板发布；错误返回ok=false。原假Gateway/Host路由11/11 %TEMP%/g004-520-mcp-project-ops-successor-20261123.log仅证明假端参数透传。","boundary":"未读取真实窗口或日志；服务端完整返回能力未实测。"},
           "method": "tmux.capture",
           "oldEvidence": "projectTools[name=tmux_capture]",
           "scope": "local_gateway_plus_worker_effect_restricted",
