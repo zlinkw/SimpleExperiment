@@ -13123,6 +13123,7 @@
         },
         {
           "id": "noncommand:id=layoutEditToggle",
+          "currentReview": {"status":"source_scoped","evidence":"管理布局切换页面编辑状态和装饰；从设置页进入时先切回工作区，再更新按钮文案。","boundary":"仅审当前脚本与Host源码；折叠/展开会写项目及全局布局状态，本轮未点击或更改用户布局；未把静态测试源码当运行通过。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=layoutEditToggle]",
           "oldStatus": "concluded_scoped",
@@ -13130,6 +13131,7 @@
         },
         {
           "id": "noncommand:id=collapseAllSections",
+          "currentReview": {"status":"source_scoped","evidence":"一键折叠对主列各section设置折叠、重新计算可见区域和订阅，再保存布局并刷新资源树。","boundary":"仅审当前脚本与Host源码；折叠/展开会写项目及全局布局状态，本轮未点击或更改用户布局；未把静态测试源码当运行通过。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=collapseAllSections]",
           "oldStatus": "concluded_scoped",
@@ -13137,6 +13139,7 @@
         },
         {
           "id": "noncommand:id=expandAllSections",
+          "currentReview": {"status":"source_scoped","evidence":"一键展开对主列各section清除折叠、更新显式兴趣和订阅，再保存布局并刷新资源树。","boundary":"仅审当前脚本与Host源码；折叠/展开会写项目及全局布局状态，本轮未点击或更改用户布局；未把静态测试源码当运行通过。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=id=expandAllSections]",
           "oldStatus": "concluded_scoped",
