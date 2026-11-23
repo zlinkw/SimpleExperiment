@@ -21856,8 +21856,56 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 for (const row of rows) if (pending[row.operationId]) pending[row.operationId] = { operationId: row.operationId, settled: true };
             } else throw new Error("清理请求操作无效");
             await fs.mkdir(path.dirname(file), { recursive: true });
-            await atomicWriteText(file, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), operations: state.operations, pendingCacheCleanups: pending }, null, 2) + "\n", { beforeRename: () => lease.assertHeld() });
+            await atomicWriteText(file, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), operations: state.operations, pendingCacheCleanups: pending, pendingIsolatedDeletes: state.pendingIsolatedDeletes }, null, 2) + "\n", { beforeRename: () => lease.assertHeld() });
             return Object.values(pending);
+        });
+    }
+    async isolatedDeleteState(root, mode, entry, check?) {
+        return this.withLocalOperationsLease(root, async lease => {
+            const state = await readLocalOperationsEnvelope(root);
+            const pending = state.pendingIsolatedDeletes;
+            if (mode === "get") return pending[entry.originalId];
+            if (mode === "reserve") {
+                if (pending[entry.originalId] && !pending[entry.originalId].settled)
+                    throw new Error("ISOLATED_DELETE_QUERY_REQUIRED：原删除请求尚未确认，请先重新核实");
+                const targetKey = target => {
+                    const node = target.node;
+                    const local = node.kind === "local";
+                    const normalize = value => { const text = String(value || "").replace(/\\/g, "/").replace(/\/$/, ""); return local && process.platform === "win32" ? text.toLowerCase() : text; };
+                    return { node: JSON.stringify([node.kind, String(node.host || "").toLowerCase(), node.port || "", node.user || "", normalize(node.root)]), path: normalize(target.path) };
+                };
+                for (const old of Object.values(pending) as any[]) if (!old.settled)
+                    for (const a of old.targets) for (const b of entry.targets) {
+                        const x = targetKey(a), y = targetKey(b);
+                        if (x.node === y.node && (x.path === y.path || x.path.startsWith(y.path + "/") || y.path.startsWith(x.path + "/")))
+                            throw new Error("ISOLATED_DELETE_QUERY_REQUIRED：相同目标的原删除请求尚未确认结束");
+                    }
+                if (check) await check(pending[entry.originalId]);
+                pending[entry.originalId] = entry;
+            } else if (mode === "admit" || mode === "unadmit" || mode === "ack" || mode === "close" || mode === "settle") {
+                const current = pending[entry.originalId];
+                if (!current || current.settled || current.reviewId !== entry.reviewId) throw new Error("ISOLATED_OPERATION_IDENTITY_CHANGED");
+                if (mode === "admit" || mode === "unadmit" || mode === "ack") {
+                    const group = current.groups.find(group => group.token === entry.token);
+                    if (!group || (mode === "admit" && (!current.open || group.state !== "unsent"))
+                        || typeof entry.operationId !== "string" || !entry.operationId
+                        || (mode === "unadmit" && (!current.open || group.state !== "admitted" || group.operationId !== entry.operationId))
+                        || (mode === "ack" && (group.state !== "admitted" || group.operationId !== entry.operationId)))
+                        throw new Error("ISOLATED_OPERATION_IDENTITY_CHANGED");
+                    if (mode === "admit") { group.state = "admitted"; group.operationId = entry.operationId; }
+                    else if (mode === "unadmit") { group.state = "unsent"; delete group.operationId; }
+                    else group.state = "ended";
+                } else if (mode === "close") { current.open = false; current.uncertain = Boolean(entry.uncertain); }
+                else {
+                    if (current.open || current.uncertain || current.groups.some(group => group.state === "admitted")) throw new Error("ISOLATED_DELETE_QUERY_REQUIRED");
+                    pending[entry.originalId] = { originalId: entry.originalId, reviewId: entry.reviewId, settled: true };
+                }
+            } else throw new Error("隔离删除请求状态无效");
+            const file = path.join(root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
+            await fs.mkdir(path.dirname(file), { recursive: true });
+            await atomicWriteText(file, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), operations: state.operations,
+                pendingCacheCleanups: state.pendingCacheCleanups, pendingIsolatedDeletes: pending }, null, 2) + "\n", { beforeRename: () => lease.assertHeld() });
+            return pending[entry.originalId];
         });
     }
     async clearCacheFromUi() {
@@ -30447,15 +30495,16 @@ async function readLocalOperationsEnvelope(root) {
         data = JSON.parse(text);
     }
     catch (error) {
-        if (error?.code === "ENOENT") return { operations: {}, pendingCacheCleanups: {} };
+        if (error?.code === "ENOENT") return { operations: {}, pendingCacheCleanups: {}, pendingIsolatedDeletes: {} };
         throw error;
     }
-    if (data === null) return { operations: {}, pendingCacheCleanups: {} };
+    if (data === null) return { operations: {}, pendingCacheCleanups: {}, pendingIsolatedDeletes: {} };
     if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("本地操作状态格式无效");
-    const wrapped = Object.prototype.hasOwnProperty.call(data, "operations") || Object.prototype.hasOwnProperty.call(data, "pendingCacheCleanups");
+    const wrapped = Object.prototype.hasOwnProperty.call(data, "operations") || Object.prototype.hasOwnProperty.call(data, "pendingCacheCleanups") || Object.prototype.hasOwnProperty.call(data, "pendingIsolatedDeletes");
     const operations = wrapped ? data.operations : data;
     const pendingCacheCleanups = wrapped ? (data.pendingCacheCleanups ?? {}) : {};
-    if (!operations || typeof operations !== "object" || Array.isArray(operations) || !pendingCacheCleanups || typeof pendingCacheCleanups !== "object" || Array.isArray(pendingCacheCleanups))
+    const pendingIsolatedDeletes = wrapped ? (data.pendingIsolatedDeletes ?? {}) : {};
+    if (!operations || typeof operations !== "object" || Array.isArray(operations) || !pendingCacheCleanups || typeof pendingCacheCleanups !== "object" || Array.isArray(pendingCacheCleanups) || !pendingIsolatedDeletes || typeof pendingIsolatedDeletes !== "object" || Array.isArray(pendingIsolatedDeletes))
         throw new Error("本地操作状态格式无效");
     for (const [key, row] of Object.entries(pendingCacheCleanups) as [string, any][]) {
         if (!row || typeof row !== "object" || Array.isArray(row) || row.operationId !== key || typeof row.settled !== "boolean"
@@ -30463,7 +30512,21 @@ async function readLocalOperationsEnvelope(root) {
                 || !Array.isArray(row.paths) || !row.paths.length || row.paths.some(value => typeof value !== "string" || !value))))
             throw new Error("清理请求状态格式无效");
     }
-    return { operations, pendingCacheCleanups };
+    for (const [key, row] of Object.entries(pendingIsolatedDeletes) as [string, any][]) {
+        if (!row || typeof row !== "object" || Array.isArray(row) || row.originalId !== key || !/^[a-f0-9]{48}$/.test(key)
+            || !/^[a-f0-9]{48}$/.test(row.reviewId) || typeof row.settled !== "boolean"
+            || (!row.settled && (!Array.isArray(row.targets) || !row.targets.length || row.targets.some(target => !target || typeof target !== "object"
+                || !target.node || !["local", "remote"].includes(target.node.kind) || typeof target.node.root !== "string" || !target.node.root
+                || typeof target.node.id !== "string" || !target.node.id || typeof target.path !== "string" || !target.path
+                || !["file", "directory"].includes(target.type) || typeof target.backendToken !== "string" || typeof target.backendDigest !== "string" || !target.rootIdentity)
+                || typeof row.open !== "boolean" || typeof row.uncertain !== "boolean" || !Array.isArray(row.groups) || !row.groups.length || row.groups.some(group => !group || typeof group.token !== "string"
+                    || !group.token || !["unsent", "admitted", "ended"].includes(group.state) || (group.state !== "unsent" && (typeof group.operationId !== "string" || !group.operationId)))
+                || new Set(row.groups.map(group => group.token)).size !== row.groups.length
+                || row.groups.some(group => !row.targets.some(target => target.backendToken === group.token))
+                || row.targets.some(target => !row.groups.some(group => group.token === target.backendToken)))))
+            throw new Error("隔离删除请求状态格式无效");
+    }
+    return { operations, pendingCacheCleanups, pendingIsolatedDeletes };
 }
 async function writeProjectLocalOperationsState(root, operations, beforeRename?) {
     if (!root)
@@ -30477,6 +30540,7 @@ async function writeProjectLocalOperationsState(root, operations, beforeRename?)
         updatedAt: new Date().toISOString(),
         operations: normalized,
         pendingCacheCleanups: previous.pendingCacheCleanups,
+        pendingIsolatedDeletes: previous.pendingIsolatedDeletes,
     };
     await atomicWriteText(fullPath, `${JSON.stringify(payload, null, 2)}\n`, { beforeRename });
 }

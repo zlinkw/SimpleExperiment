@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { cleanupRelative } from "../features/PlanCleanup";
 import { PlanSubmissionBatch } from "../features/PlanSubmissionBatch";
 import { canonicalProjectId } from "../features/DistributedPlanQueue";
-import { freezeBatchScope, loadIsolatedBatchLedger, markPlanTerminal, eligibleIsolatedReviews } from "../features/PlanIsolatedBatchLedger";
+import { freezeBatchScope, loadIsolatedBatchLedger, markPlanTerminal } from "../features/PlanIsolatedBatchLedger";
 
 const running = new WeakSet<object>();
 
@@ -159,15 +159,9 @@ async function runPlanBatch(host: any, params: any, allPlans: boolean) {
         try {
           const batches = await loadIsolatedBatchLedger(ledgerFile);
           const mine = batches.find(entry => entry.batchId === isolatedBatchIdLocal);
-          const states = mine?.plans.map(plan => plan.state) || [];
-          const awaiting = states.filter(state => state === "awaiting_dispatch" || state === "frozen").length;
-          const bad = states.filter(state => state === "void" || state === "unknown").length;
-          if (mine && eligibleIsolatedReviews([mine], projectRoot).length)
-            isolatedNote = `本批 ${mine.plans.length} 个 PLAN 已全部核实远端派发，其旧产物的隔离引用已冻结进持久账本；隔离区永久删除不会自动开始，须经独立审核入口两次确认后执行。本次未删除任何文件。`;
-          else if (mine && awaiting && !bad)
-            isolatedNote = `本批 PLAN 的旧产物已按确认移入 clean 隔离区并冻结进持久账本；其中 ${awaiting} 个仍在等待已登记状态轮询核实远端派发（本机入队不等于已启动），核实完成前不浮出隔离区删除审核。本次未删除任何文件；运行状态以任务卡片实时查询为准。`;
-          else
-            isolatedNote = `本批有 PLAN 的旧产物移入了 clean 隔离区，但存在失败/取消/结果未知或派发未核实的项，本批整体不浮出隔离区删除审核（不会自动删除，隔离区保留）。运行状态以任务卡片实时查询为准。`;
+          if (mine?.plans.some(plan => plan.cleanup.length))
+            isolatedNote = `本批旧产物的隔离引用已登记；永久删除不会自动开始，须经独立审核入口逐项核对并两次确认。运行状态以任务卡片实时查询为准，本次未删除任何文件。`;
+          else isolatedNote = `本批未登记可审核的隔离目标；未自动删除任何文件。`;
         } catch (error) {
           isolatedNote = `隔离区删除审核账本本次不可核实（${error instanceof Error ? error.message : String(error)}）；原文件原样保留，审核入口关闭，隔离区不会被自动删除。`;
         }

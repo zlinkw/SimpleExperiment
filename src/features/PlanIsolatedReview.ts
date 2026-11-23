@@ -28,11 +28,9 @@ export function assertLiveIsolatedBoundary(batch: IsolatedFrozenBatch, root: str
 
 /** Resolve the registered operation. Ledger path strings alone never authorize deletion. */
 export function assertFrozenIsolationOperation(record: IsolatedCleanupRecord, operation: any): void {
-  if (operation?.id !== record.cleanupOperationId || operation?.preview?.action !== "isolate" || operation.state !== "completed"
-    || operation.continuedBy || operation.restoredBy) denied("ISOLATED_OPERATION_UNVERIFIED");
+  if (operation?.id !== record.cleanupOperationId || operation?.preview?.action !== "isolate") denied("ISOLATED_OPERATION_UNVERIFIED");
   const rows = operation.preview.rows.filter((row: any) => row.disposition === "isolate");
-  if (!rows.length || rows.some((row: any) => operation.targets?.[row.id]?.state !== "completed"
-    || !["file", "directory"].includes(row.type) || !row.node?.id || !row.node?.root
+  if (!rows.length || rows.some((row: any) => !["file", "directory"].includes(row.type) || !row.node?.id || !row.node?.root
     || cleanupRelative(row.relativePath) !== row.relativePath || cleanupRelative(row.destination) !== row.destination))
     denied("ISOLATED_OPERATION_UNVERIFIED");
   const keys = (targets: any[]) => targets.map(target => JSON.stringify([target.nodeId, target.host || "", target.sourceRelativePath,
@@ -50,7 +48,7 @@ export async function resolveIsolatedBatchReview(file: string, root: string, ope
   if (!matches.length) return undefined; // Ordinary standalone file review retains its existing scope.
   if (matches.length !== 1) denied("ISOLATED_OPERATION_BATCH_CONFLICT");
   const { batch, plan, record } = matches[0];
-  assertLiveIsolatedBoundary(batch, root, queue);
+  if (batch.projectRoot !== root || batch.canonicalProjectId !== canonicalProjectId(root)) denied("ISOLATED_BATCH_IDENTITY_CHANGED");
   const operation = await loadOperation(operationId);
   if (operation?.preview?.scope?.planFile !== plan.planFile) denied("ISOLATED_OPERATION_PLAN_CHANGED");
   assertFrozenIsolationOperation(record, operation);

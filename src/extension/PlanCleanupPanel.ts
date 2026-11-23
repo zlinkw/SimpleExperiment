@@ -74,6 +74,7 @@ export async function openPlanCleanupPanel(host: PlanCleanupHost, planFile: stri
         operationId = ""; response = { type: "preview", preview };
       } else if (message.type === "recheck") {
         if (!operationId) cleanupError("OPERATION_REQUIRED", "请先选择历史清理操作。");
+        if (isolatedOperationId) await host.recheckIsolatedDelete(isolatedOperationId);
         const operation = await host.service.status(operationId);
         if (!isolatedOperationId) for (const node of operation.preview.scope.nodes.filter(node => node.kind === "remote")) await host.service.recheckNode(node.id);
         const refreshed = await host.service.status(operationId); await settleReview(refreshed);

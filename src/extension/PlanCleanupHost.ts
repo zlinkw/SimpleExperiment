@@ -71,6 +71,15 @@ export class PlanCleanupHost {
       // an executing host entry, so this read-only validation must still surface legacy
       // operation records: migrate-then-read, byte-exact, legacy files never modified.
       validateIsolationReview: async id => { await this.ensureOperationRecordsMigrated(); await this.assertIsolatedReview(id); },
+      validateNewIsolationReview: async id => {
+        const pending = await this.host.isolatedDeleteState(this.root, "get", { originalId: id });
+        if (pending && !pending.settled) cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "原删除请求 " + pending.reviewId + " 尚未确认结束，请先重新核实。");
+        if (!pending) await this.service.assertNoPriorUnsettledIsolation(id, "");
+      },
+      pendingIsolationDelete: async (originalId, reviewId) => {
+        const pending = await this.host.isolatedDeleteState(this.root, "get", { originalId });
+        return !pending || !pending.settled || pending.reviewId !== reviewId;
+      },
       updateIndexes: (operation, restore) => this.updateIndexes(operation, restore) });
   }
   private assertWorkspace() {
@@ -393,18 +402,64 @@ export class PlanCleanupHost {
       if (independent !== registered) cleanupError("ISOLATED_OPERATION_IDENTITY_CHANGED");
       if (independent) {
         await this.assertIsolatedReview(independent);
+        const existing = await this.host.isolatedDeleteState(this.root, "get", { originalId: independent });
+        if (existing && !existing.settled) cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "原删除请求尚未确认结束，请先重新核实。");
         if (initial.state === "completed") { await this.verifyIsolatedAbsence(independent); await this.isolatedReviewEvent(independent, "completed", id); return initial; }
         if (initial.state === "paused") cleanupError("ISOLATED_DELETE_RECONFIRM_REQUIRED", "该审核已取消；请重新预览并两次确认，不沿用旧授权执行。");
         if (initial.executionRequestedAt) cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "该删除请求已经发出；本次只允许刷新核实，不重复发送。重新审核仍须两次确认。");
-        this.host.assertArtifactSyncPathsIdle?.(this.root, initial.preview.rows.filter(row => row.disposition === "delete").map(row => row.relativePath));
         await this.isolatedReviewEvent(independent, "executing", id);
+        const entry = { originalId: independent, reviewId: id, settled: false, open: true, uncertain: false,
+          targets: initial.preview.rows.filter(row => row.disposition === "delete").map(row => ({ node: row.node, path: row.relativePath, type: row.type,
+            backendToken: row.backendToken, backendDigest: row.backendDigest, rootIdentity: row.rootIdentity })),
+          groups: [...new Set(initial.preview.rows.filter(row => row.disposition === "delete").map(row => row.backendToken))].map(token => ({ token, state: "unsent" })) };
+        await this.host.isolatedDeleteState(this.root, "reserve", entry, prior => prior ? undefined : this.service.assertNoPriorUnsettledIsolation(independent, id));
+        let checkedDispatch = false, unboundRunning = false;
+        const admit = async (token: string, snapshot: any, existing = false) => {
+          checkedDispatch = true;
+          this.assertWorkspace();
+          const row = initial.preview.rows.find(row => row.disposition === "delete" && row.backendToken === token);
+          if (!row || snapshot?.token !== token || snapshot.digest !== row.backendDigest || typeof snapshot.operationId !== "string" || !snapshot.operationId
+            || cleanupDigest(snapshot.rootIdentity) !== cleanupDigest(row.rootIdentity)) cleanupError("ISOLATED_OPERATION_IDENTITY_CHANGED");
+          for (const target of initial.preview.rows.filter(row => row.disposition === "delete")) {
+            if (cleanupDigest({ ...this.currentNode(target.node.id), error: undefined }) !== cleanupDigest({ ...target.node, error: undefined }))
+              cleanupError("SERVER_IDENTITY_CHANGED");
+          }
+          await this.host.isolatedDeleteState(this.root, "admit", { ...entry, token, operationId: snapshot.operationId });
+          if (existing) unboundRunning = false;
+          try {
+            this.assertWorkspace();
+            for (const target of initial.preview.rows.filter(row => row.disposition === "delete")) {
+              if (cleanupDigest({ ...this.currentNode(target.node.id), error: undefined }) !== cleanupDigest({ ...target.node, error: undefined }))
+                cleanupError("SERVER_IDENTITY_CHANGED");
+            }
+          } catch (error) {
+            if (!existing) await this.host.isolatedDeleteState(this.root, "unadmit", { ...entry, token, operationId: snapshot.operationId });
+            throw error;
+          }
+        };
         try {
-          const result = await this.service.execute(id);
+          let result = await this.service.execute(id, { before: admit, alreadyRunning: async (token, snapshot) => {
+              unboundRunning = true; await admit(token, snapshot, true); unboundRunning = false;
+            },
+            acknowledged: async (token, snapshot, response) => {
+              const receipt = response?.receipt;
+              if (receipt?.operationId === snapshot.operationId && receipt.action === "delete-fast" && receipt.phase === "completed")
+                await this.host.isolatedDeleteState(this.root, "ack", { ...entry, token, operationId: snapshot.operationId });
+            } });
+          await this.host.isolatedDeleteState(this.root, "close", { ...entry, uncertain: unboundRunning || !checkedDispatch && Boolean(result.executionRequestedAt) });
+          const current = await this.host.isolatedDeleteState(this.root, "get", entry);
+          if (!current.uncertain && !current.groups.some(group => group.state === "admitted")) { await this.host.isolatedDeleteState(this.root, "settle", entry); result = await this.service.status(id); }
           if (result.state === "completed") await this.verifyIsolatedAbsence(independent);
           await this.isolatedReviewEvent(independent, result.state === "completed" ? "completed" : result.state === "paused" ? "cancelled"
             : /BUSY/.test(result.error || "") ? "busy" : result.state === "blocked" ? "failed" : "unknown", id, result.error);
           return result;
         } catch (error: any) {
+          let current = await this.host.isolatedDeleteState(this.root, "get", entry);
+          if (current && !current.settled) {
+            await this.host.isolatedDeleteState(this.root, "close", { ...entry, uncertain: unboundRunning || !checkedDispatch && Boolean(initial.executionRequestedAt) });
+            current = await this.host.isolatedDeleteState(this.root, "get", entry);
+            if (!current.uncertain && !current.groups.some(group => group.state === "admitted")) await this.host.isolatedDeleteState(this.root, "settle", entry);
+          }
           await this.isolatedReviewEvent(independent, /BUSY/.test(String(error?.apiData?.code || error.message)) ? "busy" : "failed", id,
             String(error.message || error)).catch(() => undefined);
           throw error;
@@ -440,6 +495,28 @@ export class PlanCleanupHost {
       assertWorkspace: () => this.assertWorkspace(), currentNode: id => this.currentNode(id), open: (file, operationId, job, isolatedOperationId) => this.open(file, operationId, job, isolatedOperationId) };
   }
   async assertIsolatedReview(id: string) { return assertIsolatedReviewBinding(this.isolatedReviewContext(), id); }
+  async recheckIsolatedDelete(originalId: string) {
+    this.assertWorkspace();
+    const pending = await this.host.isolatedDeleteState(this.root, "get", { originalId });
+    if (!pending || pending.settled) return;
+    if (pending.open || pending.uncertain) cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "原请求发起者尚未确认结束，请稍后重新核实。");
+    for (const group of pending.groups.filter(group => group.state === "admitted")) {
+      const target = pending.targets.find(target => target.backendToken === group.token);
+      if (!target) cleanupError("ISOLATED_OPERATION_IDENTITY_CHANGED");
+      if (cleanupDigest({ ...this.currentNode(target.node.id), error: undefined }) !== cleanupDigest({ ...target.node, error: undefined }))
+        cleanupError("SERVER_IDENTITY_CHANGED");
+      const status = await guardCleanupSftpCall(this.host, this.root, "files.cleanup.status", { token: target.backendToken, backendDigest: target.backendDigest });
+      this.assertWorkspace();
+      if (cleanupDigest({ ...this.currentNode(target.node.id), error: undefined }) !== cleanupDigest({ ...target.node, error: undefined }))
+        cleanupError("SERVER_IDENTITY_CHANGED");
+      if (status?.token !== target.backendToken || status.digest !== target.backendDigest || status.operationId !== group.operationId || status.batchExecuting
+        || status.batchReceipt?.operationId !== group.operationId || status.batchReceipt?.action !== "delete-fast" || status.batchReceipt?.phase !== "completed"
+        || cleanupDigest(status.rootIdentity) !== cleanupDigest(target.rootIdentity))
+        cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "原删除请求尚无结束回执，请继续保留并稍后重新核实。");
+      await this.host.isolatedDeleteState(this.root, "ack", { ...pending, token: group.token, operationId: group.operationId });
+    }
+    await this.host.isolatedDeleteState(this.root, "settle", pending);
+  }
   async isolatedReviewEvent(originalId: string, kind: IsolatedReviewEvent["kind"], reviewId?: string, detail?: string) {
     return recordIsolatedReviewEventFor(this.isolatedReviewContext(), originalId, kind, reviewId, detail);
   }

@@ -6,14 +6,14 @@
 // 测试侧按模块名拦截的 vscode 桩，import type 在编译期擦除、不产生运行时依赖。
 import type * as vscodeNs from "vscode";
 import { cleanupDigest, cleanupError, type CleanupOperation } from "../features/PlanCleanup";
-import { loadIsolatedBatchLedger, eligibleIsolatedReviews, type ReviewedIsolatedBatch, type IsolatedReviewEvent } from "../features/PlanIsolatedBatchLedger";
-import { resolveIsolatedBatchReview, recordIsolatedReviewEvent, assertLiveIsolatedBoundary } from "../features/PlanIsolatedReview";
+import { loadIsolatedBatchLedger, type ReviewedIsolatedBatch, type IsolatedReviewEvent } from "../features/PlanIsolatedBatchLedger";
+import { resolveIsolatedBatchReview, recordIsolatedReviewEvent } from "../features/PlanIsolatedReview";
 
 export interface IsolatedReviewContext {
   host: any;
   vscode: typeof vscodeNs;
   root: string;
-  service: { status(operationId: string): Promise<CleanupOperation>; registeredIsolationSource?(id: string): Promise<string | undefined> };
+  service: { status(operationId: string): Promise<CleanupOperation>; assertNoPriorUnsettledIsolation(id: string, currentId: string): Promise<void>; registeredIsolationSource?(id: string): Promise<string | undefined> };
   assertWorkspace(): void;
   currentNode(id: string): any;
   open(planFile: string, operationId?: string, job?: any, isolatedOperationId?: string): any;
@@ -23,8 +23,7 @@ export async function assertIsolatedReviewBinding(ctx: IsolatedReviewContext, id
   ctx.assertWorkspace();
   const file = ctx.host.isolatedReplacementLedgerFileLocal?.();
   if (!file) cleanupError("ISOLATED_BATCH_LEDGER_UNAVAILABLE");
-  const queue = await ctx.host.loadDistributedQueue(ctx.root);
-  const binding = await resolveIsolatedBatchReview(file, ctx.root, id, queue, operationId => ctx.service.status(operationId));
+  const binding = await resolveIsolatedBatchReview(file, ctx.root, id, undefined, operationId => ctx.service.status(operationId));
   const original: CleanupOperation = binding?.operation || await ctx.service.status(id);
   if (original.preview.action !== "isolate" || !original.preview.rows.some(row => row.disposition === "isolate")) cleanupError("NOT_ISOLATED_OPERATION");
   for (const row of original.preview.rows.filter(row => row.disposition === "isolate")) {
@@ -46,6 +45,8 @@ export async function recordIsolatedReviewEventFor(ctx: IsolatedReviewContext, o
 }
 
 export async function verifyIsolatedTargetsAbsence(ctx: IsolatedReviewContext, originalId: string) {
+  const pending = await ctx.host.isolatedDeleteState(ctx.root, "get", { originalId });
+  if (pending && !pending.settled) cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "原删除请求尚未确认结束，请先重新核实。");
   const binding = await assertIsolatedReviewBinding(ctx, originalId);
   const original: CleanupOperation = binding?.operation || await ctx.service.status(originalId);
   for (const row of original.preview.rows.filter(row => row.disposition === "isolate")) {
@@ -62,27 +63,25 @@ export async function openIsolatedBatchReviewFlow(ctx: IsolatedReviewContext) {
   const file = ctx.host.isolatedReplacementLedgerFileLocal?.();
   if (!file) cleanupError("ISOLATED_BATCH_LEDGER_UNAVAILABLE");
   const batches = await loadIsolatedBatchLedger(file) as ReviewedIsolatedBatch[];
-  const queue = await ctx.host.loadDistributedQueue(ctx.root);
   const items: Array<{ label: string; description: string; detail: string; operationId: string; initialId: string; planFile: string }> = [];
-  for (const batch of eligibleIsolatedReviews(batches, ctx.root) as ReviewedIsolatedBatch[]) {
-    try { assertLiveIsolatedBoundary(batch, ctx.root, queue); } catch { continue; }
+  for (const batch of batches.filter(batch => batch.projectRoot === ctx.root)) {
     for (const plan of batch.plans) for (const record of plan.cleanup) {
       const events = batch.reviews?.filter(event => event.cleanupOperationId === record.cleanupOperationId) || [];
       const last = events.at(-1);
-      if (events.some(event => event.kind === "completed")) continue;
+      const pending = await ctx.host.isolatedDeleteState(ctx.root, "get", { originalId: record.cleanupOperationId });
       // Explicitly opening this review queries only the registered destinations.
       // External removal has no delete receipt; fresh per-target absence still consumes it.
       let absent = false;
-      try { await verifyIsolatedTargetsAbsence(ctx, record.cleanupOperationId); absent = true; } catch { /* Present or unknown: retain for review. */ }
+      if (!pending || pending.settled) try { if (!pending) await ctx.service.assertNoPriorUnsettledIsolation(record.cleanupOperationId, ""); await verifyIsolatedTargetsAbsence(ctx, record.cleanupOperationId); absent = true; } catch { /* Present or unknown: retain for review. */ }
       if (absent) { await recordIsolatedReviewEventFor(ctx, record.cleanupOperationId, "completed"); continue; }
       const labels: Record<string, string> = { opened: "已打开", preview: "待确认", confirmed1: "等待第二次确认", confirmed2: "已确认待执行",
         executing: "执行结果待核实", busy: "服务器忙，未自动重试", failed: "审核失败", cancelled: "已取消", unknown: "结果待核实" };
       items.push({ label: plan.planFile, description: `${record.targets.length} 项隔离产物 · ${last ? labels[last.kind] || "待审核" : "待审核"}`,
         detail: record.targets.map(target => target.nodeId + ":" + target.isolationRelativePath).join("；"),
-        operationId: record.cleanupOperationId, initialId: [...events].reverse().find(event => event.reviewOperationId)?.reviewOperationId || record.cleanupOperationId, planFile: plan.planFile });
+        operationId: record.cleanupOperationId, initialId: pending && !pending.settled ? pending.reviewId : [...events].reverse().find(event => event.reviewOperationId)?.reviewOperationId || record.cleanupOperationId, planFile: plan.planFile });
     }
   }
-  if (!items.length) { await ctx.vscode.window.showInformationMessage("暂无已核实全部初始 PLAN 启动且仍待审核的隔离产物；未删除任何文件。"); return; }
+  if (!items.length) { await ctx.vscode.window.showInformationMessage("暂无仍待审核的隔离产物；未删除任何文件。"); return; }
   const selected = await ctx.vscode.window.showQuickPick(items, { title: "隔离产物独立永久删除审核", placeHolder: "选择已登记隔离操作；下一页显示精确节点与完整路径，删除须另行两次确认" });
   if (!selected) return;
   await assertIsolatedReviewBinding(ctx, selected.operationId);

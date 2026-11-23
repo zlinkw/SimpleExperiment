@@ -52,6 +52,7 @@ export type CleanupNodeCheck = { operationId: string; nodeId: string; checkedAt:
   state: "confirmation_required" | "settlement_required" | "blocked";
   targets: Array<{ id: string; absolutePath: string; state: string; code?: string }> };
 export type CleanupOperation = { id: string; preview: CleanupPreview; state: "ready" | "running" | "paused" | "partial" | "completed" | "blocked";
+  isolatedDeleteReceipts?: Record<string, { operationId: string; state: "admitted" | "ended" }>;
   // r87 块4：后台旁路删除只记录真实状态——"accepted" 绝不写成完成；失败/未知保留原因供通知与操作日志引用。
   autoDeleteState?: "accepted" | "failed" | "unknown"; autoDeleteOperationId?: string; autoDeleteError?: string;
   // r98 B2：files.cleanup.isolatedMaintenanceDelete 是单 token 语义——按真实 (backendToken,backendDigest,节点身份)
@@ -71,6 +72,8 @@ export type CleanupPorts = {
   currentNode?(id: string): Promise<CleanupNode>;
   validateScope?(scope: CleanupScope): Promise<void>;
   validateIsolationReview?(operationId: string): Promise<void>;
+  validateNewIsolationReview?(operationId: string): Promise<void>;
+  pendingIsolationDelete?(originalId: string, reviewId: string): Promise<boolean>;
   storageRoot: string;
 };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -241,6 +244,7 @@ export class PlanCleanup {
       delete record.preview.scope.associationBlockers;
       record.preview.digest = ""; record.preview.expiresAt = 0;
       delete record.error; delete record.executionRequestedAt; delete record.executionRequestError;
+      delete record.isolatedDeleteReceipts;
     }
     await atomicWriteText(this.file(operation.id), JSON.stringify(record, null, 2));
   }
@@ -257,6 +261,11 @@ export class PlanCleanup {
         let observed = inspectDeletion ? await this.observeDeletion(operation, observationRound) : operation;
         if (!inspectDeletion && observed.preview.scope.observationMode === "managed_tmux" && observed.executionRequestedAt)
           observed = await this.observeManaged(observed);
+        if (observed.state === "completed" && observed.preview.registeredIsolationOperationId && observed.executionRequestedAt
+          && await this.isolatedDeletePending(observed)) {
+          observed.state = "partial";
+          observed.error = "原删除请求的结束状态尚未确认；文件不存在不能证明请求已结束。";
+        }
         if (observed.state === "completed" && !observed.indexed) {
           await this.ports.updateIndexes(observed, observed.preview.action === "restore"); observed.indexed = true;
         }
@@ -268,6 +277,11 @@ export class PlanCleanup {
     }
     catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
     finally { if (ownRound) observationRound.closed = true; }
+  }
+  private async isolatedDeletePending(operation: CleanupOperation): Promise<boolean> {
+    if (this.ports.pendingIsolationDelete) return this.ports.pendingIsolationDelete(operation.preview.registeredIsolationOperationId!, operation.id);
+    const tokens = [...new Set(operation.preview.rows.filter(row => row.disposition === "delete").map(row => row.backendToken).filter(Boolean))];
+    return !tokens.length || tokens.some(token => operation.isolatedDeleteReceipts?.[token!]?.state !== "ended");
   }
   private newObservationRound(): ObservationRound {
     return createObservationRound({ sftp: (method, params) => this.ports.sftp(method, params), digest: cleanupDigest, timeoutMs: CLEANUP_QUERY_TIMEOUT_MS });
@@ -535,7 +549,7 @@ export class PlanCleanup {
    * backend batch, serially. A lost execute response is resolved by the active query only — the
    * plugin never replays execute on its own; pending/unknown stay honest partial results.
    */
-  private async executeConfirmedFastBatches(operation: CleanupOperation): Promise<void> {
+  private async executeConfirmedFastBatches(operation: CleanupOperation, dispatch?: { before(token: string, snapshot: any): Promise<void>; acknowledged(token: string, snapshot: any, result: any): Promise<void>; alreadyRunning(token: string, snapshot: any): Promise<void> }): Promise<void> {
     const groups = new Map<string, CleanupRow[]>();
     for (const row of operation.preview.rows.filter(row => operation.targets[row.id] && row.backendToken)) {
       const group = groups.get(row.backendToken!) || [];
@@ -552,12 +566,13 @@ export class PlanCleanup {
       if (!pending().length) continue;
       if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return; }
       let sendError = "";
+      if (snapshot?.batchExecuting) await dispatch?.alreadyRunning(backendToken, snapshot);
       if (!snapshot?.batchExecuting) {
         // 取消只在执行请求发出之前生效；服务器对已接收批次整批串行执行，本端不并发第二个请求。
         group.filter(row => operation.targets[row.id]?.state !== "completed").forEach(row => { operation.targets[row.id] = { state: "executing" }; });
         await this.save(operation);
         const anchor = pending()[0];
-        try { await this.ports.sftp("files.cleanup.execute", { token: backendToken, digest: anchor.backendDigest, index: anchor.backendIndex }); }
+        try { await dispatch?.before(backendToken, snapshot); const result = await this.ports.sftp("files.cleanup.execute", { token: backendToken, digest: anchor.backendDigest, index: anchor.backendIndex }); await dispatch?.acknowledged(backendToken, snapshot, result); }
         catch (error: any) {
           sendError = String(error?.apiData?.code || error?.code || "") + " " + String(error?.message || error);
           operation.executionRequestError = sendError.trim();
@@ -582,13 +597,28 @@ export class PlanCleanup {
   }
 
 
-  private async executeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
+  private async executeManaged(operation: CleanupOperation, dispatch?: { before(token: string, snapshot: any): Promise<void>; acknowledged(token: string, snapshot: any, result: any): Promise<void>; alreadyRunning(token: string, snapshot: any): Promise<void> }): Promise<CleanupOperation> {
     if (this.busy.has(operation.id)) return this.observeManaged(operation);
     if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
     await this.preflightConfirmed(operation.id);
     if (this.busy.has(operation.id)) return this.observeManaged(operation);
     this.busy.add(operation.id); this.cancelled.delete(operation.id);
     try {
+      if (!dispatch && operation.preview.registeredIsolationOperationId && !this.ports.pendingIsolationDelete) {
+        const before = async (token: string, snapshot: any) => {
+          const row = operation.preview.rows.find(row => row.disposition === "delete" && row.backendToken === token);
+          if (!row || snapshot?.token !== token || snapshot.digest !== row.backendDigest || typeof snapshot.operationId !== "string" || !snapshot.operationId
+            || cleanupDigest(snapshot.rootIdentity) !== cleanupDigest(row.rootIdentity)) cleanupError("ISOLATED_OPERATION_IDENTITY_CHANGED");
+          (operation.isolatedDeleteReceipts ||= {})[token] = { operationId: snapshot.operationId, state: "admitted" };
+          await this.save(operation);
+        };
+        dispatch = { before, alreadyRunning: before, acknowledged: async (token, snapshot, response) => {
+          const receipt = response?.receipt;
+          if (receipt?.operationId === snapshot.operationId && receipt.action === "delete-fast" && receipt.phase === "completed") {
+            operation.isolatedDeleteReceipts![token] = { operationId: snapshot.operationId, state: "ended" }; await this.save(operation);
+          }
+        } };
+      }
       operation.executionRequestedAt ||= new Date().toISOString();
       // Standalone results precede their owning output directory and its manifest.
       const metadata = (row: CleanupRow) => ["PLAN 文件", "专用配置"].includes(row.category);
@@ -598,7 +628,7 @@ export class PlanCleanup {
       operation.state = "running"; await this.save(operation);
       if (operation.preview.action === "delete" && operation.preview.scope.authorizationMode === "confirmed_paths") {
         // v1.9：确认路径删除按冻结后端批次整批执行，一次执行 + 批量主动查询，绝不逐文件往返。
-        await this.executeConfirmedFastBatches(operation);
+        await this.executeConfirmedFastBatches(operation, dispatch);
         if ((operation.state as string) === "paused") return operation;
       } else
       for (const row of rows) {
@@ -639,6 +669,11 @@ export class PlanCleanup {
         }
       }
       operation = await this.observeManaged(operation);
+      if (operation.state === "completed" && operation.preview.registeredIsolationOperationId && operation.executionRequestedAt
+        && await this.isolatedDeletePending(operation)) {
+        operation.state = "partial";
+        operation.error = "原删除请求的结束状态尚未确认；文件不存在不能证明请求已结束。";
+      }
       if (operation.state === "completed" && !operation.indexed) { await this.ports.updateIndexes(operation, operation.preview.action === "restore"); operation.indexed = true; }
       await this.save(operation); return clone(operation);
     } catch (error: any) {
@@ -657,6 +692,15 @@ export class PlanCleanup {
         continuedBy: operation.continuedBy, restoredBy: operation.restoredBy, nodeChecks: operation.nodeChecks });
     }
     return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+  async assertNoPriorUnsettledIsolation(originalId: string, currentId: string): Promise<void> {
+    const names = await fs.readdir(this.ports.storageRoot).catch((error: any) => { if (error.code === "ENOENT") return []; throw error; });
+    for (const name of names.filter(name => /^[a-f0-9]{48}\.json$/.test(name))) {
+      if (name === currentId + ".json") continue;
+      const operation: CleanupOperation = JSON.parse(await fs.readFile(path.join(this.ports.storageRoot, name), "utf8"));
+      if (operation.preview?.registeredIsolationOperationId === originalId && operation.executionRequestedAt && operation.state !== "completed")
+        cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "已有删除请求尚未确认结束，请先重新核实。");
+    }
   }
   async history(id: string, round?: ObservationRound): Promise<CleanupOperation[]> {
     const rows: CleanupOperation[] = [], seen = new Set<string>();
@@ -1155,10 +1199,10 @@ export class PlanCleanup {
       }
     }
   }
-  async execute(id: string): Promise<CleanupOperation> {
+  async execute(id: string, dispatch?: { before(token: string, snapshot: any): Promise<void>; acknowledged(token: string, snapshot: any, result: any): Promise<void>; alreadyRunning(token: string, snapshot: any): Promise<void> }): Promise<CleanupOperation> {
     const current = await this.status(id);
     if (current.state === "completed") return current;
-    if (current.preview.scope.observationMode === "managed_tmux") return this.executeManaged(current);
+    if (current.preview.scope.observationMode === "managed_tmux") return this.executeManaged(current, dispatch);
     if (this.busy.has(id)) cleanupError("OPERATION_BUSY");
     // r87 块3(题面5)：两次 status(id) 之间本端无任何写入，合并为一次纯状态读取；
     // 循环内的 status 暂停闸门保留自己的新鲜观察轮——每次轮询新建一轮，旧轮不得穿过 mutation 复用。
@@ -1387,8 +1431,10 @@ export class PlanCleanup {
   /** 隔离目标的永久删除预览：只接受已完成隔离操作冻结的目的路径；对外仍是 delete/confirmed_paths 双确认受管流程。 */
   async isolatedDeletePreview(id: string, verifiedOnly = false): Promise<CleanupPreview> {
     await this.ports.validateIsolationReview?.(id);
+    if (this.ports.validateNewIsolationReview) await this.ports.validateNewIsolationReview(id);
+    else await this.assertNoPriorUnsettledIsolation(id, "");
     const original = await this.status(id);
-    if (original.preview.action !== "isolate" || original.continuedBy || original.restoredBy) cleanupError("NOT_ISOLATED_OPERATION");
+    if (original.preview.action !== "isolate") cleanupError("NOT_ISOLATED_OPERATION");
     if (this.busy.has(id)) cleanupError("OPERATION_BUSY");
     const sources = original.preview.rows.filter(row => row.disposition === "isolate");
     if (!sources.length) cleanupError("NO_VERIFIED_TARGETS");
@@ -1404,12 +1450,15 @@ export class PlanCleanup {
         evidence: [...source.evidence, "隔离批次 " + (source.archiveBatch || "") + "，原路径 " + source.relativePath],
         protectedReason: undefined, error: undefined,
         absolutePath: source.node.kind === "local" ? path.join(source.node.root, source.destination) : path.posix.join(source.node.root, source.destination) };
-      if (original.targets[source.id]?.state !== "completed") {
-        row.disposition = "unverified"; row.error = "ISOLATE_NOT_SETTLED";
-        preview.blockers.push({ code: "ISOLATE_NOT_SETTLED", nodeId: source.node.id, detail: source.destination + "：隔离未完成确认，请先刷新实际状态" });
-        preview.rows.push(row); continue;
-      }
       try {
+        if (original.executionRequestedAt && original.targets[source.id]?.state !== "completed")
+          cleanupError("ISOLATE_EXECUTION_UNKNOWN", "原隔离请求尚未确认结束，请先重新核实。");
+        const active = await this.ports.sftp("files.cleanup.inspect", { node: source.node,
+          target: { relativePath: source.destination, type: source.type }, allowMissing: true, presenceOnly: true, observeExecutors: true });
+        if (active?.ok !== true || active.executorsChecked !== true || !Array.isArray(active.executors) || active.executors.length)
+          cleanupError("ISOLATED_EXECUTOR_UNVERIFIED", "隔离目标的执行器仍在运行或状态未知，请先重新核实。");
+        if (!source.rootIdentity || !active.rootIdentity || cleanupDigest(source.rootIdentity) !== cleanupDigest(active.rootIdentity))
+          cleanupError("ISOLATED_ROOT_IDENTITY_CHANGED");
         const backend = await this.ports.sftp("files.cleanup.preview", { node: source.node, action: "delete", observationMode: "managed_tmux",
           authorizationMode: "confirmed_paths", targets: [{ relativePath: source.destination, destination: source.destination, type: source.type }] });
         if (Number(backend.safety?.registeredIsolationDeletion) !== 1 || Number(backend.safety?.subtreeSingleWriter) !== 1)
