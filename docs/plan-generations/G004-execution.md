@@ -108,3 +108,5 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 生成隧道脚本原先选择保存位置等待期间可能混合旧Worker和新项目/配置；现保留原保存入口并在生成前核项目和实际Worker隧道参数。原真实方法假对话框/假写入器及命令构造 `%TEMP%/g004-tunnel-script-identity-20261123.{out,err}.log` 2/2 exit0，包括切项目/配置无写入；未写真实脚本、启动隧道或访问服务器，待build。
 
 离线导入成功读取后原先先暂停实时流再检查项目，切项目期间可能暂停新项目；现读取后、暂停前先核原generation和root。原方法假导入及保存失败两项 `%TEMP%/g004-offline-import-project-20261123.{out,err}.log` 2/2 exit0；未导入真实文件、断开真实网络或写项目状态，待build。
+
+Agent端点按钮缺endpointId时原代码回退字符串hub，现明确拒绝并要求选择Worker；有ID仍传现有精确目标过滤。真实路由方法假部署 `%TEMP%/g004-agent-endpoint-explicit-20261123.{out,err}.log` 1/1 exit0；未启动或连接Agent，待build。

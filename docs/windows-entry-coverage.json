@@ -14319,6 +14319,7 @@
         },
         {
           "id": "vscode:simpleExperiment.openPanel",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"现命令focus面板；0.5.492历史实窗。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.openPanel]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "prior_scoped_evidence",
           "reference": "registered/contributed/independent[name=simpleExperiment.openPanel]",
           "oldStatus": "concluded_scoped",
@@ -14350,6 +14351,7 @@
         },
         {
           "id": "vscode:simpleExperiment.quickSetup",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"现配置写入/项目绑定修复已假端验证，待build。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.quickSetup]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "prior_scoped_evidence",
           "reference": "registered/contributed/independent[name=simpleExperiment.quickSetup]",
           "oldStatus": "concluded_scoped",
@@ -14371,6 +14373,7 @@
         },
         {
           "id": "vscode:simpleExperiment.showTunnelEndpointRegistry",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"现打开JSON配置清单，旧0.5.492实窗。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.showTunnelEndpointRegistry]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "prior_scoped_evidence",
           "reference": "registered/contributed/independent[name=simpleExperiment.showTunnelEndpointRegistry]; logicalActionCensus.localScopeReview.endpointRegistry",
           "oldStatus": "concluded_scoped",
@@ -14378,6 +14381,7 @@
         },
         {
           "id": "vscode:simpleExperiment.restartRealtimeStream",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"现在线重连并核client/generation；旧0.5.501。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.restartRealtimeStream]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "local_evidence_in_519_overlay_external_effects_only_as_noted",
           "reference": "registered/contributed/independent[name=simpleExperiment.restartRealtimeStream]",
           "oldStatus": "deferred",
@@ -14385,6 +14389,7 @@
         },
         {
           "id": "vscode:simpleExperiment.pauseRealtimeStream",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"现断开当前client；旧0.5.498。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.pauseRealtimeStream]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "local_evidence_in_519_overlay_external_effects_only_as_noted",
           "reference": "registered/contributed/independent[name=simpleExperiment.pauseRealtimeStream]",
           "oldStatus": "deferred",
@@ -14392,6 +14397,7 @@
         },
         {
           "id": "vscode:simpleExperiment.resumeRealtimeStream",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"现走resumeNetwork；旧0.5.501低流量状态。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.resumeRealtimeStream]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "local_evidence_in_519_overlay_external_effects_only_as_noted",
           "reference": "registered/contributed/independent[name=simpleExperiment.resumeRealtimeStream]",
           "oldStatus": "deferred",
@@ -14399,6 +14405,7 @@
         },
         {
           "id": "vscode:simpleExperiment.generateXshellTunnelScript",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"新源码选择文件后重核项目与Worker；假保存端2/2。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.generateXshellTunnelScript]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "local_evidence_in_519_overlay_external_effects_only_as_noted",
           "reference": "registered/contributed/independent[name=simpleExperiment.generateXshellTunnelScript]",
           "oldStatus": "deferred",
@@ -14406,6 +14413,7 @@
         },
         {
           "id": "vscode:simpleExperiment.openTunnelStatus",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"现打开状态JSON；旧0.5.492。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.openTunnelStatus]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "local_evidence_in_519_overlay_external_effects_only_as_noted",
           "reference": "registered/contributed/independent[name=simpleExperiment.openTunnelStatus]",
           "oldStatus": "deferred",
@@ -14420,6 +14428,7 @@
         },
         {
           "id": "vscode:simpleExperiment.importOfflineBundle",
+          "currentReview": {"status":"source_and_prior_or_fake_scoped","evidence":"成功读取后暂停前重核项目；假导入2/2。 详细输入和边界见commandAliasScopeIndex[name=simpleExperiment.importOfflineBundle]。","boundary":"历史记录不代表本轮现场；当前源码修复待build，未连接Worker或改变真实网络/配置。"},
           "disposition": "prior_scoped_evidence",
           "reference": "registered/contributed/independent[name=simpleExperiment.importOfflineBundle]",
           "oldStatus": "concluded_scoped",
@@ -14556,6 +14565,7 @@
         },
         {
           "name": "simpleExperiment.bootstrapProject",
+          "currentReview": {"status":"source_and_prior_historical_scoped","evidence":"经本机Host识别Plan并等待用户选择，原项目绑定后保存选择及onboarding；无Plan时会生成指南。520专用实例曾完成本地识别。","boundary":"本轮不重复引导或改真实配置；生成Plan分支不能以520既有Plan证据代替。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.bootstrapProject]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14563,6 +14573,7 @@
         },
         {
           "name": "simpleExperiment.prepareAgents",
+          "currentReview": {"status":"source_scoped_external_restricted","evidence":"命令经Host租约进入prepareAgentsForFirstRun；流程包含配置/目标确认及Agent准备。","boundary":"未连接Worker、准备或启动Agent；不称远端效果通过。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.prepareAgents]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14711,6 +14722,7 @@
         },
         {
           "name": "simpleExperiment.runXshellRealIntegrationCheck",
+          "currentReview": {"status":"source_scoped_external_restricted","evidence":"直接调用testTunnel(true)，命令别名与检测全部共用真实检测入口。","boundary":"本轮未做隧道或远端检测；旧假provider别名不能证明真实端点。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.runXshellRealIntegrationCheck]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -14741,6 +14753,7 @@
         },
         {
           "name": "simpleExperiment.verifyAgentVersion",
+          "currentReview": {"status":"source_scoped_external_restricted","evidence":"人工入口检查配置目标版本和能力，错误转为可见结果；对应远端探测不在当前授权范围。","boundary":"未查询真实Agent版本或能力。"},
           "origin": "contributed",
           "reference": "contributedCommands[name=simpleExperiment.verifyAgentVersion]",
           "currentEvidence": "原条目证据按旧情景引用；别名若与面板共宿主仍分别核参数和状态反馈。",
@@ -15558,6 +15571,7 @@
         },
         {
           "name": "startAgentEndpoint",
+          "currentReview": {"status":"fixed_scoped_pending_build","evidence":"Host缺endpointId明确拒绝，指定ID交现有Worker目标过滤；真实方法假部署1/1。","boundary":"未连接或启动真实Agent；待build。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },

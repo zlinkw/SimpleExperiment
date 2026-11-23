@@ -18586,7 +18586,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await this.startBackgroundTunnels(true, true, [endpointId]);
     }
     async startAgentEndpointFromUi(message) {
-        const id = stringField(message, "endpointId") || "hub";
+        const id = stringField(message, "endpointId");
+        if (!id) throw new Error("请选择明确的 Worker 端点。");
         await this.deployLatestAgentRuntime(true, false, [id]);
     }
     async withRemoteActionResource(workerId, action, body, work) {
