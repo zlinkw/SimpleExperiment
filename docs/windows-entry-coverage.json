@@ -12031,6 +12031,7 @@
         },
         {
           "id": "panel:manageAiAuthorization:1",
+          "currentReview": {"status": "reviewed_scoped", "evidence": "520 project_authorization真实只读证据 %TEMP%/g004-520-live-mcp-20261123.json；Host及McpHost授权入口源码。", "boundary": "面板调用本机授权选择，取消直接返回，选择后核同工作区并写入或撤销；MCP project_authorization只读。本轮未改授权或验证写入，删除仍需路径审核。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=manageAiAuthorization]",
           "oldStatus": "concluded_scoped",
@@ -12053,6 +12054,7 @@
         },
         {
           "id": "panel:configureCodeSyncIncludes:1",
+          "currentReview": {"status": "reviewed_scoped", "evidence": "历史0.5.500真实界面打开及本地保存，原位置证据见panelCommandActions。", "boundary": "当前源码先要求单工作区，捕获项目身份和客户端；写回调经租约与身份检查。本轮未访问Worker、保存共享配置、同步或删除；跨Worker效果未验。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=configureCodeSyncIncludes]",
           "oldStatus": "concluded_scoped",
