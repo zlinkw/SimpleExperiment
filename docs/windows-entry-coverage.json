@@ -12781,7 +12781,7 @@
         },
         {
           "id": "panel:showLogHistory:1",
-          "currentReview": {"status":"controlled_scoped","evidence":"按operationId及可选Plan唯一定位记录，读取脱敏尾部最多50行；未记录尾部提示，用户选行后复制。","boundary":"原假宿主工作流日志 g004-520-workflow-navigation-20261123.log 的相关范围；未读取真实任务日志或写真实剪贴板。"},
+          "currentReview": {"status":"controlled_scoped_pending_panel_build","evidence":"按operationId及可选Plan唯一定位记录，读取脱敏尾部最多50行；未记录尾部提示，用户选行后复制。 五处按钮原提示“完整日志”与实际最多50行不符，候选更正为“日志尾部”；独立完整日志入口保留。","boundary":"原假宿主工作流日志 g004-520-workflow-navigation-20261123.log 的相关范围；未读取真实任务日志或写真实剪贴板。 提示文案待Panel build/VM，未安装。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=showLogHistory]",
           "oldStatus": "concluded_scoped",
@@ -15248,7 +15248,7 @@
         },
         {
           "name": "showLogHistory",
-          "currentReview": {"status":"controlled_scoped","evidence":"按operationId及可选Plan唯一定位记录，读取脱敏尾部最多50行；未记录尾部提示，用户选行后复制。","boundary":"原假宿主工作流日志 g004-520-workflow-navigation-20261123.log 的相关范围；未读取真实任务日志或写真实剪贴板。"},
+          "currentReview": {"status":"controlled_scoped_pending_panel_build","evidence":"按operationId及可选Plan唯一定位记录，读取脱敏尾部最多50行；未记录尾部提示，用户选行后复制。 五处按钮原提示“完整日志”与实际最多50行不符，候选更正为“日志尾部”；独立完整日志入口保留。","boundary":"原假宿主工作流日志 g004-520-workflow-navigation-20261123.log 的相关范围；未读取真实任务日志或写真实剪贴板。 提示文案待Panel build/VM，未安装。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
