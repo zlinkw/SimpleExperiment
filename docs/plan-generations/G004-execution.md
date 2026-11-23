@@ -43,7 +43,7 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 
 试行 Release `v0.5.520` 已发布，`prerelease=true`、`draft=false`，远端 tag 指向 `7bf49ba84802df56821b098b440b289d3d3eb61e`；VSIX 与同名 SHA256 资产已上传，隔离下载的 SHA256 与已验证包一致，manifest 校验 exit0。实际 ReleaseClient 核实 0.5.482 可见权威 0.5.483、0.5.520 不降级，SFTP 0.2.120 不降至权威 0.2.118。
 
-安装前为 0.5.519，唯一一次 `npm run install:latest` exit0，磁盘和 VS Code 扩展列表均为 `simple-local.simple-experiment` 0.5.520；安装日志 `%TEMP%/g004-520-install-20261123.log` 保留 Node DEP0169 警告。稳定 MCP shim 的 launcher/resolver 与安装包文件字节一致，包内 server 目标存在；未连接运行中的面板验证动态解析。用户本人执行 Developer: Reload Window 后才可进行界面验收。
+520唯一安装 exit0，安装日志 `%TEMP%/g004-520-install-20261123.log` 保留DEP0169警告；原安装/重载及shim字节证据见 `86e35b7b:docs/plan-generations/G004-execution.md`，当前源码未装。
 
 ## 520 重载后单项目只读验收
 
@@ -96,3 +96,5 @@ actionLifecycle 首次 46/49 exit1，三例缺真实 `localArtifactRecord`；测
 SFTP server activate/save/delete 逐工具复核 schema、人工 modal 和同根代理；后两项仅复用原假对话/后端17/17日志 `%TEMP%/g004-520-mcp-sftp-routing-20261123.log`，activate仅源码。未变更服务器配置或删除任何真实记录。
 
 复核 `sftp_download_paths` 时发现 Host 原接受绝对路径，下游会剥前导斜杠改解释为项目相对路径；现于公开输入边界拒绝绝对、盘符及越界路径，后端原路径限制不变。关联 upload_files/workspace 的范围、授权和假后端逐项记录在coverage。原单文件17/17 exit0、816ms，日志 `%TEMP%/g004-mcp-download-path-validation-20261123.*.log`，仅自建夹具，未连接真实Worker或传输。一次压缩补丁未匹配、写前退出。
+
+SFTP tree、tree_state、inventory逐项核Gateway、Host与已装SFTP路径检查；原假端口回归复用上条日志。此三只读工具当前不声明权限类别，只绑定配置Worker/项目；未访问真实Worker或计算远端哈希，范围不足见coverage。
