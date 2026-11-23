@@ -97,7 +97,7 @@ SFTP传输观察/取消的假后端18/18 `%TEMP%/g004-mcp-remote-directories-aut
 
 task_list只复核当前项目归并、取消及unknown源码，禁止真实任务查询，退役CLI证据不冒充现行MCP通过；task_dispatch复用同任务假Gateway 5/5及假Host 11/11，未触真实派发、GPU或Worker。边界见coverage。
 
-本人已精确授权配套 simple-sftp 仓最小修复取消身份及试行交付。配套仓src commit `28087f3` 已普通推送抓取一致，真实handler内存替身8/8、原结算3/3 exit0，日志 `%TEMP%/g004-sftp-cancel-identity-final2-20261123.*.log`、`g004-sftp-cancel-settlement-final-20261123.*.log`；首复现2/4 exit1保留 `g004-sftp-cancel-identity-first-20261123.*.log`。源审前未build/package/安装，已装120仍有缺陷，未操作真实传输。一次执行文档压缩补丁未匹配、未写入。
+本人授权配套SFTP取消身份最小修复及试行交付；源码 `28087f3` 已同步，假handler 8/8、原结算3/3及首2/4失败原日志见 `f02bb042:docs/plan-generations/G004-execution.md`。已装120仍有缺陷，未操作真实传输；压缩补丁曾未匹配、未写入。
 
 配套源diff已审通过；两个消费者各1/1、verify-runtime核23文件exit0，原日志及119/120证据缺口见 `0f6ea82b:docs/plan-generations/G004-execution.md`；SSH为替身。
 
@@ -154,3 +154,5 @@ experiment_active/overview/health按源及原合成观察/告警证据逐项复�
 result_compare按左右身份、数值与方向复核，原假RPC及缺失歧义证据见coverage；未查询真实活动结果。
 
 project_connect在异步隧道准备期间撤销MCP授权原仍可能启动；现复核授权及目标，逐端点回调复核。假manager原目标/确认及撤权4/4 `%TEMP%/g004-tunnel-grant-recheck-20261123.*.log`，回调1/1 `%TEMP%/g004-tunnel-grant-callback-20261123.*.log`，均exit0；只读Windows glob失败未改产品，未启动真实SSH或改grant，待build。
+
+server_test源码范围见coverage，未真实探测。原runner只读dry-run当前build选择316个作业、compile/fullCheck、0 onDemand；受源码变更影响，旧direct 144、legacy 59及fresh 1条快照存在至少一处漂移（含计划外及可能重叠），须逐调用链核适用，不是已运行/通过数；不批量刷新哈希，不启动矩阵。

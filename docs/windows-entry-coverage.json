@@ -11198,6 +11198,7 @@
         },
         {
           "name": "server_test",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"server.testAll默认刷新启用Worker连接，refresh=false仅读既有探测状态；Host逐Worker构造结果，异常返回ok=false及错误。","boundary":"仅源码审阅；未连接、探测真实Worker，不能将已有状态当新鲜探测。"},
           "method": "server.testAll",
           "oldEvidence": "projectTools[name=server_test]",
           "scope": "local_gateway_plus_worker_effect_restricted",
