@@ -4,7 +4,7 @@
 
 ## 当前目标与边界
 
-G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 30 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
+G004 人工审定的增量覆盖按 identity+argv 复用适用的历史、直接和本轮证据，并冻结真实计划、gates、产物与输入；当前 361 active、6 onDemand，planner 仍缺 23 项，尚未通过，所有候选待总控最终审核。源码稳定后对原规划测试精确 pattern 按原 20 秒预算补验一次，执行 final dry-run 并向总控提交完整包；总控终审并另行开放前禁止 full build/package、安装和发行。0.5.520 只是候选，不能冒充已打包。
 
 当前不触碰真实 Worker、服务器、SSH、tmux、GPU、用户授权配置或真实 UI；真实 Worker、传输/清理、active results、跨项目和新 UI 未测。保留 26 个 tracked dirty dist、历史 VSIX sha、全部夹具及现场，不 stage 或清理。模拟删除/缺失不证明真实永久删除安全。总控批准既有夹具只在自建 temp 范围内 rename 到 clean_dir 并保留字节的模拟；真实删除、真实 WSL/tmux/GPU 与完整 runtime import/exec 仍不执行。具体安全测试、原精确权限与进一步裁决见 coverage 和历史原文。
 
@@ -32,7 +32,7 @@ formalJobPreflightProgress/Structure/Environment 各 1/1、Failure/Rejections �
 
 接替后合成回归 distributedPlanExecutionMode 10/10、taskQueryWideReadRealChain 3/3、planRunHoldClearedChain 3/3、planRunRecovery 7/7、nativePlanRetry 6/6、completedJobArtifactRootBinding 7/7、syncScopeStagingIdentityWiring 4/4、planSubmissionStateGuard 26/26、planRunQueryRegression 6/6、planRunSharedSubmission 5/5、planBatchDispatchFirst 14/14、rerunTransferBusyAttribution 21/21、rerunIsolateEngineContract 6/6、cleanupMissingTargets 11/11、formalJobExecution 5/5、completedJobLatestSync 32/32、planStopClear 39/39、syncScopeDelete 14/14、syncScopeWorkerAuthority 10/10、cleanupActivity 2/2、localIndexSharedIdentity 3/3、localCodeManifestCache 5/5、currentSubmissionTruth 8/8、planPreflightProgressSpeed 20/20、tmuxCloseRuntime 1/1 均 exit0。采用函数提取、VM、假请求和自建状态；tmuxCloseRuntime 用假 subprocess/timer，syncScopeDelete 只检查生成脚本与替身，preflight 保留原 40 文件计时断言；无真实 Worker、tmux、网络、UI 或删除。完整依赖/原始事件见 coverage；均待总控终审。
 
-旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 30 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
+旧执行会话结束后受支持工具归档并核 session_meta、138 条 eligible 原事件双 SHA，139 处仅修实际归档路径（`9a69240b`），未搬删原 rollout 或重跑。此前旧会话归档修复另核 35 项事件、42 处路径，未改事件。当前 planner 23 项待核；须按具体调用链及源证继续，不得把未知或未测写成通过。
 
 planCleanup 原文件 33/33 exit0；SFTP/UI 为替身，API 未监听，两个自建 PLAN/config 文件在 temp 根内 rename 到 clean_dir 并保留；模拟缺失不证明真实删除安全。原日志、事件与依赖见 coverage，待总控终审。
 
@@ -91,3 +91,11 @@ metricsDownloadEndToEnd 18/18 exit0；VS Code、Worker 和 SFTP 为替身，项�
 pluginLogRetention 15/15 exit0；VM 提取、假 Worker 与自建夹具，缺失目标由 retainFixtureTarget 移入 clean_dir 保留字节，两代发布均保留内容；无真实永久删除、Worker 或 UI。原日志、事件及依赖见 coverage，待总控终审。
 
 resourceLeaseCompatibility 1/1 exit0；显式读取兄弟 SimpleSFTP 的三个依赖并冻结，本仓与兄弟实现仅在自建临时租约根模拟共享违规；无真实 Worker、UI 或永久删除。原日志、事件及依赖见 coverage，待总控终审。
+
+resultCandidateMetadataExclusion 4/4 exit0；仅将 Python TemporaryDirectory 自动扫尾改为保留新建 mkdtemp，原业务断言不变；限时 Python 只执行提取函数，不运行完整 runtime。无真实 Worker、UI 或永久删除；日志与依赖见 coverage。
+
+总控审定旧 job 232 gitOverwrite 可继承，原 4/4、exit0/tree confirmed、11.600 秒，私有本地 Git 夹具和假删除回调，当前闭包与原日志冻结。旧 Node/架构/Git 未知；当前夹具缺 git-dir/common-dir/index 前置核实，未获准重跑，不代表真实用户仓库覆盖或删除已验证。
+
+总控审定旧 job 296/298 可继承，原各 3/3 exit0/tree confirmed；296 是 pwsh mutex 夹具，298 为单 Node 内 VM 写入及未监听的 API 状态发布。历史工具链未知，本轮未重跑。
+
+总控审定旧 job 111/149/154 可继承，原 8/8、5/5、19/19 exit0/tree confirmed；仅为隔离多进程和迁移夹具历史，工具链未知，本轮未重跑或删除。
