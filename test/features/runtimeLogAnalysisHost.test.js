@@ -51,6 +51,18 @@ test('offline, old protocol, wrong target and cancellation never certify clear l
  const abort=new AbortController();abort.abort();await assert.rejects(analyzeRuntimeLog(f.host,f.root,{workflowId:'wf',index:0},abort.signal),/abort/i);
  assert.equal(JSON.stringify(f.queue),f.before);
 });
+test('analysis stops before snapshot and feedback if the project changes across awaits',async()=>{
+ for(const changeDuring of ['query','snapshot']){
+  const f=fixture();let current=true,snapshots=0,posts=0;
+  f.host.projectContextIsCurrent=()=>current;
+  const query=f.host.client.getWorkerTasks;
+  f.host.client.getWorkerTasks=async(...args)=>{const result=await query(...args);if(changeDuring==='query')current=false;return result;};
+  f.host.readWorkerTaskSnapshot=async()=>{snapshots++;current=false;};
+  f.host.postState=()=>posts++;
+  await assert.rejects(analyzeRuntimeLog(f.host,f.root,{workflowId:'wf',index:0}),/工作区已变化/);
+  assert.equal(snapshots,changeDuring==='query'?0:1);assert.equal(posts,0);
+ }
+});
 test('rendered panel labels and counts never paint an exit-zero anomaly or unverified history as green success',()=>{
  const html=require('../../src/ui/PanelHtml.ts').renderPanelHtml();
  const script=[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n');

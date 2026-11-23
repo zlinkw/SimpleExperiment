@@ -11081,6 +11081,7 @@
         },
         {
           "name": "task_analyze",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"MCP tasks.analyze与面板共用RuntimeLogAnalysisHost，项目切换假Worker 1/1及既有路径2/2 exit0，见g004-analysis-project-change-20261123和g004-analysis-existing-20261123日志。","boundary":"未访问真实Worker、任务或日志；源码待构建。"},
           "method": "tasks.analyze",
           "oldEvidence": "projectTools[name=task_analyze]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -12591,6 +12592,7 @@
         },
         {
           "id": "panel:analyzeRuntimeLog:1",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"卡片原Worker、commandId及声明目录由Host核身份；异步查询后及快照后复核项目，切换则停止。假Worker项目切换1/1和原身份/拒绝2/2，日志 %TEMP%/g004-analysis-project-change-20261123.*.log、g004-analysis-existing-20261123.*.log，exit0。","boundary":"显式历史诊断，不自动启动；未查询真实任务、日志或Worker，源码待构建。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=analyzeRuntimeLog]; panelPayloadReconciliation[command=analyzeRuntimeLog]",
           "oldStatus": "concluded_scoped",
@@ -14573,6 +14575,7 @@
         {
           "name": "analyzeRuntimeLog",
           "route": "handleMessageCore_case",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"路由传卡片原始身份给共用分析Host，查询及刷新跨await后复核项目，返回可见分析结果；假Worker检查1/1及原有路径2/2 exit0。","boundary":"未真实查询任务/日志或切换项目；源码待构建。"},
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
         {

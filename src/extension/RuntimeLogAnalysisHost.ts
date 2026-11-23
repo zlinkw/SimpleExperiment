@@ -34,6 +34,7 @@ export async function analyzeRuntimeLog(h: any, root: string, params: any, signa
     signal?.throwIfAborted();
     if (!h.projectContextIsCurrent(context)) throw Error("工作区已变化，已停止本轮日志分析。");
     const response = await h.client.getWorkerTasks(workerId, { queries: [query], signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) });
+    if (!h.projectContextIsCurrent(context)) throw Error("工作区已变化，已停止本轮日志分析。");
     if (response.queryComplete !== true || response.capabilities?.runtimeDiagnostics !== 1) throw Error("请更新该 Worker 的 Agent/Scheduler：需要 runtimeDiagnostics=1；未改写历史。");
     task = response.tasks?.find((row: any) => row.commandId === commandId && row.projectId === query.projectId && row.workerId === workerId);
     if (!task || task.observation?.queryError) throw Error(task?.observation?.queryError || "未取得原任务的主动查询结果");
@@ -41,6 +42,7 @@ export async function analyzeRuntimeLog(h: any, root: string, params: any, signa
     if (evidence.scanComplete || evidence.bytesRead == null || evidence.totalBytes == null || evidence.bytesRead >= evidence.totalBytes) break;
   }
   await h.readWorkerTaskSnapshot?.(workerId, { fresh: true, signal });
+  if (!h.projectContextIsCurrent(context)) throw Error("工作区已变化，已停止本轮日志分析。");
   h.postState?.(true);
   return { commandId, workerId, status: task.status, executionState: task.executionState, resultState: task.resultState, exitCode: task.exitCode,
     completionState: completionState(task.runtimeDiagnostics, commandId), runtimeDiagnostics: runtimeEvidence(task.runtimeDiagnostics, commandId),

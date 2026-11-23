@@ -75,7 +75,7 @@ CSV宽/长/JSON回归6/6 `%TEMP%/g004-preview-formats-complete-20261123.*.log`�
 
 停止组已同步 `fb874de2`；其后修UI把未知误报completed、Plan停止附无关选择和Worker标识/提示，11/11及消费者12/12 exit0 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`g004-stop-consumers-outcome-current-20261123.*.log`。仅假客户端；Panel仍待build/VM及总控审，不部署或提交。完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
-同根45080 SFTP status、空transfers、配置list/get成功；target.show缺配置返回-32000，launcher exit0、外层exit1，敏感响应 `%TEMP%/g004-520-sftp-local-successor-20261123.json` 不公开。首身份检查误读health而exit1，后以PID/capabilities核实；未改配置或访问远端。只读glob及压缩补丁失败未改产品，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
+同根45080 SFTP本地状态与配置只读成功；target.show缺配置及首身份检查失败、敏感日志与边界见 `49e1cebd:docs/plan-generations/G004-execution.md`。未改配置或访问远端。
 
 停止候选保留显式Worker供人工重试；12/12 exit0 `%TEMP%/g004-stop-ui-identity-20261123.*.log`，Panel未构建部署。
 
@@ -138,3 +138,5 @@ MCP诊断取消在await查询后可能在授权或项目、Worker变化后仍发
 MCP resource_available 原将明确过期、离线或degraded的缓存GPU状态按空闲判可用；现返回unknown。真实查询方法配假RPC 1/1 `%TEMP%/g004-resource-stale-gateway-20261123.*.log`，源码函数1/1 `%TEMP%/g004-resource-degraded-20261123.*.log`，均exit0；首次补丁未匹配、未写入。缺状态或只有旧时间戳仍不能证明新鲜；未查询真实GPU、任务或Worker，待构建。
 
 诊断复制、操作日志、面板恢复三个命令及配置说明入口的注册和Host消费者逐ID源码复核；真实剪贴板、窗口和重新识别均未操作，原证和边界见coverage。
+
+日志分析查询跨await切项目后原可继续刷新新项目快照；现查询后和快照后复核原项目。假Worker切换1/1 `%TEMP%/g004-analysis-project-change-20261123.*.log`，原身份及拒绝2/2 `%TEMP%/g004-analysis-existing-20261123.*.log`，均exit0；未查询真实Worker/任务/日志，待build。只读检查错误tag、路径及引号各失败，文档补丁首稿未匹配，均未改产品。
