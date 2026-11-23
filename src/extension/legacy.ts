@@ -7166,7 +7166,9 @@ return this.testTunnel(true);
             }
             case "recallFailedJob":
                 {
-                    const queue = await this.loadDistributedQueue(workspaceRoot());
+                    const context = this.captureProjectContext();
+                    const queue = await this.loadDistributedQueue(context.root);
+                    if (!this.projectContextIsCurrent(context)) throw new Error("项目已切换，未重新排队任务。");
                     const job = queue.plans.find(row => row.id === String(message.planId || ""))?.jobs.find(row => row.index === Number(message.jobIndex));
                     if (job?.lifecycleProtocol === 2) return await this.retryDistributedJobFromUi({ ...message, commandId: message.commandId || job.commandId });
                 }
