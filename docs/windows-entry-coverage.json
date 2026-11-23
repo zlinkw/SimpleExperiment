@@ -11559,6 +11559,7 @@
         },
         {
           "name": "sftp_servers",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"Gateway 校验空参数与同窗 SimpleSFTP 方法可用性；120 的 servers.list 读取共享配置并通过 publicServerRecord 返回公开字段。","boundary":"仅源码审阅，未读取真实服务器配置或连接服务器；共享记录不等于当前项目授权目标。"},
           "method": "servers.list",
           "oldEvidence": "projectTools[name=sftp_servers]",
           "scope": "companion_proxy_real_downstream_scoped",
@@ -11656,6 +11657,7 @@
         },
         {
           "name": "sftp_target_update",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"schema 仅允许 patch 的 host/port/username/remotePath；Gateway 的本人模态确认成功后产生 confirm，Host 绑定当前工作区 localPath 并传确认因子；120 核路径确认后更新对应目标。","boundary":"仅审调用链，未弹窗或写目标，未更改共享配置或请求真实远端；未验证所有输入及并发分支。"},
           "method": "target.update",
           "oldEvidence": "projectTools[name=sftp_target_update]",
           "scope": "companion_proxy_real_downstream_scoped",
@@ -11664,6 +11666,7 @@
         },
         {
           "name": "sftp_confirmation_reset",
+          "currentReview": {"status":"source_scoped_external_effect_restricted","evidence":"Gateway 需要本人模态确认；Host 传确认因子，120 confirmation 检查通过后更新伴随插件 globalState 路径免提醒列表并返回计数。","boundary":"该操作影响共享记忆；本轮仅源码审阅，未弹窗、未清空任何记录。"},
           "method": "confirmations.reset",
           "oldEvidence": "projectTools[name=sftp_confirmation_reset]",
           "scope": "companion_proxy_real_downstream_scoped",
