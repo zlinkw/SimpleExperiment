@@ -327,6 +327,48 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
   const wrongCountPath = path.join(ws, "wrong-count.json");
   fs.writeFileSync(wrongCountPath, JSON.stringify({ ...composite, launchedCount: 3 }));
   assert.equal(runner.validateG004ReceiptForAssemble(wrongCountPath, "package", state.plan, "current", "artifact", ws).ok, false);
+
+  // The existing actionLifecycle run used one fixed, statically recognized spawnSync wrapper.
+  const vm = require("node:vm"), runnerSource = fs.readFileSync(RUNNER, "utf8");
+  const wrappedStart = runnerSource.indexOf("const G004_ACTION_LIFECYCLE_CALL =");
+  const wrappedEnd = runnerSource.indexOf("\nfunction inspectG004DirectEvidence(", wrappedStart);
+  assert.ok(wrappedStart > 0 && wrappedEnd > wrappedStart);
+  const logBase = path.join("X:\\temp", "g004-draft-action-lifecycle-final-20261123");
+  const stdout = "ℹ tests 49\nℹ pass 49\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\n";
+  const files = new Map([[logBase + ".out.log", stdout], [logBase + ".err.log", ""]]);
+  const hashText = value => crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  const realm = { crypto, path, process: { env: { TEMP: "X:\\temp" } }, fs: { readFileSync: file => files.get(file) },
+    sha256Fresh: file => hashText(files.get(file)) };
+  vm.runInNewContext(runnerSource.slice(wrappedStart, wrappedEnd) + "\nthis.verify=verifyG004ActionLifecycleWrapper;this.call=G004_ACTION_LIFECYCLE_CALL;this.wait=G004_ACTION_LIFECYCLE_WAIT;", realm);
+  const item = (type, value, position) => { const event = { payload: { type, ...(type === "custom_tool_call" ? { input: value } : { output: value }) } }; return { event, position, line: JSON.stringify(event) }; };
+  const header = { text: "Script completed\nWall time 0.0 seconds\nOutput:\n" };
+  const first = [item("custom_tool_call", realm.call, 0), item("custom_tool_call_output", [header, { text: JSON.stringify({ status: 0, signal: null, tail: stdout, stderr: "" }) }, { text: "session 83065" }], 1)];
+  const last = [item("custom_tool_call", realm.wait, 2), item("custom_tool_call_output", [header, { text: "" }, { text: "exit 0" }], 3)];
+  const proof = { callId: "call_1d2d9eeb8125469fb2a0cc35b13b7ee9", log: logBase + ".out.log", stderrLog: logBase + ".err.log",
+    logSha256: hashText(stdout), stderrLogSha256: hashText(""), continuations: [{ callId: "call_37e5dbdf374a4045843c5d100cd1a685" }] };
+  const seal = () => { for (const item of [...first, ...last]) item.line = JSON.stringify(item.event);
+    Object.assign(proof, { commandEventSha256: hashText(first[0].line), outputEventSha256: hashText(first[1].line) });
+    Object.assign(proof.continuations[0], { commandEventSha256: hashText(last[0].line), outputEventSha256: hashText(last[1].line) }); };
+  const wrappedJob = { file: "test/ui/actionLifecycle.test.js", argv: ["--test", "--test-force-exit", "--test-timeout", "20000"] };
+  const verify = () => realm.verify("D:\\GitRepo\\MCP\\zlk-cluster-orchestrator", wrappedJob, proof, first, last);
+  seal(); assert.doesNotThrow(verify);
+  assert.throws(() => realm.verify("D:\\other", wrappedJob, proof, first, last), /wrapped direct execution invalid/);
+  assert.throws(() => realm.verify("D:\\GitRepo\\MCP\\zlk-cluster-orchestrator", { ...wrappedJob, argv: ["--test"] }, proof, first, last), /wrapped direct execution invalid/);
+  for (const replacement of [realm.call.replace("20000", "30000"), realm.call.replace("orchestrator", "other"), realm.call.replace("process.exit(r.status===0?0:1)", "process.exit(0)")]) {
+    first[0].event.payload.input = replacement; seal(); assert.throws(verify, /wrapped direct execution invalid/);
+  }
+  first[0].event.payload.input = realm.call;
+  for (const result of [{ status: null, signal: null, tail: stdout, stderr: "" }, { status: 0, signal: "SIGTERM", tail: stdout, stderr: "" }, { status: 1, signal: null, tail: stdout, stderr: "" }]) {
+    first[1].event.payload.output[1].text = JSON.stringify(result); seal(); assert.throws(verify, /wrapped direct execution invalid/);
+  }
+  first[1].event.payload.output[1].text = JSON.stringify({ status: 0, signal: null, tail: stdout, stderr: "" });
+  for (const output of ["session 83066", "session 83065\nexit 0"]) { first[1].event.payload.output[2].text = output; seal(); assert.throws(verify, /wrapped direct execution invalid/); }
+  first[1].event.payload.output[2].text = "session 83065";
+  last[0].event.payload.input = realm.wait.replace("83065", "83066"); seal(); assert.throws(verify, /wrapped direct execution invalid/);
+  last[0].event.payload.input = realm.wait.replace('if(r.exit_code!==undefined)text(`exit ${r.exit_code}`)', 'text("exit 0")'); seal(); assert.throws(verify, /wrapped direct execution invalid/);
+  last[0].event.payload.input = realm.wait; last[1].event.payload.output[2].text = "exit 1"; seal(); assert.throws(verify, /wrapped direct execution invalid/);
+  last[1].event.payload.output[2].text = "exit 0"; files.set(logBase + ".err.log", "unexpected"); seal(); assert.throws(verify, /wrapped direct execution invalid/);
+  files.set(logBase + ".err.log", ""); files.set(logBase + ".out.log", stdout + "changed"); seal(); assert.throws(verify, /wrapped direct execution invalid/);
 });
 
 test("runner: attested jobs really overlap but never exceed maxParallel=2", async t => {

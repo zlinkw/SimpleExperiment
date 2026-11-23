@@ -1072,6 +1072,43 @@ ConvertTo-Json -InputObject $result -Compress -Depth 5
   return JSON.parse(parsed.stdout);
 }
 
+// This is the one observed G004 actionLifecycle wrapper, not a JavaScript interpreter.
+const G004_ACTION_LIFECYCLE_CALL = "const r=await tools.exec_command({cmd:\"node -e \\\"const c=require('child_process'),f=require('fs'),p=require('path');const r=c.spawnSync(process.execPath,['--test','--test-force-exit','--test-timeout','20000','test/ui/actionLifecycle.test.js'],{encoding:'utf8',timeout:20000,windowsHide:true});const b=p.join(process.env.TEMP,'g004-draft-action-lifecycle-final-20261123');f.writeFileSync(b+'.out.log',r.stdout||'','utf8');f.writeFileSync(b+'.err.log',r.stderr||'','utf8');const lines=(r.stdout||'').split('\\\\n');console.log(JSON.stringify({status:r.status,signal:r.signal,error:r.error&&r.error.message,tail:lines.slice(-9).join('\\\\n'),stderr:r.stderr}));process.exit(r.status===0?0:1)\\\"\",\"shell\":\"pwsh.exe\",\"workdir\":\"D:\\\\GitRepo\\\\MCP\\\\zlk-cluster-orchestrator\",\"yield_time_ms\":1000,\"max_output_tokens\":800});text(r.output);if(r.session_id)text(`session ${r.session_id}`)\n";
+const G004_ACTION_LIFECYCLE_WAIT = "const r=await tools.write_stdin({session_id:83065,chars:\"\",yield_time_ms:1000,max_output_tokens:300});text(r.output);if(r.exit_code!==undefined)text(`exit ${r.exit_code}`)\n";
+function verifyG004ActionLifecycleWrapper(root, job, row, events, continuationEvents) {
+  const fail = () => { throw new Error("G004 wrapped direct execution invalid: " + job.file); };
+  if (root !== "D:\\GitRepo\\MCP\\zlk-cluster-orchestrator" || job.file !== "test/ui/actionLifecycle.test.js"
+    || JSON.stringify(job.argv) !== JSON.stringify(["--test", "--test-force-exit", "--test-timeout", "20000"])
+    || row.callId !== "call_1d2d9eeb8125469fb2a0cc35b13b7ee9" || row.continuations?.length !== 1
+    || row.continuations[0].callId !== "call_37e5dbdf374a4045843c5d100cd1a685") fail();
+  const digest = value => crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  const pair = (items, expectedInput, record) => {
+    const calls = items.filter(item => item.event.payload.type === "custom_tool_call");
+    const outputs = items.filter(item => item.event.payload.type === "custom_tool_call_output");
+    if (calls.length !== 1 || outputs.length !== 1 || calls[0].position >= outputs[0].position
+      || calls[0].event.payload.input !== expectedInput || digest(calls[0].line) !== record.commandEventSha256
+      || digest(outputs[0].line) !== record.outputEventSha256) fail();
+    return { call: calls[0], output: outputs[0], blocks: outputs[0].event.payload.output };
+  };
+  const first = pair(events, G004_ACTION_LIFECYCLE_CALL, row);
+  const last = pair(continuationEvents, G004_ACTION_LIFECYCLE_WAIT, row.continuations[0]);
+  if (last.call.position <= first.output.position || !Array.isArray(first.blocks) || first.blocks.length !== 3
+    || first.blocks[2].text !== "session 83065" || !Array.isArray(last.blocks) || last.blocks.length !== 3
+    || !/^Script completed\nWall time [\d.]+ seconds\nOutput:\n$/.test(first.blocks[0].text)
+    || !/^Script completed\nWall time [\d.]+ seconds\nOutput:\n$/.test(last.blocks[0].text)
+    || last.blocks[1].text !== "" || last.blocks[2].text !== "exit 0") fail();
+  let result;
+  try { result = JSON.parse(first.blocks[1].text); } catch { fail(); }
+  if (result.status !== 0 || result.signal !== null || result.error != null || result.stderr !== "") fail();
+  const base = path.join(process.env.TEMP, "g004-draft-action-lifecycle-final-20261123");
+  if (row.log !== base + ".out.log" || row.stderrLog !== base + ".err.log"
+    || sha256Fresh(row.log) !== row.logSha256 || sha256Fresh(row.stderrLog) !== row.stderrLogSha256) fail();
+  const stdout = fs.readFileSync(row.log, "utf8"), stderr = fs.readFileSync(row.stderrLog, "utf8");
+  if (stderr !== result.stderr || !stdout.endsWith(result.tail) || /Warning: truncated output/i.test(stdout)
+    || !/(?:ℹ|#)\s*tests\s+49\b/.test(stdout) || !/(?:ℹ|#)\s*pass\s+49\b/.test(stdout)
+    || !["fail", "cancelled", "skipped", "todo"].every(name => new RegExp(`(?:ℹ|#)\\s*${name}\\s+0\\b`).test(stdout))) fail();
+}
+
 function inspectG004DirectEvidence(root, plan, coverage) {
   const key = j => JSON.stringify([j.identity, j.argv]);
   const planned = new Map(plan.jobs.map(j => [key(j), j]));
@@ -1102,6 +1139,11 @@ function inspectG004DirectEvidence(root, plan, coverage) {
     const calls = events.filter(x => x.event.payload.type === "custom_tool_call"), outputs = events.filter(x => x.event.payload.type === "custom_tool_call_output");
     const call = calls[0], output = outputs[0];
     const digest = s => crypto.createHash("sha256").update(s, "utf8").digest("hex");
+    if (row.recordFormat === "g004-action-lifecycle-spawn-v1") {
+      const continuation = row.continuations?.[0];
+      verifyG004ActionLifecycleWrapper(root, job, row, events, grouped.get(row.rollout).get(continuation?.callId) || []);
+      if (JSON.stringify(row.review.reviewedArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct argv mismatch: " + row.file);
+    } else {
     if (calls.length !== 1 || outputs.length !== 1 || digest(call.line) !== row.commandEventSha256 || digest(output.line) !== row.outputEventSha256 || !row.exactCommandLine || parsedCommands[index].error || !parsedCommands[index].commands.includes(row.exactCommandLine) || !row.exactCommandLine.includes(row.file) || JSON.stringify(row.review.reviewedArgv) !== JSON.stringify(job.argv)) throw new Error("G004 direct execution record drift: " + row.file);
     const parts = row.exactCommandLine.match(/'[^']*'|[^\s]+/g) || [];
     if (parts.join(" ") !== row.exactCommandLine || parts[0] !== "node" || parts[parts.length - 1] !== row.file || parts.some(part => part.startsWith('"'))) throw new Error("G004 unsupported direct command: " + row.file);
@@ -1125,6 +1167,7 @@ function inspectG004DirectEvidence(root, plan, coverage) {
     const completeOutput = toolResult && completeTestOutput(toolResult.output);
     const retainedLog = row.log && row.logSha256 && sha256Fresh(row.log) === row.logSha256 && completeTestOutput(fs.readFileSync(row.log, "utf8"));
     if (!toolResult || toolResult.exit_code !== 0 || toolResult.session_id || (continuations.length && !retainedLog) || (row.log || row.logSha256 ? !retainedLog : !completeOutput)) throw new Error("G004 direct execution did not settle successfully: " + row.file);
+    }
     const deps = Object.entries(row.review.snapshotSha256);
     if (!deps.length || !Object.hasOwn(row.review.snapshotSha256, row.file) || !Array.isArray(row.review.dependencies) || row.review.dependencies.length !== deps.length || new Set(row.review.dependencies).size !== deps.length || row.review.dependencies.some(dep => !Object.hasOwn(row.review.snapshotSha256, dep))) throw new Error("G004 direct dependencies missing: " + row.file);
     for (const [rel, expected] of deps) {
