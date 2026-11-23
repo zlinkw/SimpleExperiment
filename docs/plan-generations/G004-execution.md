@@ -177,18 +177,6 @@ handoff按用户批准修复选定Worker确认、上传和标记，SFTP d4ed002�
 
 MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；假fs/传输3/3、假Gateway1/1 exit0，日志及真实效果限制见coverage，未安装。
 
-面板verifyAgentVersion/prepareAgents/startAll及对应invoke路线按旧实点适用和当前源码分别核对，未实测远端；见coverage。
+面板Agent入口、结果拆表与映射、主导航及执行导航逐ID源码核对和限制见coverage；完整压缩前记录见 `2a4cc440:docs/plan-generations/G004-execution.md`。异常操作无独立锚时回退执行区，不自动过滤；未操作真实Worker、GPU、tmux、结果、用户窗口或PLAN。
 
-结果拆表入口及可见词条全选/取消逐ID核当前界面与Host校验，未写真实结果；见coverage。
-
-结果映射打开、共享产物定位、拆表提交及invoke按源码逐ID核对，未读写真实结果；见coverage。
-
-plans/execution/results主导航逐ID核属性、区块状态与滚动链，未冒充本轮实点；见coverage。
-
-sync/gpu/tmux主导航按属性和显示链核源码，未操作真实GPU、tmux或同步；见coverage。
-
-诊断、设置主导航及返回工作区状态恢复按源码逐ID核对；未点击用户窗口或改配置。
-
-计划识别、操作和列表导航逐ID核实际树锚及旧假DOM适用；本轮未点击或执行PLAN。
-
-执行区三项导航核锚：异常操作无独立锚时回退执行区，不自动过滤；未查真实任务。
+配套b3da0b5后的受影响原消费者：explicitScopedDownload原单文件1/1及workspaceIntegration原单文件4/4均exit0，分别记录 `%TEMP%/g004-sftp-explicit-scope-consumer-20261123.log`、`%TEMP%/g004-sftp-workspace-consumer-20261123.log`。前者为显式范围纯内存与源码契约，后者为假工作区与静态顺序检查；均不证明真实传输、覆盖或删除，不能代替剩余打包覆盖审查。
