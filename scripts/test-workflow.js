@@ -577,7 +577,7 @@ async function runJob(state, job) {
   const { env, dir: envDir } = await isolatedTestEnv(state, idx);
   const timeoutIdx = job.argv.indexOf("--test-timeout");
   const innerTimeoutMs = timeoutIdx >= 0 ? Number(job.argv[timeoutIdx + 1]) : null;
-  const outerTimeoutMs = Number.isFinite(innerTimeoutMs) ? innerTimeoutMs + state.killGraceMs : null;
+  const outerTimeoutMs = Number.isFinite(innerTimeoutMs) ? innerTimeoutMs + (state.g004Inherited ? 0 : state.killGraceMs) : null;
   const startedAt = new Date().toISOString(), t0 = nowMono();
   const result = await spawnCaptured(process.execPath, [...job.argv, job.file], {
     cwd: state.root, env, outFile, errFile, timeoutMs: outerTimeoutMs,
@@ -586,9 +586,10 @@ async function runJob(state, job) {
   state.runningJobs.delete(job);
   job.child = null;
   const wallMs = nowMono() - t0;
+  const timedOut = result.timedOut || (state.g004Inherited && outerTimeoutMs !== null && wallMs >= outerTimeoutMs);
   const treeConfirmed = result.kill.confirmed;
-  const status = state.cancelled ? "cancelled" : result.timedOut ? "timeout" : result.spawnError ? "spawn-error" : result.exitCode === 0 && treeConfirmed ? "passed" : "failed";
-  const record = { file: job.file, identity: job.identity, argv: job.argv, sources: job.sources, exclusive: job.classification.exclusive, group: job.classification.group, basis: job.classification.basis, envDir, pid: result.pid, startedAt, endedAt: new Date().toISOString(), wallMs, exitCode: result.exitCode, signal: result.signal || null, spawnError: result.spawnError || null, timedOut: result.timedOut || false, treeStatus: treeConfirmed ? "confirmed" : "unknown(" + result.kill.method + ":" + (result.kill.detail || "") + ")", status, outLog: outFile, errLog: errFile, cpuMs: "not-recorded" };
+  const status = state.cancelled ? "cancelled" : timedOut ? "timeout" : result.spawnError ? "spawn-error" : result.exitCode === 0 && treeConfirmed ? "passed" : "failed";
+  const record = { file: job.file, identity: job.identity, argv: job.argv, sources: job.sources, exclusive: job.classification.exclusive, group: job.classification.group, basis: job.classification.basis, envDir, pid: result.pid, startedAt, endedAt: new Date().toISOString(), wallMs, exitCode: result.exitCode, signal: result.signal || null, spawnError: result.spawnError || null, timedOut: !!timedOut, treeStatus: treeConfirmed ? "confirmed" : "unknown(" + result.kill.method + ":" + (result.kill.detail || "") + ")", status, outLog: outFile, errLog: errFile, cpuMs: "not-recorded" };
   if (state.g004Inherited) {
     record.origin = "fresh";
     if (status === "passed") record.logSha256 = { outLog: sha256Fresh(outFile), errLog: sha256Fresh(errFile) };

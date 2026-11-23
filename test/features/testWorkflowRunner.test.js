@@ -93,7 +93,7 @@ const baseManifest = (ws, entries, parallelFiles, exclusive = {}) => ({
   entries, classification: { mode: "attested-whitelist", parallel: attestIn(ws, parallelFiles), exclusive },
 });
 
-test("runner: G004 reviewed legacy evidence preserves origin and refuses drift", t => {
+test("runner: G004 reviewed legacy evidence preserves origin and refuses drift", async t => {
   // Reuse only the actual static parser stdout for identical inputs in this case.
   const Module = require("node:module"), childProcess = require("node:child_process");
   const originalLoad = Module._load, originalModule = require.cache[RUNNER], parserResults = new Map();
@@ -120,6 +120,26 @@ test("runner: G004 reviewed legacy evidence preserves origin and refuses drift",
     require.cache[RUNNER] = originalModule;
   }
   t.after(() => parserResults.clear());
+  const source = fs.readFileSync(RUNNER, "utf8"), start = source.indexOf("async function runJob("), end = source.indexOf("\nfunction uncoveredG004Jobs(", start);
+  assert.ok(start >= 0 && end > start);
+  let elapsed = 0, clockCalls = 0, requestedTimeout, fixtureTimedOut = false;
+  const runJob = require("node:vm").runInNewContext("(" + source.slice(start, end) + ")", {
+    path, fsp: { mkdir: async () => {} }, fs: { readFileSync: () => "" },
+    isolatedTestEnv: async () => ({ env: {}, dir: "fixture" }), nowMono: () => clockCalls++ ? elapsed : 0,
+    spawnCaptured: async (_command, _args, opts) => { requestedTimeout = opts.timeoutMs; return { exitCode: 0, timedOut: fixtureTimedOut, kill: { confirmed: true } }; },
+    process: { execPath: "node", stdout: { write() {} } }, sha256Fresh: () => "fixture",
+  });
+  const checkDeadline = async (g004, wall, killed = false) => {
+    elapsed = wall; clockCalls = 0; fixtureTimedOut = killed;
+    const state = { root: "fixture", logDir: "fixture", jobSeq: 0, killGraceMs: 30000, runningJobs: new Map(), receipt: { jobs: [] }, ...(g004 ? { g004Inherited: [] } : {}) };
+    const job = { file: "fixture.js", argv: ["--test-timeout", "20000"], classification: {} };
+    const record = await runJob(state, job);
+    return { record, timeout: requestedTimeout };
+  };
+  assert.equal((await checkDeadline(true, 1)).timeout, 20000);
+  assert.equal((await checkDeadline(false, 1)).timeout, 50000);
+  assert.equal((await checkDeadline(true, 20001)).record.status, "timeout");
+  assert.equal((await checkDeadline(true, 1, true)).record.status, "timeout");
   const ws = makeWorkspace(t), file = "test/source.js";
   const manifest = { entries: { fin: { final: true, phases: {} } }, domains: {} };
   assert.throws(() => runner.planEntry(path.join(ws, "manifest.json"), manifest, ws, "fin", { root: ws, only: [], domains: [], reuseRequested: true }), /removed by r29 #4/);
