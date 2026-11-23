@@ -8,7 +8,7 @@
 
 ## 角色、租约与保护
 
-总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high，实际match/continue，最近实际default且模型/强度match；独占本计划/README及最终审查。唯一执行01a2070f-26ea-7cb2-a4f5-d715d3b51d15/local，Terra/high/priority、match/continue，持产品/API/MCP/UI、测试、execution/coverage及scoped Git租约。此前df29de92文档同步短暂交权已结束；当前执行者独占两仓串行Git/产品测试及记录租约，总控只写本计划/README，获审精确plan diff由执行者后续记录组同步。两角色不另建审查者或执行者。旧01a20584六次压缩/第五次后峰300187自然接替；更早总控01a1fdb5及执行01a203b9/01a204cc的资格、交权和归档见原Git记录，接替不重置任务/批准/证据。service_tier仅记录。
+总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续3》01a2040c-d282-7d92-9542-abcdc0689d37/local，Sol/high/default、match/continue，独占本计划/README及最终审查。唯一执行01a208e7-87fc-7e11-a447-1fb563eacb24/local，实际Terra/high/default、match/continue。旧01a2070f在12次压缩/第五次后峰300367自然接替，已完整交班并释放全部资源，无在途；本轮总控先同步唯一指针，再明确释放两仓串行Git/产品/API/MCP/UI/测试及execution/coverage租约给新执行。总控只写本计划/README，获审精确diff由唯一Git写者同步；两角色不另建审查者或执行者。更早轮换资格、交权及归档见e8bc27fe同路径及原Git记录；接替不重置任务/批准/证据，service_tier仅记录。
 
 总控无独立待办、只等完整包/必要决定时按全局事件协调合法空闲，不循环wait/催进度；执行者有可做工作继续。消息只用于完整阶段包、真实阻断、当前决定和交班/租约，不索纯ack。未知在途先核归属和结果，不重放。
 
@@ -99,5 +99,7 @@ P0 build实际npm run build包含完整测试域，不能因build批准自动跑
 G004 direct新增固定已发生actionLifecycle包装兼容，仅原call_1d2d9eeb8125469fb2a0cc35b13b7ee9+同session83065续接call_37e5dbdf374a4045843c5d100cd1a685。核原全文/事件SHA/双日志SHA、child status0无signal及outer实际exit0，不eval原脚本或伪tree confirmed；49/49原9.349秒包含草稿只作历史事实，不重跑。原G004 pattern首次1/1 9.89秒，补纯内存拒绝断言另获原20秒一次，最新结果见execution；不因包装支持豁免当前依赖漂移。所有首失败/超时和未知仍保留。
 
 隔离永久删除审核适用 confirmed_paths：0275a980已同步的8文件组去本入口旧派发/启动/队列资格，普通移走/恢复不变。local_operations 同文件lease/beforeRename保存原ID→reviewId及逐后端 unsent/admitted/ended，发起者close后才凭原token/digest/root/operationId的delete-fast completed回执结清；零出站可结清，缺失/空executor不证明结束。旧无pointer未决首次status保原记录；旧版已精简者不可恢复，open/uncertain崩溃仍unknown，旧Host混用不冒保障。保双确认、唯一目标来源、节点/根/路径类型指纹及原删除器；未真实删除。v11纯内存12/12、缓存consumer v2 1/1 exit0；首v10 11/12错误码断言失败保留。总控实读完整service/Host/存储/回执/假后端，源审通过，未build。裸service按真实RPC回执收敛，不恒定假false；原planRunIsolateRerun精确Map替身case待新编译产物后原20秒一次，其他原world动作未开放。输出模板fedd8bc9/7dfd6db5及两个调用已源审，项目beforeRename围栏假存储4/4，首2/3失败保留；OS调用不称可回滚/绝对原子，未build。
+
+暂存槽释放新缺口：人工一次确认隔离后经 isolatedMaintenanceDelete 永久删除，自动过期回收也调用同一无双确认通路。最新P0双确认优先旧Q5；旧“仅改人工”指缓存审核，不能批准此自动删除。修现有后端授权边界，永久目标经实际完整路径双确认才执行，不以boolean/隔离回执伪造确认。优先复用现有delete预览/确认/执行；普通移走仍原规则，暂存journal/槽锁/类型/根父保护保留。自动路径只读发现提示，不自动确认、隔离或删除，不删配置/历史、不扩其他回收策略。未知原ID仅观察；只假端回归，无真实删除/Worker，候选待审构建。
 
 下一动作：唯一Terra持续查现行剩余入口并修真问题，更新母集当前已审/尚未审/仅外部效果受限的精确差异；退役残留不当需求。按实际依赖收敛当前build/package及SFTP最小回归调度，源码/测试/原日志/真实退出完整交总控。最终门禁/新patch/生成物/试行Release/安装由源审和实际覆盖决定，不改520不可变资产，不提前重装或冒真实新Host/UI通过。总控仅在完整阶段包或真实必要决定时接续；整项完成后统一汇报，未完成限制如实保留。
