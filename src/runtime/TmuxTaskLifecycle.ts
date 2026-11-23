@@ -136,6 +136,7 @@ def task_execution_inventory(root, queries=()):
         rows += [query for query in queries if not any(row["projectId"] == query["projectId"] and row["commandId"] == query["commandId"] for row in rows)]
     tasks = []
     cancelled_by_worker = {}
+    recalls_by_worker = {}
     for row in rows:
         public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
                   "experimentIndex", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
@@ -154,6 +155,15 @@ def task_execution_inventory(root, queries=()):
                     raise ValueError("TASK_CANCEL_FENCE_INVALID")
                 cancelled_by_worker[worker] = set(cancelled)
             observed["cancelled"] = row["commandId"] in cancelled_by_worker[worker]
+            query = next((item for item in queries if item.get("commandId") == row["commandId"] and item.get("projectId") == row["projectId"] and item.get("workerId") == worker), {})
+            operation_id = query.get("recallOperationId")
+            if operation_id:
+                if worker not in recalls_by_worker:
+                    recalls = json.loads(task_option(task_queue_session(root, worker) + ":queue", "queuedRecalls") or "{}")
+                    if not isinstance(recalls, dict):
+                        raise ValueError("TASK_RECALL_PROOF_INVALID")
+                    recalls_by_worker[worker] = recalls
+                observed["queuedRecall"] = recalls_by_worker[worker].get(operation_id)
         execution = "missing" if not row.get("tmuxPane") else (
             "failed" if row["dead"] and row["exitCode"] is not None and row["exitCode"] != 0 else "exited" if row["dead"] else
             "queued" if row["phase"] in ("queued", "bound") else "starting" if row["phase"] in ("admitted", "starting") else
@@ -218,7 +228,7 @@ def task_execution_inventory(root, queries=()):
             # Agent protocol support is static; do not query Scheduler windows
             # for every progress refresh. Admission still checks live capacity.
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
-                "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
+                "idleGpuAdmission": True, "queuedJobRecall": True, "queuedRecallExact": 1, "taskLifecycle": 2, "manualDispatch": 1,
                 "runtimeDiagnostics": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1,
                 "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1,
                 # This runtime carries the shared independent-collector frames; the
@@ -604,7 +614,7 @@ def task_query(root, queries=(), selected_only=False, observation_only=False):
     return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True, "queryErrors": query_errors, "cleanupExecutors": cleanup_executors,
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
-                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "runtimeDiagnostics": 1,
+                             "idleGpuAdmission": True, "queuedJobRecall": True, "queuedRecallExact": 1, "taskLifecycle": 2, "manualDispatch": 1, "runtimeDiagnostics": 1,
                              "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1, "gpuCollector": 1}}
 
 def task_session_prefix():
@@ -798,6 +808,8 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
                 time.sleep(0.05)
     else:
         endpoint = task_queue_endpoint(root, worker_id)
+    if action == "recall_queued" and endpoint.get("queuedRecallExact") != 1:
+        raise RuntimeError("QUEUED_RECALL_UNSUPPORTED: current Scheduler cannot safely recall a queued task")
     policy = (payload.get("options") or {}) if action == "accept" else payload
     if action in ("accept", "configure") and policy.get("gpuMaxConcurrentCards") is not None and endpoint.get("gpuCardLimitScheduling") != 1:
         raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: update this project's Scheduler for server card limits; task windows are preserved")
@@ -1019,6 +1031,42 @@ def task_admission_gpu(row, gpus, occupied):
         return gpu_id
     return None
 
+def task_recall_queued(root, worker_id, payload, remembered, controller):
+    command_id = payload.get("targetCommandId")
+    operation_id = payload.get("recallOperationId")
+    required = ("projectId", "workflowId", "experimentIndex")
+    if not command_id or not isinstance(operation_id, str) or not re.fullmatch(r"[a-zA-Z0-9-]{8,80}", operation_id) or any(payload.get(key) is None or payload.get(key) == "" for key in required):
+        raise ValueError("TASK_RECALL_IDENTITY_REQUIRED")
+    matches = [row for row in task_inventory(root, execution_only=True) if row.get("commandId") == command_id]
+    if len(matches) != 1:
+        raise ValueError("TASK_RECALL_NOT_QUEUED")
+    row = matches[0]
+    if row.get("workerId") != worker_id or any(row.get(key) != payload.get(key) for key in required):
+        raise ValueError("TASK_OWNER_MISMATCH")
+    if row.get("dead") or row.get("phase") != "queued":
+        raise ValueError("TASK_RECALL_NOT_QUEUED")
+    current = [item for item in task_inventory(root, execution_only=True) if item.get("tmuxWindowId") == row.get("tmuxWindowId")]
+    if len(current) != 1 or current[0].get("commandId") != command_id or current[0].get("workerId") != worker_id \
+            or any(current[0].get(key) != payload.get(key) for key in required) or current[0].get("dead") or current[0].get("phase") != "queued":
+        raise ValueError("TASK_RECALL_NOT_QUEUED")
+    if command_id in remembered:
+        raise ValueError("TASK_RECALL_ALREADY_CANCELLED")
+    if len(remembered) >= 10000:
+        raise ValueError("CANCELLATION_CAPACITY")
+    proofs = json.loads(task_option(controller, "queuedRecalls") or "{}")
+    if not isinstance(proofs, dict) or operation_id in proofs:
+        raise ValueError("TASK_RECALL_PROOF_INVALID")
+    proof = {"operationId": operation_id, "commandId": command_id, "workerId": worker_id,
+             **{key: payload[key] for key in required}, "phase": "pending"}
+    proofs[operation_id] = proof
+    task_option(controller, "queuedRecalls", json.dumps(proofs))
+    remembered.add(command_id)
+    task_option(controller, "cancelled", json.dumps(sorted(remembered)))
+    task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
+    proofs[operation_id] = {**proof, "phase": "completed"}
+    task_option(controller, "queuedRecalls", json.dumps(proofs))
+    return {"cancelled": True, "queuedRecallExact": 1, "targetCommandId": command_id}
+
 def task_queue_serve(root, worker_id):
     root = os.path.realpath(root)
     controller = os.environ["TMUX_PANE"]
@@ -1087,6 +1135,9 @@ def task_queue_serve(root, worker_id):
                         task_option(controller, "gpu_policy_explicit", "1")
                         value = policy
                         wake.set()
+                    elif request["action"] == "recall_queued":
+                        value = task_recall_queued(root, worker_id, payload, remembered, controller)
+                        wake.set()
                     elif request["action"] == "cancel":
                         command_id = payload["targetCommandId"]
                         if any(row["projectId"] != payload["projectId"] for row in task_inventory(root, execution_only=True) if row["commandId"] == command_id):
@@ -1117,7 +1168,7 @@ def task_queue_serve(root, worker_id):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
         "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id, "protocol": 2,
-        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "globalResourcePrefix": 1}))
+        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "queuedRecallExact": 1, "gpuMemoryRatioScheduling": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1, "gpuMemoryBudgetScheduling": 1, "globalResourcePrefix": 1}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     while True:
         queued = []
@@ -1128,7 +1179,7 @@ def task_queue_serve(root, worker_id):
                 for live in rows:
                     if not live["dead"] and live["phase"] in ("admitted", "starting", "running") and live["gpuId"]:
                         occupied[live["gpuId"]] = occupied.get(live["gpuId"], 0) + 1
-                queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued"], key=lambda row: row.get("dispatchPolicy") != "manual")
+                queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued" and row["commandId"] not in remembered], key=lambda row: row.get("dispatchPolicy") != "manual")
                 if queued or any(row.get("_gpuBudget") and not row["_gpuBudget"].get("finished") for row in rows):
                     gpus, error = gpu_admission_probe(root, worker_id) if "gpu_admission_probe" in globals() else collect_local_gpu()
                     if gpus or not error:
@@ -1232,6 +1283,13 @@ def task_stop(root, command, worker_id):
         raise ValueError("TASK_STOP_IDENTITY_REQUIRED")
     if command.get("workerId") and command["workerId"] != worker_id:
         raise ValueError("TASK_OWNER_MISMATCH")
+    if command.get("queuedRecallOnly") is True:
+        result = task_queue_rpc(root, worker_id, "recall_queued", {
+            "targetCommandId": target, "projectId": project, "workflowId": command.get("workflowId"),
+            "experimentIndex": command.get("experimentIndex"), "recallOperationId": command.get("operationId")}, ensure=False)
+        if not isinstance(result, dict) or result.get("queuedRecallExact") != 1 or result.get("targetCommandId") != target or result.get("cancelled") is not True:
+            raise RuntimeError("TASK_RECALL_UNCONFIRMED")
+        return {"status": "completed", "queuedRecallExact": 1, "targetCommandId": target}
     rows = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target]
     legacy_tabs = [row for row in local_stop_tmux_inventory(root) if row["command"] == target] if "local_stop_tmux_inventory" in globals() else []
     if any(row["project"] != project for row in legacy_tabs):

@@ -11,12 +11,12 @@ export function taskQuery(plan: any, job: any) {
     checkpointTestOnly: job.actualExecutionMode === "test" && plan.executionMode === "train_test" };
 }
 
-export async function queryTask(client: any, plan: any, job: any, timeoutMs = 8000, options: { executionOnly?: boolean } = {}) {
+export async function queryTask(client: any, plan: any, job: any, timeoutMs = 8000, options: { executionOnly?: boolean; recallOperationId?: string } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error((options.executionOnly ? "停止核实查询超时" : "任务状态查询超时")
     + `（Worker ${job.workerId}，commandId ${job.commandId}）`)), timeoutMs);
   try {
-    const request = { signal: controller.signal, queries: [taskQuery(plan, job)], ...(options.executionOnly ? { executionOnly: true } : { selectedOnly: true }) };
+    const request = { signal: controller.signal, queries: [{ ...taskQuery(plan, job), ...(options.recallOperationId ? { recallOperationId: options.recallOperationId } : {}) }], ...(options.executionOnly ? { executionOnly: true } : { selectedOnly: true }) };
     const read = Promise.resolve().then(() => client.getWorkerTasks(job.workerId, request)).catch(error => {
       // 0.5.348 supports only an unselected execution inventory. This explicit
       // rejection may fall back to a read, never repeat the stop POST.
@@ -56,6 +56,32 @@ export async function stopPulledTask(client: any, plan: any, job: any, operation
   throw new Error("停止尚未核实；保留原 commandId，可主动刷新。" + (transportError instanceof Error ? transportError.message : ""));
 }
 
+/** Existing recall requests are observed without sending another cancellation. */
+export async function observeQueuedRecall(client: any, plan: any, job: any): Promise<boolean> {
+  const operationId = String(job.recallOperationId || "");
+  if (!operationId) return false;
+  const { task } = await queryTask(client, plan, job, 8000, { executionOnly: true, recallOperationId: operationId });
+  const proof = task.observation.queuedRecall;
+  return task.observation.cancelled === true && !task.observation.tmux && proof?.phase === "completed"
+    && proof.operationId === operationId && proof.commandId === job.commandId && proof.workerId === job.workerId
+    && proof.projectId === plan.projectId && proof.workflowId === plan.id && proof.experimentIndex === job.index;
+}
+
+/** Request the Scheduler's atomic queued-only operation; never fall back to ordinary stop. */
+export async function recallQueuedTask(client: any, plan: any, job: any, operationId: string, beforeSend: () => Promise<void>, assertCurrent: () => void): Promise<boolean> {
+  const { state, snapshot } = await queryTask(client, plan, job, 8000, { executionOnly: true });
+  if (snapshot.capabilities?.queuedRecallExact !== 1) throw new Error("QUEUED_RECALL_UNSUPPORTED：Worker 未声明精确排队召回能力。");
+  if (state.execution !== "queued") throw new Error("任务已不在排队状态；未发送召回。");
+  assertCurrent();
+  await beforeSend();
+  assertCurrent();
+  const request = { ...taskQuery(plan, job), lifecycleProtocol: 2, schemaVersion: 1, queuedRecallOnly: true,
+    targetCommandId: job.commandId, opId: operationId, operationId, stopBoundary: "local_command" };
+  await client.postWorkerAction(job.workerId, "stop-worker-task", request);
+  assertCurrent();
+  return observeQueuedRecall(client, plan, { ...job, recallOperationId: operationId });
+}
+
 export function returnPulledJobToLocal(queue: any, planId: string, index: number, commandId: string) {
   const current = queue.plans.find((plan: any) => plan.id === planId)?.jobs.find((job: any) => job.index === index);
   if (!commandId || current?.commandId !== commandId) throw new Error("任务身份已变化；未重新派发。");
@@ -65,7 +91,7 @@ export function returnPulledJobToLocal(queue: any, planId: string, index: number
   return { ...queue, plans: queue.plans.map((plan: any) => plan.id !== planId ? plan : { ...plan,
     jobs: plan.jobs.map((job: any) => job.index !== index ? job : { ...job, lifecycleProtocol: 2, status: "pending",
       commandId: undefined, nextCommandId, startIntent: undefined, runKey: undefined, workerId: undefined, gpuId: undefined, manualDispatch: undefined, localQueueOnly: true,
-      recallRequested: undefined, recallOperationId: undefined, reassignmentPending: undefined, stopIntent: undefined,
+      recallRequested: undefined, recallOperationId: undefined, recallWorkerBinding: undefined, reassignmentPending: undefined, stopIntent: undefined,
       executionState: undefined, resultState: undefined, statusQueryError: undefined, lastObservedAt: undefined,
       runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
       tmuxPane: undefined, tmuxWindowId: undefined, tmuxSession: undefined, logPath: undefined, historyLogIdentity: undefined,

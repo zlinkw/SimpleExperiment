@@ -15011,6 +15011,7 @@ this.assertPlanTopologyReady("Plan 调度");
                         publicationConflict = true;
                         await conflict(latestSource, latestSignature);
                     }
+                    options.recallAssertCurrent?.();
                 } });
             } catch (error) {
                 if (!publicationConflict)
@@ -17845,42 +17846,97 @@ this.assertPlanTopologyReady("Plan 调度");
         const requestedPlanFile = String(message?.planFile || "");
         if (!planId || !requestedPlanFile) throw new Error("召回请求缺少 Plan 身份。");
         const queue = await this.loadDistributedQueue(root);
+        if (!isCurrent()) throw new Error("项目已切换；召回未执行。");
         const plan = queue.plans.find((row) => row.id === planId);
         if (!plan || !DistributedPlanQueue.sameDistributedPlanFile(plan.planFile, requestedPlanFile))
             throw new Error("Plan 身份已变化；请刷新状态后重试。");
         const singleJob = message.jobIndex !== undefined && message.jobIndex !== null;
         const jobIndex = singleJob ? Number(message.jobIndex) : undefined;
         if (singleJob && !Number.isInteger(jobIndex)) throw new Error("job 索引无效。");
-        const selected = singleJob ? plan.jobs.filter((job) => job.index === jobIndex) : plan.jobs;
-        if (!selected.length) throw new Error("目标 job 已不存在。");
-        if (selected.every(job => job.lifecycleProtocol === 2)) {
-            const answer = await vscode.window.showWarningMessage(`召回 ${plan.planFile} 的 ${selected.length} 个 job 到本机待派队列；对应运行窗口会被关闭，权重和结果保留。`, { modal: true }, "确认召回");
-            if (answer !== "确认召回" || !isCurrent()) return;
-            let latest = await this.loadDistributedQueue(root);
-            const selectedIds = new Set(selected.map(job => job.index));
-            latest = { ...latest, plans: latest.plans.map(row => row.id !== plan.id ? row : { ...row,
-                jobs: row.jobs.map(job => !selectedIds.has(job.index) ? job : { ...job, localQueueOnly: true,
-                    recallRequested: Boolean(job.workerId && job.commandId), recallOperationId: job.recallOperationId || makeOpId("recall-job") }) }) };
-            await this.saveDistributedQueue(root, latest);
-            for (const job of selected) {
-                if (job.workerId && job.commandId) {
-                    await PulledTaskControl.stopPulledTask(client, plan, job, makeOpId("recall-job"));
-                    if (!isCurrent()) return;
-                    latest = await this.loadDistributedQueue(root);
-                    if (latest.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index)?.commandId !== job.commandId)
-                        throw new Error("召回期间任务已变化，保留其他任务。");
-                    latest = PulledTaskControl.returnPulledJobToLocal(latest, plan.id, job.index, job.commandId);
-                    await this.saveDistributedQueue(root, latest);
+        const requested = singleJob ? plan.jobs.filter((job) => job.index === jobIndex) : plan.jobs;
+        if (!requested.length) throw new Error("目标 job 已不存在。");
+        const unsupportedLegacy = requested.some(job => job.lifecycleProtocol !== 2 && job.workerId && job.commandId && (job.status === "queued" || job.recallRequested === true));
+        if (unsupportedLegacy && (singleJob || !requested.some(job => job.lifecycleProtocol === 2)))
+            throw new Error("旧协议任务不支持安全的仅排队召回；原任务和未确认请求保持不变，请先核实。");
+        if (requested.some(job => job.lifecycleProtocol === 2)) {
+            const localPending = requested.filter(job => job.lifecycleProtocol === 2 && job.status === "pending" && !job.workerId && !job.commandId);
+            const selected = requested.filter(job => job.lifecycleProtocol === 2 && job.workerId && job.commandId && job.completionState !== "verified" && !["running", "completed", "failed", "cancelled"].includes(job.status)
+                && (job.recallRequested === true || job.status === "queued" && !job.statusQueryError && !["starting", "running", "exited"].includes(job.executionState)));
+            if (!selected.length && !localPending.length) throw new Error("没有可召回的排队 job；运行中、已结束或未知任务保持原状。");
+            const binding = id => {
+                const matches = this.workerActionTargets().filter(row => row.id === id);
+                return matches.length === 1 ? JSON.stringify(matches.map(row => [row.id, row.host, row.port, row.user, row.project_dir, row.local_agent_url])) : "";
+            };
+            const bindings = new Map(selected.map(job => [job.workerId, binding(job.workerId)]));
+            if ([...bindings.values()].some(value => !value)) throw new Error("Worker 目标不明确；未执行召回。");
+            const answer = await vscode.window.showWarningMessage(`召回 ${plan.planFile} 的 ${selected.length + localPending.length} 个排队 job 到本机待派队列；其他任务和结果保留。`, { modal: true }, "确认召回");
+            const assertCurrent = () => {
+                if (!isCurrent() || [...bindings].some(([id, value]) => binding(id) !== value)) throw new Error("项目或 Worker 目标已变化；召回后续操作未执行。");
+            };
+            if (answer !== "确认召回") return;
+            assertCurrent();
+            if (localPending.length) {
+                const latest = await this.loadDistributedQueue(root);
+                assertCurrent();
+                const currentPlan = latest.plans.find(row => row.id === plan.id);
+                if (!currentPlan || currentPlan.projectId !== plan.projectId || !DistributedPlanQueue.sameDistributedPlanFile(currentPlan.planFile, plan.planFile)
+                    || localPending.some(original => { const current = currentPlan.jobs.find(row => row.index === original.index);
+                        return !current || current.lifecycleProtocol !== 2 || current.status !== "pending" || current.workerId || current.commandId; }))
+                    throw new Error("本机排队任务身份已变化；未保存召回。");
+                await this.saveDistributedQueue(root, { ...latest, plans: latest.plans.map(row => row.id !== plan.id ? row : { ...row,
+                    jobs: row.jobs.map(job => localPending.some(original => original.index === job.index) ? { ...job, localQueueOnly: true } : job) }) }, { recallAssertCurrent: assertCurrent });
+            }
+            for (const original of selected) {
+                const latestForJob = async () => {
+                    assertCurrent();
+                    const latest = await this.loadDistributedQueue(root);
+                    assertCurrent();
+                    const currentPlan = latest.plans.find(row => row.id === plan.id);
+                    const current = currentPlan?.jobs.find(row => row.index === original.index);
+                    if (!currentPlan || !DistributedPlanQueue.sameDistributedPlanFile(currentPlan.planFile, plan.planFile)
+                        || currentPlan.projectId !== plan.projectId || !current || current.workerId !== original.workerId || current.commandId !== original.commandId)
+                        throw new Error("召回期间任务身份已变化，保留原记录。");
+                    return { latest, current };
+                };
+                let { current } = await latestForJob();
+                const operationId = current.recallRequested === true ? String(current.recallOperationId || "") : makeOpId("recall-job");
+                if (!operationId) throw new Error("召回请求身份缺失，保留原记录并重新核实。");
+                let confirmed = false;
+                if (current.recallRequested === true) {
+                    if (!current.recallWorkerBinding || current.recallWorkerBinding !== bindings.get(current.workerId))
+                        throw new Error("原召回的 Worker 目标无法核实；保留请求身份。");
+                    confirmed = await PulledTaskControl.observeQueuedRecall(client, plan, current);
+                } else {
+                    if (current.status !== "queued" || current.completionState === "verified" || current.statusQueryError
+                        || ["starting", "running", "exited"].includes(current.executionState))
+                        throw new Error("任务已不在排队状态；未发送召回。");
+                    confirmed = await PulledTaskControl.recallQueuedTask(client, plan, current, operationId, async () => {
+                        const { latest, current: before } = await latestForJob();
+                        if (before.recallRequested === true || before.status !== "queued" || before.completionState === "verified" || before.statusQueryError
+                            || ["starting", "running", "exited"].includes(before.executionState)) throw new Error("任务状态已变化；未发送召回。");
+                        const next = { ...latest, plans: latest.plans.map(row => row.id !== plan.id ? row : { ...row,
+                            jobs: row.jobs.map(job => job.index !== original.index ? job : { ...job, localQueueOnly: true, recallRequested: true,
+                                recallOperationId: operationId, recallWorkerBinding: bindings.get(original.workerId) }) }) };
+                        await this.saveDistributedQueue(root, next, { recallAssertCurrent: assertCurrent });
+                    }, assertCurrent);
                 }
+                assertCurrent();
+                if (!confirmed) throw new Error("召回尚未确认；保留原 Worker、command 和请求身份，可重新核实。");
+                const { latest, current: settled } = await latestForJob();
+                if (settled.recallRequested !== true || settled.recallOperationId !== operationId || settled.completionState === "verified"
+                    || ["running", "completed", "failed", "cancelled"].includes(settled.status)) throw new Error("召回意图或任务状态已变化，请重新核实。");
+                await this.saveDistributedQueue(root, PulledTaskControl.returnPulledJobToLocal(latest, plan.id, original.index, original.commandId), { recallAssertCurrent: assertCurrent });
             }
             this.postState();
-            return { status: "completed", source: "pull" };
+            if (unsupportedLegacy) void vscode.window.showInformationMessage("旧协议任务未召回，需先核实其安全能力。");
+            return { status: "completed", source: "pull", ...(unsupportedLegacy ? { message: "旧协议任务未召回，需先核实其安全能力。" } : {}) };
         }
+        const selected = requested;
         let requestedCount = 0;
         const jobs = plan.jobs.map((job) => {
             if (singleJob && job.index !== jobIndex) return job;
             if (job.status === "pending" && !job.workerId && !job.commandId)
-                return { ...job, localQueueOnly: true, recallRequested: undefined, recallOperationId: undefined,
+                return { ...job, localQueueOnly: true, recallRequested: undefined, recallOperationId: undefined, recallWorkerBinding: undefined,
                     reassignmentPending: undefined, blockReason: undefined };
             if (job.status === "queued" && job.workerId && job.commandId) {
                 requestedCount++;
@@ -17904,7 +17960,10 @@ this.assertPlanTopologyReady("Plan 调度");
         this.distributedQueueGeneration = generation;
         this.distributedTickAbort?.abort();
         this.detachStaleDistributedTick(this.distributedQueueTickPromise);
-        await this.saveDistributedQueue(root, next, { queueGeneration: generation });
+        await this.saveDistributedQueue(root, next, { queueGeneration: generation, recallAssertCurrent: () => {
+            if (!isCurrent()) throw new Error("项目已切换；召回未保存。");
+        } });
+        if (!isCurrent()) throw new Error("项目已切换；后续召回操作未执行。");
         this.postState();
         if (singleJob) {
             const job = nextPlan.jobs.find((row) => row.index === jobIndex);
@@ -17925,12 +17984,29 @@ this.assertPlanTopologyReady("Plan 调度");
             let job = plan?.jobs.find((row) => row.index === jobIndex);
             if (!plan || !job || job.recallRequested !== true || !job.workerId || !job.commandId) return;
             if (job.lifecycleProtocol === 2) {
-                await PulledTaskControl.stopPulledTask(this.client, plan, job, job.recallOperationId || makeOpId("recall-job"));
-                if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration) return;
+                if (job.completionState === "verified" || ["completed", "failed", "cancelled"].includes(job.status)) return;
+                const matching = this.workerActionTargets().filter(row => row.id === job.workerId);
+                const binding = matching.length === 1 ? JSON.stringify(matching.map(row => [row.id, row.host, row.port, row.user, row.project_dir, row.local_agent_url])) : "";
+                if (!job.recallWorkerBinding || job.recallWorkerBinding !== binding) return;
+                const client = this.client;
+                const confirmed = await PulledTaskControl.observeQueuedRecall(client, plan, job);
+                if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration || this.client !== client) return;
+                if (!confirmed) return;
                 const latest = await this.loadDistributedQueue(root);
-                const current = latest.plans.find(row => row.id === planId)?.jobs.find(row => row.index === jobIndex);
-                if (current?.commandId !== job.commandId) return;
-                await this.saveDistributedQueue(root, PulledTaskControl.returnPulledJobToLocal(latest, planId, jobIndex, job.commandId));
+                const currentPlan = latest.plans.find(row => row.id === planId);
+                const current = currentPlan?.jobs.find(row => row.index === jobIndex);
+                const afterTargets = this.workerActionTargets().filter(row => row.id === job.workerId);
+                const afterBinding = afterTargets.length === 1 ? JSON.stringify(afterTargets.map(row => [row.id, row.host, row.port, row.user, row.project_dir, row.local_agent_url])) : "";
+                if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration || this.client !== client || currentPlan?.projectId !== plan.projectId
+                    || !DistributedPlanQueue.sameDistributedPlanFile(currentPlan?.planFile, plan.planFile) || current?.commandId !== job.commandId
+                    || afterBinding !== binding || current?.workerId !== job.workerId || current?.recallOperationId !== job.recallOperationId || current?.recallWorkerBinding !== binding || current?.recallRequested !== true
+                    || current?.completionState === "verified" || ["running", "completed", "failed", "cancelled"].includes(current?.status)) return;
+                await this.saveDistributedQueue(root, PulledTaskControl.returnPulledJobToLocal(latest, planId, jobIndex, job.commandId), { recallAssertCurrent: () => {
+                    const targets = this.workerActionTargets().filter(row => row.id === job.workerId);
+                    const currentBinding = targets.length === 1 ? JSON.stringify(targets.map(row => [row.id, row.host, row.port, row.user, row.project_dir, row.local_agent_url])) : "";
+                    if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration || this.client !== client || currentBinding !== binding)
+                        throw new Error("项目或 Worker 目标已变化；召回结果未保存。");
+                } });
                 this.postState();
                 return;
             }
@@ -17961,6 +18037,7 @@ this.assertPlanTopologyReady("Plan 调度");
             }
             const remoteStatus = String(task.status || "").toLowerCase();
             if (remoteStatus === "cancelled" && String(task.stopReason || "") === "requeue"
+                && String(task.opId || task.operationId || "") === String(job.recallOperationId || "") && !!job.recallOperationId
                 && DistributedPlanQueue.isExactQueuedReleaseProof(plan, job, task)) {
                 if (!plan.projectId) plan.jobs = plan.jobs.map((item) => item.index !== jobIndex && !item.projectId
                     && item.workerId && item.commandId ? { ...item, legacyOwnership: true } : item);
@@ -17975,90 +18052,10 @@ this.assertPlanTopologyReady("Plan 调度");
                 this.postState();
                 return;
             }
-            if (remoteStatus === "cancelled" && String(task.stopReason || "") === "requeue") {
-                job.status = "unknown";
-                job.blockReason = "服务器显示 requeue 取消，但缺少完整未启动释放证明；保留召回操作身份和原 Worker，继续核实。";
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-                this.postState();
-            }
-            if (!["queued", "pending"].includes(remoteStatus) && !(remoteStatus === "cancelled" && String(task.stopReason || "") === "requeue")) {
-                const terminal = remoteStatus === "completed" ? "completed" : ["failed", "stopped"].includes(remoteStatus) ? "failed"
-                    : ["cancelled", "canceled"].includes(remoteStatus) ? "cancelled" : undefined;
-                if (remoteStatus === "running" || remoteStatus === "starting" || terminal) {
-                    // P0-R：远端查询/停止回执核实的终态随之持久紧凑证明，跨投影清洗仍能释放统一名额。
-                    Object.assign(job, { status: terminal || "running", recallRequested: undefined, recallOperationId: undefined,
-                        reassignmentPending: undefined, blockReason: undefined,
-                        ...(terminal ? { trustedTerminalStatus: terminal,
-                            trustedTerminalProof: trustedTerminalProofFor(plan, job, terminal, Date.now()) } : {}) });
-                } else {
-                    job.status = "unknown";
-                    job.blockReason = `Worker 返回 ${remoteStatus || "未知"} 状态；召回保留原 Worker 与 commandId，等待再次核实。`;
-                }
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-                this.postState();
-                return;
-            }
-            const operationId = String(job.recallOperationId || "");
-            if (!/^[a-zA-Z0-9-]{8,80}$/.test(operationId)) {
-                job.status = "unknown";
-                job.blockReason = "持久召回操作身份无效；保留原 Worker 和 commandId，禁止重新派发。";
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-                this.postState();
-                return;
-            }
-            const request = { schemaVersion: 1, opId: operationId, operationId, commandId: operationId,
-                requeueRequested: true, ...DistributedPlanQueue.workerStopJobIdentity(plan, job) };
-            try {
-                const result: any = await this.withRemoteActionResource(job.workerId, "stop-worker-task", request,
-                    () => this.client.postWorkerAction(job.workerId, "stop-worker-task", request));
-                if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration) return;
-                queue = await this.loadDistributedQueue(root);
-                plan = queue.plans.find((row) => row.id === planId);
-                job = plan?.jobs.find((row) => row.index === jobIndex);
-                if (!plan || !job || job.recallRequested !== true || job.recallOperationId !== operationId) return;
-                const proof = result?.receipt || result?.releasedTask || result;
-                if (DistributedPlanQueue.isExactQueuedReleaseProof(plan, job, proof)
-                    && String(proof?.status || "").toLowerCase() === "cancelled" && String(proof?.stopReason || "") === "requeue") {
-                    if (!plan.projectId) plan.jobs = plan.jobs.map((item) => item.index !== jobIndex && !item.projectId
-                        && item.workerId && item.commandId ? { ...item, legacyOwnership: true } : item);
-                    queue = DistributedPlanQueue.releaseQueuedForReassignment(queue, plan.id, job.index,
-                        proof, makeOpId("job-command"));
-                    queue.plans = queue.plans.map((row) => row.id !== planId ? row : { ...row,
-                        projectId: row.projectId || DistributedPlanQueue.canonicalProjectId(root),
-                        planJobCount: Number(row.planJobCount || row.jobs.length),
-                        jobs: row.jobs.map((item) => item.index === jobIndex && item.attempt > job!.attempt
-                            ? { ...item, projectId: row.projectId || DistributedPlanQueue.canonicalProjectId(root) } : item) });
-                } else if (DistributedPlanQueue.recallResponseMatchesJob(plan, job, proof)) {
-                    const status = String(proof?.status || "").toLowerCase();
-                    if (status === "cancelled" && String(proof?.stopReason || "") === "requeue") {
-                        job.status = "unknown";
-                        job.blockReason = "requeue 回执缺少完整未启动释放证明；召回操作身份和原 Worker 继续保留。";
-                        await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-                        this.postState();
-                        return;
-                    }
-                    const terminal = status === "completed" ? "completed" : ["failed", "stopped"].includes(status) ? "failed"
-                        : ["cancelled", "canceled"].includes(status) ? "cancelled" : undefined;
-                    if (["running", "starting"].includes(status) || terminal) {
-                        Object.assign(job, { status: terminal || "running", recallRequested: undefined, recallOperationId: undefined,
-                            reassignmentPending: undefined, blockReason: undefined,
-                            ...(terminal ? { trustedTerminalStatus: terminal } : {}) });
-                    } else {
-                        job.blockReason = "Worker 尚未确认从队列释放；召回意图保留，原 Worker 与 commandId 仍被固定。";
-                    }
-                } else {
-                    job.status = "unknown";
-                    job.blockReason = "释放回执未知或身份不完整；保留原 Worker 和 commandId，禁止重新派发。";
-                }
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-                this.postState();
-            } catch (error) {
-                if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration) return;
-                job.status = "unknown";
-                job.blockReason = `召回回执未确认，保留原 Worker 和 commandId；恢复后将重放同一操作：${errorMessage(error)}`;
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-                this.postState();
-            }
+            // An unconfirmed legacy request can only be observed, never resent.
+            job.blockReason = "旧协议召回尚未取得完整释放证明；保留原请求，只能继续核实。";
+            await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            this.postState();
         } finally {
             this.distributedRecallInFlight.delete(key);
         }

@@ -101,6 +101,7 @@ export type QueuedJob = {
   localQueueOnly?: boolean;
   recallRequested?: boolean;
   recallOperationId?: string;
+  recallWorkerBinding?: string;
   legacyOwnership?: boolean;
   logPath?: string;
   historyLogIdentity?: { commandId: string; outputDir: string; runId: string };
@@ -929,7 +930,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
           ...(merged.history ? { history: [...(local.history || []), ...merged.history].filter((entry, index, entries) =>
             entries.findIndex(other => other.commandId === entry.commandId && other.workerId === entry.workerId
               && other.attempt === entry.attempt) === index) } : {}),
-          recallOperationId: local.recallOperationId, reassignmentPending: local.reassignmentPending,
+          recallOperationId: local.recallOperationId, recallWorkerBinding: local.recallWorkerBinding, reassignmentPending: local.reassignmentPending,
           recoveryConflict: undefined, blockReason: undefined,
           ...(terminal ? { trustedTerminalStatus: trainingAdopted ? "completed" : terminal } : {}),
         } : {
@@ -1435,7 +1436,7 @@ export function releaseQueuedForReassignment(queue: DistributedQueue, planId: st
       ...item, outputDir, attempt: 0, nextCommandId: nextRunId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
       runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
       status: "pending" as const, projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
-      recallOperationId: undefined, reassignmentPending: undefined,
+      recallOperationId: undefined, recallWorkerBinding: undefined, reassignmentPending: undefined,
       reassignmentWorkerId: item.reassignmentWorkerId,
       automaticRetry: item.automaticRetry,
       history: [...(item.history || []), { attempt: item.attempt,
