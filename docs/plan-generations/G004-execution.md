@@ -22,7 +22,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 ## 审定证据和真实效果
 
-总控审定历史 job 187/189/240、删锁 264/265/267/268/269/271/274 及 runner 27 项逐 identity+argv 继承，原日志和未知旧工具链保留；不称本轮删除通过，不覆盖新 G004 或289。284原20119.841ms超时仅本任务获用户例外，不重跑；精确名单和原审理由见 `52946c4d:docs/plan-generations/G004-execution.md`。
+历史job及删锁、runner逐identity+argv审定继承，原日志、未知工具链及284超时例外保留，精确名单见 `52946c4d:docs/plan-generations/G004-execution.md`；不称本轮删除通过或覆盖新G004/289。
 
 旧 Git/UI 夹具、520 与接替后合成验证的逐项输入、结果、失败、工具链和边界见 coverage 与 `6f829e1d`、`9d5cae9f`、`6f14818d` 的本文件；不扩大原证范围或冒称真实 Worker/tmux/删除通过。
 
@@ -33,7 +33,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 及静态命令包装 pattern 1/1均exit0；仅夹具，无真实Worker。原日志和详情见 `c2c60767:docs/plan-generations/G004-execution.md`。
 
-总控审定旧67/68/69、91/222/225、226/227/252、141/340/341按受限范围继承；旧工具链或69根字节未知，340仅现存30项。219/284超时及用户例外、289唯一fresh 1/1保留，精确事实见 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证真实WSL/tmux/Worker。
+旧67/68/69、91/222/225、226/227/252、141/340/341有限继承，工具链或69根字节未知、340仅现存30项；219/284超时例外与289唯一fresh保留，详见 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证真实外部效果。
 
 历史 dry-run、219/284 用户例外、外层期限修复和脏树 planner 拒绝的逐项细节及原日志保留于 `c2c60767:docs/plan-generations/G004-execution.md`。旧选择不代表当前 build；未运行 planner 拒绝的三项。
 
@@ -71,7 +71,7 @@ CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete
 
 后补显式 metric/value 列映射、alias 及零值验证，原单文件 6/6 exit0、799.2334ms，日志 `%TEMP%/g004-preview-mapping-zero-20261123.*.log`。
 
-旧母集11个 current_defect 按真实修复提交及原受控回归逐ID复核，新增 currentReview=fixed_scoped；原问题与失败保留，未审分支和真实Worker、Git hook等外部效果不冒通过。识别另有520实际窗口成功，详见 coverage 对应行。
+旧母集11个缺陷按修复及受控证据逐ID对账；原失败保留，未审分支和外部效果不冒通过。520实际窗口范围见coverage。
 
 ## 当前探针及构建门禁
 
@@ -128,3 +128,5 @@ Experiment构建对账：pluginLogRetention及cacheCleanupPanel的受测retentio
 hostOperationLeaseIntegration及automaticScopeContent受测方法等与1e91d0d4一致，其余依赖不变，复用4/4、8/8。配套120 tag为2284921，原package汇总69文件466通过，`%TEMP%/run-YUG9Ru`现为空；119与120间6文件变化须逐项审，不能冒充当前全量通过。一次只读tag引号错误及旧日志路径不存在未改产品。
 
 planCodeScope及remoteResultInspectionWorkflow所测源码片段与1e91d0d4一致，其余依赖不变，复用12/12、15/15受控旧证，不重跑Python或远端替身。
+
+syncScopeDeletionRefresh七个受测方法/函数与旧源码一致，planCleanupReconnect所查禁止调用仍不存在，其余依赖不变；复用33/33、13/13夹具旧证，不重跑清理。配套仓只读查远端tag/release及本地资产，120已占、119/120为试行、118为稳定，查询时121尚无同名tag/包；未递版或创建资产。
