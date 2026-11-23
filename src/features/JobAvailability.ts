@@ -6,6 +6,7 @@ export async function changeJobAvailabilityFromUi(host: any, message: any,
   const context = host.captureProjectContext(), client = host.client;
   const current = () => host.projectContextIsCurrent(context) && host.client === client;
   const queue: Queue.DistributedQueue = await host.loadDistributedQueue(context.root);
+  if (!current()) return { status: "cancelled", message: "项目已切换，未修改 job。" };
   const plan = queue.plans.find(row => row.id === String(message.planId || ""));
   const job = plan?.jobs.find(row => row.index === Number(message.jobIndex));
   if (!plan || !job || !Queue.sameDistributedPlanFile(plan.planFile, String(message.planFile || ""))
@@ -27,6 +28,7 @@ export async function changeJobAvailabilityFromUi(host: any, message: any,
   } else if (!Queue.jobIsUnavailable(plan, job)) throw new Error("job 当前未标记不可用。");
   if (!current()) return { status: "cancelled", message: "项目已切换，未修改 job。" };
   const reason = restore ? "" : await askReason();
+  if (!current()) return { status: "cancelled", message: "项目已切换，未修改 job。" };
   if (!restore && !reason?.trim()) return { status: "cancelled", message: "已取消标记，job 未修改。" };
   const detail = `${plan.planFile}\n运行 ${plan.id} · ${job.case} seed ${job.seed} · attempt ${job.attempt}\n`
     + `Worker ${job.workerId || "未派发"}\n目录 ${job.outputDir}\n`
@@ -38,13 +40,15 @@ export async function changeJobAvailabilityFromUi(host: any, message: any,
   const generation = host.distributedQueueGeneration = (host.distributedQueueGeneration || 0) + 1;
   host.distributedTickAbort?.abort();
   host.detachStaleDistributedTick(host.distributedQueueTickPromise);
-  await host.saveDistributedQueue(context.root, undefined, { queueGeneration: generation, mutateLatest: (latest: Queue.DistributedQueue) => {
+  await host.saveDistributedQueue(context.root, undefined, { queueGeneration: generation, projectContextCurrent: current,
+    recallAssertCurrent: () => { if (!current()) throw new Error("项目已切换，未修改 job。"); }, mutateLatest: (latest: Queue.DistributedQueue) => {
     const latestJob = latest.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index);
     if (!current() || host.distributedPlanStopEpoch || latestJob?.status !== job.status)
       throw new Error("项目或 job 状态已变化，未修改。");
     return restore ? Queue.restoreJobAvailability(latest, plan.id, job.index, identity)
       : Queue.markJobUnavailable(latest, plan.id, job.index, identity, reason!, new Date().toISOString(), receipt);
   } });
+  if (!current()) return { status: "partial", message: "原项目的 job 状态已保存；项目已切换，请返回原项目核查。" };
   host.postState();
   if (restore) void host.tickDistributedQueue().catch((error: Error) => host.recordActionError({ command: "distributedPlanQueue", message: error.message }));
   return { status: "completed", message: restore ? "已撤销不可用标记并恢复原状态。" : "已标记此 job 不可用；保留日志和结果，其他 job 不受影响。" };

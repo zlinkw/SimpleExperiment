@@ -144,6 +144,34 @@ test("cancel, project switch, stale attempt and refreshed active receipt cannot 
   }
 });
 
+test("project or client changes during availability waits do not continue in the new context", async () => {
+  const duringLoad = hostFixture();
+  const load = duringLoad.host.loadDistributedQueue;
+  duringLoad.host.loadDistributedQueue = async (...args) => {
+    const queue = await load(...args); duringLoad.switchProject(); return queue;
+  };
+  assert.equal((await changeJobAvailabilityFromUi(duringLoad.host, duringLoad.message,
+    async () => { throw Error("reason must not open"); }, async () => { throw Error("confirmation must not open"); })).status, "cancelled");
+  assert.equal(duringLoad.reads, 0); assert.equal(duringLoad.writes, 0);
+
+  const duringReason = hostFixture(); let confirmations = 0;
+  const cancelled = await changeJobAvailabilityFromUi(duringReason.host, duringReason.message,
+    async () => { duringReason.switchProject(); return "参数不支持"; }, async () => { confirmations++; return true; });
+  assert.equal(cancelled.status, "cancelled"); assert.equal(confirmations, 0); assert.equal(duringReason.writes, 0);
+
+  const duringSave = hostFixture("pending");
+  duringSave.changeJob({ workerId: undefined, commandId: undefined, gpuId: undefined });
+  duringSave.message.commandId = "";
+  await changeJobAvailabilityFromUi(duringSave.host, duringSave.message, async () => "不适用", async () => true);
+  const posts = duringSave.posts, ticks = duringSave.ticks, save = duringSave.host.saveDistributedQueue;
+  duringSave.host.saveDistributedQueue = async (...args) => { await save(...args); duringSave.host.client = {}; };
+  const result = await changeJobAvailabilityFromUi(duringSave.host,
+    { ...duringSave.message, command: "restoreJobAvailability" }, async () => "", async () => true);
+  assert.equal(result.status, "partial"); assert.match(result.message, /原项目.*已保存/);
+  assert.equal(duringSave.queue.plans[0].jobs[0].status, "pending");
+  assert.equal(duringSave.posts, posts); assert.equal(duringSave.ticks, ticks);
+});
+
 test("marking a local pending job needs no Worker and undo reopens just that local slot", async () => {
   const f = hostFixture("pending"); f.changeJob({ workerId: undefined, commandId: undefined, gpuId: undefined });
   f.message.commandId = "";

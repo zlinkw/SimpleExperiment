@@ -14828,7 +14828,9 @@ this.assertPlanTopologyReady("Plan 调度");
                 if (Array.isArray(disk.deferred)) disk.deferred = disk.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
                 return disk;
             };
+            const contextCurrent = () => !options.projectContextCurrent || options.projectContextCurrent();
             const publishDiskSnapshot = (source, signature, status, reason, error) => {
+                if (!contextCurrent()) return false;
                 try {
                     const disk = parseDisk(source);
                     this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(disk)),
@@ -14846,15 +14848,17 @@ this.assertPlanTopologyReady("Plan 调度");
             };
             const conflict = async (source, signature) => {
                 publishDiskSnapshot(source, signature, "conflict", "queue-disk-version-changed");
-                this.postState?.();
+                if (contextCurrent()) this.postState?.();
                 throw new Error("另一窗口已更新该项目队列，本次旧快照未写入。已保留并刷新最近可信队列状态，请重试。");
             };
             const readDiskForSave = async () => {
                 try { return await readDisk(); }
                 catch (error) {
-                    this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
-                        reason: "queue-version-check-failed", message: compactSensitiveText(errorMessage(error), 240) };
-                    this.postState?.();
+                    if (contextCurrent()) {
+                        this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
+                            reason: "queue-version-check-failed", message: compactSensitiveText(errorMessage(error), 240) };
+                        this.postState?.();
+                    }
                     throw error;
                 }
             };
@@ -14864,7 +14868,7 @@ this.assertPlanTopologyReady("Plan 调度");
             try { current = parseDisk(diskSource); }
             catch (error) {
                 publishDiskSnapshot(diskSource, diskSignature, "stale", "queue-disk-parse-failed", error);
-                this.postState?.();
+                if (contextCurrent()) this.postState?.();
                 throw error;
             }
             const baseSignature = DistributedPlanQueue.distributedQueueBaseSignature(queue)
@@ -14964,6 +14968,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 queue = admissionQueue;
             }
             await fs.mkdir(path.dirname(file), { recursive: true });
+            if (options.projectContextCurrent) options.recallAssertCurrent?.();
             const serializeStartedAt = Date.now();
             // 同上：写侧指标自带记录器，避免给切片宿主新增依赖；同内容轮次只计数。
             const shape = (queue: any, bytes: number) => ({ plans: Array.isArray(queue?.plans) ? queue.plans.length : 0,
@@ -15021,12 +15026,13 @@ this.assertPlanTopologyReady("Plan 调度");
                     options.recallAssertCurrent?.();
                 } });
             } catch (error) {
-                if (!publicationConflict)
+                if (!publicationConflict && contextCurrent())
                     this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
                         reason: "queue-commit-failed", message: compactSensitiveText(errorMessage(error), 240) };
-                this.postState?.();
+                if (contextCurrent()) this.postState?.();
                 throw error;
             }
+            if (!contextCurrent()) return dispatchReceipt;
             this.distributedQueueRoot = root;
             const cacheCopyStartedAt = Date.now();
             this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(queue)),

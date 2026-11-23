@@ -1,6 +1,6 @@
 # G004 执行登记
 
-本文件cap12000/90%=10800。压缩前完整登记及逐项历史引用见 `43efb031:docs/plan-generations/G004-execution.md`，更早见 `6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
+本文件cap12000/90%=10800。压缩前完整登记及逐项历史引用见 `33b70559:docs/plan-generations/G004-execution.md`，更早见 `43efb031`、`6f829e1d`；原日志、失败、未知、现场与批准均保留，coverage记录逐ID证据。历史结果不覆盖变化后的源码。
 
 ## 当前边界与历史交付
 
@@ -29,13 +29,13 @@ SFTP `28087f3`、`d4ed002`、`b3da0b5` 分别修取消归属、交接目标和�
 
 裸PlanCleanup内部消费者使用真实后端completion receipt判定，不因缺Host钩子假成功；`%TEMP%/g004-isolated-confirmed-v11-20261123.{out,err}.log` 12/12 exit0，含完整真实service配内存fs/后端的完成及丢回执。首次v10 11/12 exit1，因测试把apiData.code按message匹配，修断言后复验；原日志保留。共享缓存当前单项 `%TEMP%/g004-isolated-cache-consumer-v2-20261123.{out,err}.log` 1/1 exit0。原 planRunIsolateRerun 精确case的fixture已更新真实协议字段，原断言保留、尚未执行，待实际新build产物后按总控批准原20秒验一次；其他旧fixture/oracle也未运行。
 
-Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、确认、删除、暂存索引写、工作文件写和引用更新前检查原项目，已发生的操作如实保留。真实方法配假VS Code/Git/文件端 `%TEMP%/g004-git-overwrite-project-v2-20261123.{out,err}.log` 3/3 exit0，首v1 2/2按当时输入保留；未运行真实Git覆盖、删除或跨项目操作，源码待build。
+Git覆盖审核候选冻结项目并在后续效果前复核，假端v2 3/3、v1 2/2均exit0；日志及精确边界见33b70559，未执行真实覆盖或删除。
 
 总控更新plan时首次候选16267字符触发写前断言退出1，外层后续diff-check显示0；文件未写。缩短后16183字符并UTF8复读通过，原事实保留。
 
-检查服务器配置入口发现共享SimpleSFTP profiles读取错误及坏JSON被当空配置覆盖，且等待中切项目后仍可写配置或启动下一动作。候选仅将ENOENT当缺省，其他读取/格式错误向上抛出；绑定当前项目并在原子发布前复核，快速配置等待后不继续新动作。真实方法配假fs和假发布器 `%TEMP%/g004-sftp-profile-fence-v2-20261123.{out,err}.log` 4/4 exit0；v1 3/3为增加首个等待分支前证据。未读写真实共享配置、启动Agent或访问Worker；发布前检查与系统rename并非不可分割事务，候选尚待构建及源码复核。
+共享SFTP配置读取/项目切换围栏：仅ENOENT视为缺省，坏格式及其他错误可见；假端v2 4/4、v1 3/3均exit0，原日志见33b70559；未触真实共享配置或Worker。
 
-补核同一共享文件可由另一窗口修改，发布前比对本次原始文本；变化则报错保留对方更新。假端 `%TEMP%/g004-sftp-profile-fence-v3-20261123.{out,err}.log` 5/5 exit0，原消费单项 `%TEMP%/g004-sftp-profile-consumer-v2-20261123.{out,err}.log` 1/1 exit0。只保证发布前可观察到的变化会停止，不称检查与系统rename不可分割；未读写真实共享文件。
+共享文件发布前另比对原始文本；v3假端5/5及原消费单项v2 1/1 exit0，原日志见33b70559。发布前检查与系统rename非不可分割事务。
 
 原setupWorkDirectoryWorkflow静态消费者夹具仍要求已退役Hub文案；按当前Worker唯一入口更新等价检查后，纯源码文件 `%TEMP%/g004-sftp-profile-original-consumer-v3-20261123.{out,err}.log` 3/3 exit0。它不执行Agent、项目配置或Worker操作，也不证明外部效果。
 
@@ -43,13 +43,13 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 
 删除Worker配置确认等待期间，同ID配置可被替换；现重核被确认的配置快照，变更则要求重确认，原取消及只移除所选项不变。真实方法配假配置 `%TEMP%/g004-worker-config-confirm-20261123.{out,err}.log` 2/2，原消费者精确case `%TEMP%/g004-worker-config-consumer-20261123.{out,err}.log` 1/1，均exit0；未修改真实Worker或共享配置，未build。
 
-资源树tmux总览和等待占位的点击只导航并上报section interest，并不直接调用刷新；源码候选将提示改为使用刷新按钮，未触发真实tmux查询。该文案在Panel源内，与健康探针组一起等待原build及真实内嵌脚本VM门禁，未提交。
+资源树tmux提示改为使用刷新按钮，不发真实查询；与Panel健康探针共同等待build及真实内嵌脚本VM门禁。
 
-生成隧道脚本原先选择保存位置等待期间可能混合旧Worker和新项目/配置；现保留原保存入口并在生成前核项目和实际Worker隧道参数。原真实方法假对话框/假写入器及命令构造 `%TEMP%/g004-tunnel-script-identity-20261123.{out,err}.log` 2/2 exit0，包括切项目/配置无写入；未写真实脚本、启动隧道或访问服务器，待build。
+隧道脚本生成前复核项目及实际Worker参数，假端2/2 exit0，原日志见33b70559；未写真实脚本或连接服务器。
 
-离线导入成功读取后原先先暂停实时流再检查项目，切项目期间可能暂停新项目；现读取后、暂停前先核原generation和root。原方法假导入及保存失败两项 `%TEMP%/g004-offline-import-project-20261123.{out,err}.log` 2/2 exit0；未导入真实文件、断开真实网络或写项目状态，待build。
+离线导入读取后先核原项目再暂停实时流，假端2/2 exit0，原日志见33b70559；未导入真实文件或断开网络。
 
-Agent端点按钮缺endpointId时原代码回退字符串hub，现明确拒绝并要求选择Worker；有ID仍传现有精确目标过滤。真实路由方法假部署 `%TEMP%/g004-agent-endpoint-explicit-20261123.{out,err}.log` 1/1 exit0；未启动或连接Agent，待build。
+Agent按钮缺endpointId明确拒绝，假部署1/1 exit0，原日志见33b70559；未启动或连接Agent。
 
 只读规划器在47a1681d脏树列出build 316 job、compile/fullCheck、0按需（`%TEMP%/g004-build-plan-47a1681d-20261123.out.log`，exit0），后续HEAD已变，selection不可沿用。后续只读调用planG004Execution exit1，首拒`src/extension/legacy.ts`依赖漂移；按当前活跃identity+argv及eligible历史/直接条目只读比对，legacy有138条记录、PlanCleanup 64、Panel 23等记录摘要不同，条目可能多重依赖且互相重叠。该数量只识别需逐闭包复核，不能证明全部失效或允许批量重绑；未运行build矩阵、未改snapshot。旧MCP query改动包含项目路径核验与离线遥测处理，真实语义须按每个消费者审，已退役CLI不能复活。
 
@@ -71,7 +71,7 @@ Agent端点按钮缺endpointId时原代码回退字符串hub，现明确拒绝�
 
 暂存槽：人工隔离后永久删除另经完整路径双确认；自动过期只做当前identity/lane只读发现，提示人工。SFTP新请求验证实际parent双确认、节点/根、原token与目标及有效期；旧未知不因目标缺失认定结束。`%TEMP%/g004-sftp-slot-auth-v5-20261123.{out,err}.log` 3/3、原假回收三case旧v1 3/3、原batchDelete精确10个假transport安全case `%TEMP%/g004-sftp-batch-parent-v1-20261123.{out,err}.log` 10/10均exit0；未运行5000项或真实删除。删除发送只同步返回receipt；丢回执后无已证原执行器结束查询，保留unknown供原token查询、不重发，目标不存在不等于结束。
 
-SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请求核查，双确认后admit再发送；已证发送前失效unadmit，已发送未知保留，持久ended重建后settle。真实state方法+假存储/假端 `%TEMP%/g004-stage-review-v4-20261123.{out,err}.log` 10/10 exit0，包括两Host冲突、重启、取消及项目漂移；SFTP源码经总控源审、node --check与UTF8/diff检查后普通推送并fetch一致 `1ed121738969d8ec5a79693910e4463e993ecff8`；SE候选未提交。两者均未build、安装或实际远端执行。原resultSync消费者已按新链调整但需新dist，含真实临时fixture rename及保留行为，尚未运行或获本次具体效果裁决。一次误在SFTP cwd只读SE路径exit1，无写入；另一处误路径rg亦未触产品。
+SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请求核查，双确认后admit再发送；已证发送前失效unadmit，已发送未知保留，持久ended重建后settle。真实state方法+假存储/假端 `%TEMP%/g004-stage-review-v4-20261123.{out,err}.log` 10/10 exit0，包括两Host冲突、重启、取消及项目漂移；SFTP源码经总控源审、node --check与UTF8/diff检查后普通推送并fetch一致 `1ed121738969d8ec5a79693910e4463e993ecff8`；SE候选未提交。两者均未build、安装或实际远端执行。原resultSync消费者已按新链调整，含私有fixture rename及保留行为；总控已准新dist后按原限额一次，当前未运行。一次误在SFTP cwd只读SE路径exit1，无写入；另一处误路径rg亦未触产品。
 
 当前43efb031+dirty候选只读build规划 `%TEMP%/g004-build-plan-43efb031-slot-20261123.{out,err}.log` exit0、316 job/0按需/全exclusive；dry-run早于G004证据校验，不代表可构建。同一plan真实只读 `planG004Execution` `%TEMP%/g004-build-plan-evidence-43efb031-20261123.{out,err}.log` exit1，首拒legacy依赖漂移。两原slot消费者在build，新增review测试不在该专用域，普通test:features glob会纳入；需决议其build登记并逐项审核依赖，不批量改hash。SFTP serial当前实际73文件，13旧逐项日志缺及其余闭包待审，不冒全量通过。一次rg使用PowerShell未展开的脚本通配报路径错误，未写文件。
 
@@ -83,3 +83,7 @@ SE候选在隔离前复用同lease状态冻结身份，审核入口允许原请�
 总控审准SFTP两原单文件：apiBackpressure与apiUploadProgress顺序各4/4、exit0、stderr空，日志 `%TEMP%/g004-sftp-api-{backpressure,upload-progress}-v1-20261124.{out,err}.log`，原调用和依赖登记coverage；假SSE及假上传子进程，无真实监听/SSH/传输。只读查rollout时额外指定不存在的11/24日期目录导致rg exit2，实际11/23 rollout命中有效，无写入。
 当前3c132bdc及dirty源码只读展开仍build 317/package 369、前者为后者子集；逐身份对比有154个build identity含至少一条旧证依赖漂移（旧receipt记录22、direct记录132，数目可重叠），仅为待核导航，非失败或通过数。已按真实闭包续核租约、槽索引、Worker准备、结果状态和共享作用域等证据，旧compiled仍须新编译门禁；未启动build。
 projectCodeSyncState旧VM直接执行新增TS类型语法导致只读语法检查SyntaxError；按总控批准以现有TypeScript先转换再运行，原测试单文件 `%TEMP%/g004-project-code-sync-state-v1-20261124.log` 实际7/7、exit0，私有fixture保留，未触unlink/Worker/真实配置。原旧7/7证据保留，新direct按实际事件与依赖登记，单identity只读规划验收通过；修正已普通推送fetch一致6bcc43dce912f7778d86010b84edeb13a689ec5b，不冒dist验证。
+只读整理曲线入口时首次按紧凑JSON对象查找而原文件为缩进格式，脚本写前退出非零；修正后JSON解析通过，未触产品。曲线入口沿用原507专用窗口历史点击与当前源码闭包，未启动viewer或查询Worker。
+任务可用性入口发现等待队列、输入及写盘期间切项目可能继续旧client读取或把A队列缓存发布到B并触发B调度；候选复用原上下文和已有beforeRename围栏，A成功后变化保留已写事实并显示partial、不刷新/tickB。真实save方法+内存存储v2 `%TEMP%/g004-job-availability-save-v2-20261124.log` 1/1，原可用性文件选中3项v2 `%TEMP%/g004-job-availability-context-v2-20261124.log` 3/3均exit0；v1两日志各1/1、3/3保留。当前4文件候选待总控源审，legacy混合文件未build/提交，不冒真实Worker或跨项目。两次rg误传PowerShell通配符exit1，另一次日志提取因JSON转义格式未匹配写前退出；均无产品写入，修正后结果如上。
+总控核当前JobAvailability四文件及v2通过，允许既有manifest纳入新单项并按legacy精确hunk同步；完整dirty规划build 318/package 370、build为子集，均0按需；当前新单项原事件单identity规划验收通过。总控批准manifest仅从HEAD插入本组单项；原slot测试登记留待其源码同批，完整dirty规划不代表中间HEAD矩阵；未启动build/发行。总控一次只读误取旧StateStore路径exit1，改由rg定位真实路径，无写入。
+索引分hunk预检 `git apply --cached --check %TEMP%/g004-job-availability-index-v1-20261124.patch` exit1：manifest第118行patch不适用，index前后均空、未提交；old行与index逐字一致，无上下文可能为原因但未证实。按规则停止并升级；总控核出缺上下文后准许生成三行上下文v2，正常cached check及apply均exit0，v1及所有现场保留，无reset/force。
