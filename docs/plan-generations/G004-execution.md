@@ -96,3 +96,5 @@ Git覆盖审核等待状态或写入期间切换项目时，现于后续fetch、
 检查服务器配置入口发现共享SimpleSFTP profiles读取错误及坏JSON被当空配置覆盖，且等待中切项目后仍可写配置或启动下一动作。候选仅将ENOENT当缺省，其他读取/格式错误向上抛出；绑定当前项目并在原子发布前复核，快速配置等待后不继续新动作。真实方法配假fs和假发布器 `%TEMP%/g004-sftp-profile-fence-v2-20261123.{out,err}.log` 4/4 exit0；v1 3/3为增加首个等待分支前证据。未读写真实共享配置、启动Agent或访问Worker；发布前检查与系统rename并非不可分割事务，候选尚待构建及源码复核。
 
 补核同一共享文件可由另一窗口修改，发布前比对本次原始文本；变化则报错保留对方更新。假端 `%TEMP%/g004-sftp-profile-fence-v3-20261123.{out,err}.log` 5/5 exit0，原消费单项 `%TEMP%/g004-sftp-profile-consumer-v2-20261123.{out,err}.log` 1/1 exit0。只保证发布前可观察到的变化会停止，不称检查与系统rename不可分割；未读写真实共享文件。
+
+原setupWorkDirectoryWorkflow静态消费者夹具仍要求已退役Hub文案；按当前Worker唯一入口更新等价检查后，纯源码文件 `%TEMP%/g004-sftp-profile-original-consumer-v3-20261123.{out,err}.log` 3/3 exit0。它不执行Agent、项目配置或Worker操作，也不证明外部效果。

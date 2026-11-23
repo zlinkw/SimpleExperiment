@@ -36,7 +36,7 @@ test("quick setup resolves Xshell and Worker blockers before Agent preparation",
   assert.ok(start >= 0 && end > start);
   const flow = source.slice(start, end);
   const setupGate = flow.indexOf("serverSetupMissingItems(this.setupConfig, hubRequired)");
-  const workerGate = flow.indexOf("当前只配置了 Hub");
+  const workerGate = flow.indexOf("当前尚无启用的 Worker");
   const workspaceGate = flow.indexOf("if (!workspaceRoot())");
   const profiles = flow.indexOf("const profileResult = await this.writeSftpManagerServerProfiles()");
   const preparation = flow.indexOf("this.prepareAgentsForFirstRun(showAgentCompletion)");
@@ -44,13 +44,13 @@ test("quick setup resolves Xshell and Worker blockers before Agent preparation",
   assert.ok(setupGate < workspaceGate && workspaceGate < workerGate);
   assert.ok(workerGate < profiles && profiles < preparation);
   assert.match(flow, /插件不会在这里从零初始化服务器配置/);
-  assert.match(flow, /插件不会在接入弹窗中初始化服务器/);
+  assert.match(flow, /添加并启用 Worker 后才能准备 Agent 和提交实验/);
   assert.match(flow, /"打开服务器设置"/);
   assert.match(flow, /this\.openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.doesNotMatch(flow, /"打开面板"/);
   assert.match(source, /async addWorkerConfigFromUi\(showMessage = true\)/);
-  assert.match(source, /if \(showMessage\)\s*void vscode\.window\.showInformationMessage\(`\$\{worker\.displayName \|\| worker\.id\} 已添加并全局保存。`\)/);
-  assert.match(flow, /Hub 配置已保存[\s\S]{0,180}return false;/);
+  assert.match(source, /if \(showMessage\)\s*void vscode\.window\.showInformationMessage\(`\$\{worker\.displayName \|\| worker\.id\} 已导入并保存为全局共享服务器。`\)/);
+  assert.match(flow, /连接配置已保存[\s\S]{0,180}return false;/);
   assert.doesNotMatch(flow, /仅填写 Hub 参数/);
   assert.doesNotMatch(flow, /选择 Xshell 会话文件.*action/);
   assert.match(flow, /下一步选择要运行实验的本地项目/);
