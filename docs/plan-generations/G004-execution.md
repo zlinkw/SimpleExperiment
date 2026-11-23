@@ -31,7 +31,7 @@ actionLifecycle首46/49后修复夹具49/49；接替后误重复已继承job 204
 
 接替后清理、隔离、同步、tmux、结果及freshResultHost替身检查逐项证据与边界见coverage及 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证明真实删除、Worker或UI。freshResultHost曾20.389秒超时，用户许可修复后原限额复验1/1、7.513秒，原日志保留；旧shell/tmux/GPU等及各job的skip、未知工具链同见该版本，不重跑。
 
-本轮 mcpProjectOpsContract 11/11、windowScopeIsolation 8/8 及静态命令包装 pattern 1/1均exit0；仅夹具，无真实Worker。原日志和详情见 `c2c60767:docs/plan-generations/G004-execution.md`。
+本轮mcpProjectOpsContract 11/11、windowScopeIsolation 8/8及命令包装1/1均exit0；夹具日志见 `c2c60767:docs/plan-generations/G004-execution.md`。
 
 旧67/68/69、91/222/225、226/227/252、141/340/341有限继承，工具链或69根字节未知、340仅现存30项；219/284超时例外与289唯一fresh保留，详见 `6afb2ed0:docs/plan-generations/G004-execution.md`，未证真实外部效果。
 
@@ -83,7 +83,7 @@ CSV宽/长/JSON及空指标回归6/6 exit0 `%TEMP%/g004-preview-formats-complete
 
 ## 停止路由候选
 
-停止路由原猜首Worker、未知时force重发及提前落终态；已按精确归属、单次请求和未知保留意图修复，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。VM 10/10及消费者12/12 exit0，日志 `%TEMP%/g004-stop-routing-terminal-20261123.*.log`、`g004-stop-consumers-terminal-20261123.*.log`；早期 successor/pending/plan/final 原日志保留，未访问真实Worker或Agent。
+停止路由原猜首Worker、未知时force重发及提前落终态；已修精确归属、单次请求与保留意图，VM 10/10及消费者12/12 exit0，日志 `%TEMP%/g004-stop-routing-terminal-20261123.*.log`、`g004-stop-consumers-terminal-20261123.*.log`；早期日志保留，无真实Worker，原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
 接替期间只读glob两次、覆盖记录写前断言、git-show缓冲及PowerShell引号各一次失败，均未改产品；详见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
@@ -105,7 +105,7 @@ SFTP file_stats/plan_logs仅源码和假端证据。remote_directories原无条�
 
 草稿兼容路由此前误入范围，写后刷新失败修复及假写6/6、生命周期49/49日志见 `%TEMP%/g004-draft-partial-write-final-20261123.*.log`、`g004-draft-action-lifecycle-final-20261123.*.log`；无真实写入，完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
-草稿机制已退役：此前仅检查预览及兼容路由，默认渲染停用，非实际UI点击；各ID与日志见coverage，未查询活动结果或写真实草稿。
+草稿机制已退役；先前仅检查预览及兼容路由，未真实写入，详见coverage。
 
 本人指出草稿机制已退役，停止新调查、验证和实现；旧母集/兼容入口不代表当前功能，不删除文件。
 
@@ -134,3 +134,5 @@ syncScopeDeletionRefresh七个受测方法/函数与旧源码一致，planCleanu
 任务、日志及Plan选择核身份/持久化、项目切换和错误反馈，复用原假宿主证据，未操作真实选择或Worker日志；见coverage。一次压缩补丁未匹配未写入。
 
 planBatchPhysicalPipeline及planRunRecovery受测队列写入/租约和确认/恢复方法与1e91d0d4一致，其余依赖不变，复用2/2、7/7夹具旧证，未重跑清理。
+
+SFTP配置set/reset核schema、项目上下文与人工确认转发，复用旧假对话/后端9/9；不改真实全局配置。增量build对现有包装执行日志的接纳缺口已交总控，未重放退役草稿测试。

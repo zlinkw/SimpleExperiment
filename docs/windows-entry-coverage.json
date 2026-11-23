@@ -11600,6 +11600,7 @@
         {
           "name": "sftp_configuration_set",
           "method": "config.set",
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"schema要求key和值，Gateway显示项目根与完整参数的人工确认，取消或项目切换阻断；同窗Host转发原值，旧假对话/后端9/9按其范围复用。","boundary":"全局配置写入超出本轮权限；未操作真实对话或配置。"},
           "oldEvidence": "projectTools[name=sftp_configuration_set]",
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
@@ -11608,6 +11609,7 @@
         {
           "name": "sftp_configuration_reset",
           "method": "config.reset",
+          "currentReview": {"status":"source_and_fake_scoped","evidence":"schema要求key，Gateway要求显示项目根和参数的人工确认后，同窗Host原样转发；复用旧假对话/后端9/9。","boundary":"全局配置重置超出本轮权限；未操作真实对话或配置。"},
           "oldEvidence": "projectTools[name=sftp_configuration_reset]",
           "scope": "companion_proxy_real_downstream_scoped",
           "currentEvidence": "原逐项受控/历史证据仅按所引用输入和效果复用；目录和schema存在不等于完成业务调用。",
