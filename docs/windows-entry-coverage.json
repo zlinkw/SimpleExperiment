@@ -10944,6 +10944,7 @@
         },
         {
           "name": "project_prepare",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-project-ops-successor-20261123.log 原11/11 exit0，Gateway和Host方法替身验证授权、参数与回执。", "boundary": "Gateway需agents授权并传确认，Host限定单项目并检查准备前提；实际连接、Xshell、同步与部署未运行。"},
           "method": "project.prepare",
           "oldEvidence": "projectTools[name=project_prepare]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -10952,6 +10953,7 @@
         },
         {
           "name": "project_bootstrap",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-project-ops-successor-20261123.log 原11/11 exit0，Gateway和Host方法替身验证授权、参数与回执。", "boundary": "Gateway需configuration、sync、agents授权；Host做准备预览和验证，确认后建立异步操作。先前仅UI本地识别成功，未验证MCP真实Worker准备。"},
           "method": "project.bootstrap",
           "oldEvidence": "projectTools[name=project_bootstrap]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -10960,6 +10962,7 @@
         },
         {
           "name": "project_bootstrap_operation",
+          "currentReview": {"status": "synthetic_scoped", "evidence": "%TEMP%/g004-520-mcp-project-ops-successor-20261123.log 原11/11 exit0，Gateway和Host方法替身验证授权、参数与回执。", "boundary": "根据operationId读取操作记录，缺失报错，返回ok不等于操作成功；仅假状态成功、失败和缺失分支，不查真实活动任务。"},
           "method": "project.bootstrap.operation",
           "oldEvidence": "projectTools[name=project_bootstrap_operation]",
           "scope": "local_gateway_plus_worker_effect_restricted",
