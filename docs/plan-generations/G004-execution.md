@@ -73,7 +73,7 @@ CSV宽/长/JSON原回归及两次首失败日志见 `18f587b2:docs/plan-generati
 
 接替期间只读glob两次、覆盖记录写前断言、git-show缓冲及PowerShell引号各一次失败，均未改产品；详见 `49e1cebd:docs/plan-generations/G004-execution.md`。
 
-停止组已同步 `fb874de2`；其后修UI把未知误报completed、Plan停止附无关选择和Worker标识/提示，11/11及消费者12/12 exit0 `%TEMP%/g004-stop-ui-outcome-current-20261123.*.log`、`g004-stop-consumers-outcome-current-20261123.*.log`。仅假客户端；Panel仍待build/VM及总控审，不部署或提交。完整原文见 `49e1cebd:docs/plan-generations/G004-execution.md`。
+停止UI未知状态及目标候选、假端验证与原日志见 `a1a638d1:docs/plan-generations/G004-execution.md`；Panel未build。
 
 同根45080 SFTP本地状态与配置只读成功；target.show缺配置及首身份检查失败、敏感日志与边界见 `49e1cebd:docs/plan-generations/G004-execution.md`。未改配置或访问远端。
 
@@ -180,3 +180,5 @@ MCP下载按本人授权要求选定Worker有效已存范围，配套b3da0b5；�
 面板verifyAgentVersion/prepareAgents/startAll及对应invoke路线按旧实点适用和当前源码分别核对，未实测远端；见coverage。
 
 结果拆表入口及可见词条全选/取消逐ID核当前界面与Host校验，未写真实结果；见coverage。
+
+结果映射打开、共享产物定位、拆表提交及invoke按源码逐ID核对，未读写真实结果；见coverage。

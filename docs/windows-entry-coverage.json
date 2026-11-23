@@ -12919,6 +12919,7 @@
         },
         {
           "id": "panel:splitProjectResultTable:1",
+          "currentReview": {"status":"source_scoped","evidence":"界面提交当前表key、列和值；Host校目录、列及词条，派生项目内输出，同名文件需本人确认并检查项目上下文后写入。","boundary":"仅源码核对；未读用户结果或写入文件，未声称本轮真实UI验收。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.panelCommandActions[name=splitProjectResultTable]",
           "oldStatus": "concluded_scoped",
@@ -13671,6 +13672,7 @@
         },
         {
           "id": "noncommand:data-open-result-shared-plan",
+          "currentReview": {"status":"source_scoped","evidence":"按当前计划key展开高级来源及对应共享产物节点，再滚动至该节点；空key不操作。","boundary":"仅源码核对；未读用户结果或写入文件，未声称本轮真实UI验收。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=data-open-result-shared-plan]",
           "oldStatus": "concluded_scoped",
@@ -13678,6 +13680,7 @@
         },
         {
           "id": "noncommand:open result mapping",
+          "currentReview": {"status":"source_scoped","evidence":"展开项目列映射编辑器；结果区未挂载时保留待打开状态，渲染后打开，入口本身不保存映射。","boundary":"仅源码核对；未读用户结果或写入文件，未声称本轮真实UI验收。"},
           "disposition": "prior_scoped_evidence",
           "reference": "g004U04RemainingInventory.nonCommandButtonCandidates[name=open result mapping]",
           "oldStatus": "concluded_scoped",
@@ -15346,6 +15349,7 @@
         },
         {
           "name": "splitProjectResultTable",
+          "currentReview": {"status":"source_scoped","evidence":"转发Host拆表，实际词条与输出确认边界见panel:splitProjectResultTable:1。"},
           "route": "handleMessageCore_case",
           "evidence": "源码路由分类；实际权限、确认、消费者与外部效果按原逐项记录，不等于调用通过。"
         },
