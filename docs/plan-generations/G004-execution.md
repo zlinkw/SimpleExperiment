@@ -117,7 +117,7 @@ MCP诊断取消发送前重核授权及身份；假Gateway/Host 3/3、Host 1/1 e
 
 只读glob与git show缓冲失败及coverage脚本、压缩首稿失败均未写入，详见 `0f6ea82b:docs/plan-generations/G004-execution.md`。
 
-结果规则保存、映射保存及运行前同步过去未向已有逐Worker循环传项目上下文，切项目后可能继续向剩余Worker发送；155d0593绑定原项目，同步后再核项目才刷新。假Worker受控检查1/1、两类真实方法VM 1/1、调用链断言2/2 exit0，日志 %TEMP%/g004-adapter-sync-boundary-20261123.*.log、g004-adapter-ui-project-switch-final-20261123.*.log、g004-adapter-ui-bindings-20261123.*.log。首次VM夹具语法失败exit1见 g004-adapter-ui-project-switch-20261123.*.log；未访问真实Worker或写真实配置，待build。
+结果规则保存、映射保存及运行前同步绑定原项目，切项目不继续剩余Worker，155d0593已同步待build。假Worker 1/1、VM 1/1、调用链2/2及首夹具语法失败日志见 `d1d816d2:docs/plan-generations/G004-execution.md`；未访问真实Worker或写真实配置。
 
 结果区原自动匹配无实际恢复；首次拟改仅刷新会缩减入口承诺，已撤回、不计通过，VM日志见 `0f6ea82b:docs/plan-generations/G004-execution.md`。不恢复旧registry；未改真实结果。
 
@@ -148,3 +148,5 @@ artifact_list/inspect项目边界、精确身份和本地及假远端证据逐ID
 experiment_list/summary/tree按输入合并、过滤与树结构逐项复核，假RPC历史覆盖和未调用真实任务的限制见coverage。
 
 experiment_active/overview/health按源及原合成观察/告警证据逐项复核，真实活动查询仍受限，见coverage。
+
+实验历史日志、诊断和配置原可从记录指向项目外本地文件；现复用产物路径规范及实际路径边界，项目外、父目录和junction拒绝。假RPC路径1/1 `%TEMP%/g004-experiment-path-boundary-20261123.*.log`，原本地、假远端产物及合法历史消费者4/4 `%TEMP%/g004-experiment-path-consumers-20261123.*.log`，均exit0；未读取真实用户文件或查询Worker，待build。

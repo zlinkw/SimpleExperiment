@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { callApi, optionalApi, businessError, emit } from "./Support";
-import { EXPERIMENT_INDEX_REL, RUNS_DIR, fileExists, readJsonFile, readTail, readTextFile, resolveProjectPath } from "./ProjectData";
+import { EXPERIMENT_INDEX_REL, RUNS_DIR, checkedProjectPath, fileExists, readJsonFile, readTail, readTextFile, resolveProjectPath } from "./ProjectData";
 import { matchesRuntime, nestedYamlValue, observeRunningExperiments, readWorkerTaskConfig, RuntimeObservation, trainingMaxEpochFromYaml } from "./Runtime";
 import { compactJsonValue } from "./Compact";
 import { loadResults, ResultRow } from "./Results";
@@ -1743,7 +1743,7 @@ async function recentLogsFor(match: ExperimentRow): Promise<string> {
             return liveText;
     }
     if (logPath) {
-        const absolutePath = path.isAbsolute(logPath) ? logPath : resolveProjectPath(logPath);
+        const absolutePath = checkedProjectPath(logPath, "LOG_PATH_OUTSIDE_PROJECT");
         if (fileExists(absolutePath))
             return readTail(absolutePath, 200);
     }
@@ -1907,7 +1907,7 @@ export async function logRecordsForExperiment(id: string): Promise<LogRecord[] |
         return parseLogRecords(extractLiveLog(await callApi("live.output", { runKey, workerId: match.worker_id }), runKey));
     }
     if (logPath) {
-        const absolute = path.isAbsolute(logPath) ? logPath : resolveProjectPath(logPath);
+        const absolute = checkedProjectPath(logPath, "LOG_PATH_OUTSIDE_PROJECT");
         if (fileExists(absolute))
             return parseLogRecords(readTextFile(absolute));
     }
@@ -1927,14 +1927,14 @@ async function configPayload(match: ExperimentRow): Promise<Record<string, unkno
             yaml = remote.yaml;
     }
     if (!yaml && hintedConfigPath) {
-        const absolute = resolveProjectPath(hintedConfigPath);
+        const absolute = checkedProjectPath(hintedConfigPath, "CONFIG_PATH_OUTSIDE_PROJECT");
         if (fileExists(absolute))
             yaml = readTextFile(absolute);
     }
     if (!configPath)
         configPath = match.plan;
     if (!yaml && configPath === match.plan && configPath) {
-        const absolute = resolveProjectPath(configPath);
+        const absolute = checkedProjectPath(configPath, "CONFIG_PATH_OUTSIDE_PROJECT");
         if (fileExists(absolute))
             yaml = readTextFile(absolute);
     }

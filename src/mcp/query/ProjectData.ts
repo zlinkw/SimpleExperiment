@@ -1,11 +1,23 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { queryContext } from "./Support";
+import { businessError, queryContext } from "./Support";
 
 export const EXPERIMENT_INDEX_REL=path.join("simple_cluster","experiment_index.json");
 export const RUNS_DIR=path.join("experiments","runs");
 export function projectRoot():string{return queryContext().root}
 export function resolveProjectPath(...parts:string[]):string{return path.resolve(projectRoot(),...parts)}
+export function checkedProjectPath(candidate:string,code:string):string{
+  const root=path.resolve(projectRoot()),absolute=path.resolve(root,candidate);
+  const inside=(base:string,target:string)=>{const rel=path.relative(base,target);return rel!==".."&&!rel.startsWith(".."+path.sep)&&!path.isAbsolute(rel)};
+  if(!inside(root,absolute))throw businessError(code+": "+candidate);
+  const physicalRoot=fs.realpathSync(root);let current=root;
+  for(const part of path.relative(root,absolute).split(path.sep).filter(Boolean)){
+    current=path.join(current,part);
+    try{fs.lstatSync(current)}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")break;throw error}
+    if(!inside(physicalRoot,fs.realpathSync(current)))throw businessError(code+": "+candidate);
+  }
+  return absolute;
+}
 export function readJsonFile<T>(file:string,fallback:T):T{
   if(!fs.existsSync(file))return fallback;
   try{return JSON.parse(fs.readFileSync(file,"utf8")) as T}catch{return fallback}

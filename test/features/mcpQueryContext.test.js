@@ -278,6 +278,24 @@ test('MCP experiment config and logs preserve declared history details',async()=
  assert.equal(diagnosis.status,'failed');assert.ok(diagnosis.evidence.some(line=>/out of memory/i.test(line)));
 });
 
+test('MCP experiment logs and config stay inside the current project',async()=>{
+ const base=fs.mkdtempSync(path.join(os.tmpdir(),'g004-experiment-path-'));
+ const root=path.join(base,'project'),outside=path.join(base,'outside');fs.mkdirSync(root);fs.mkdirSync(outside);
+ fs.mkdirSync(path.join(root,'simple_cluster'));fs.writeFileSync(path.join(outside,'secret.txt'),'outside secret','utf8');
+ fs.writeFileSync(path.join(root,'safe.log'),'INFO inside','utf8');fs.writeFileSync(path.join(root,'safe.yaml'),'model: inside','utf8');
+ fs.symlinkSync(outside,path.join(root,'link'),'junction');
+ const index=path.join(root,'simple_cluster','experiment_index.json');
+ const rpc=async method=>{if(method==='tasks.list')return {tasks:[]};if(method==='operations.list')return {records:[]};if(method==='state.get')return {value:{workerTunnels:[]}};if(method==='live.output')return {};throw Error('unexpected RPC '+method)};
+ const row=(stdout,config)=>fs.writeFileSync(index,JSON.stringify([{global_job_id:'case',type:'run-plan',status:'failed',stdout,config_path:config}]),'utf8');
+ row('safe.log','safe.yaml');assert.match((await queryProject(root,rpc,'experiment_log',{id:'case'}))[0].message,/inside/);
+ assert.match((await queryProject(root,rpc,'experiment_config',{id:'case'})).yaml,/inside/);
+ for(const candidate of [path.join(outside,'secret.txt'),'../outside/secret.txt','link/secret.txt']){
+  row(candidate,'safe.yaml');await assert.rejects(queryProject(root,rpc,'experiment_log',{id:'case'}),/LOG_PATH_OUTSIDE_PROJECT/);
+  await assert.rejects(queryProject(root,rpc,'experiment_diagnose',{id:'case'}),/LOG_PATH_OUTSIDE_PROJECT/);
+  row('safe.log',candidate);await assert.rejects(queryProject(root,rpc,'experiment_config',{id:'case'}),/CONFIG_PATH_OUTSIDE_PROJECT/);
+ }
+});
+
 test('neutral query support requires context and preserves optional RPC semantics',async()=>{
  assert.throws(()=>support.emit({}),/MCP_QUERY_CONTEXT_REQUIRED/);
  assert.throws(()=>support.callApi('status'),/MCP_QUERY_CONTEXT_REQUIRED/);

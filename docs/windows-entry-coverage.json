@@ -11894,6 +11894,7 @@
         },
         {
           "name": "experiment_status",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"精确ID解析，full可读取近期日志；本地日志现共用项目边界检查。边界假RPC 1/1与旧合法路径/产物消费者4/4 exit0，%TEMP%/g004-experiment-path-boundary-20261123.*.log、g004-experiment-path-consumers-20261123.*.log。","boundary":"未查询真实任务/日志，未build；原快照与full状态各有不同字段。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_status]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11902,6 +11903,7 @@
         },
         {
           "name": "experiment_inspect",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"按ID取得运行快照和近期日志，汇总诊断；本地日志共用项目边界检查。假RPC路径1/1及受影响消费者4/4 exit0，日志见experiment_status条目。","boundary":"未查询真实任务/日志，未build；空日志不证明完整分析。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_inspect]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11910,6 +11912,7 @@
         },
         {
           "name": "experiment_monitor",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"单次按ID输出运行快照及近期日志；本地日志共用项目边界检查。假RPC路径1/1及受影响消费者4/4 exit0，日志见experiment_status条目。","boundary":"未查询真实任务/日志，未build；不宣称持续监控已执行。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_monitor]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11918,6 +11921,7 @@
         },
         {
           "name": "experiment_diagnose",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"按ID用近期日志生成诊断；项目外路径、父目录与junction均拒绝，项目内保留。假RPC边界1/1及旧合法路径消费者4/4 exit0，日志见experiment_status条目。","boundary":"未查询真实任务/日志，未build；诊断不等于实际修复。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_diagnose]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11926,6 +11930,7 @@
         },
         {
           "name": "experiment_config",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"优先读取Worker已归属配置；本地历史提示或Plan路径改经项目规范及实际路径检查。假RPC边界1/1和原合法历史4/4 exit0，日志见experiment_status条目。","boundary":"未查询真实Worker或读取真实用户配置；源码未build。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_config]",
           "scope": "local_gateway_plus_worker_effect_restricted",
@@ -11934,6 +11939,7 @@
         },
         {
           "name": "experiment_log",
+          "currentReview": {"status":"fixed_scoped_controlled","evidence":"Worker按明确身份读远端；本地历史日志路径改经项目规范及实际路径检查，项目外、父目录与junction拒绝。假RPC边界1/1及旧合法路径4/4 exit0，日志见experiment_status条目。","boundary":"未查询真实Worker/日志；源码未build。"},
           "method": "mcp.query",
           "oldEvidence": "projectTools[name=experiment_log]",
           "scope": "local_gateway_plus_worker_effect_restricted",
