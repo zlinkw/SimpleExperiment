@@ -4,7 +4,9 @@ const os = require('node:os');
 const path = require('node:path');
 const Module = require('node:module');
 require('./registerTsRequire');
-const { ResultCollectionHost } = require('../../src/extension/ResultCollectionHost.ts');
+const sourceResults = require('../../src/extension/ResultCollectionHost.ts');
+const distResults = require('../../dist/extension/ResultCollectionHost.js');
+const { ResultCollectionHost } = sourceResults;
 const { resultDigest } = require('../../src/results/FreshResults.ts');
 const exportsApi = require('../../src/results/LatestResultExport.ts');
 const originalLoad = Module._load;
@@ -30,6 +32,8 @@ function scenario({workerIds=['w1','w2'], directory='artifacts/results'}={}) {
     resultCsvDirectory:directory, panelDisposed:false,
     captureProjectContext:()=>({root,generation:1}), projectContextIsCurrent:()=>current,
     workerCodeSyncTargets:()=>workers,
+    workerActionTargets:()=>workers.map(worker=>({id:worker.id,condaEnv:''})),
+    realtimeEndpoints:()=>workers.map(worker=>({id:worker.id,role:'worker',localHost:'127.0.0.1',localPort:19001,token:'fixture',resourceServer:worker.host+':'+worker.port,resourceProjectRoot:worker.remotePath})),
     currentResultPlanInputs:async()=>plans.map(({jobs,...plan})=>({...plan})),
     resultAdapterRules:()=>rules,
     parseFreshResultMetric:Provider.prototype.parseFreshResultMetric,
@@ -68,6 +72,9 @@ function scenario({workerIds=['w1','w2'], directory='artifacts/results'}={}) {
     loadPlanSyncLedger:()=>assert.fail('old transfer ledger cannot supply current results'),
     hostOperationLease:{run:()=>assert.fail('no persistent result lease')},
   };
+  if (process.env.SIMPLE_RESULT_BASELINE !== '1') for (const module of [sourceResults, distResults]) {
+    if (typeof module.bindResultClientEndpoints === 'function') module.bindResultClientEndpoints(host.client, host.realtimeEndpoints());
+  }
   const service=new ResultCollectionHost(host);
   function addPlan(planFile='experiments/plans/demo.yaml', {seeds=[42,43],cases=['alpha'],mode='test'}={}) {
     const text=JSON.stringify({planFile,seeds,cases,mode});

@@ -1,5 +1,5 @@
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),assert=require('node:assert/strict');
-const { ResultCollectionHost } = require('../../src/extension/ResultCollectionHost.ts');
+const { ResultCollectionHost, bindResultClientEndpoints } = require('../../src/extension/ResultCollectionHost.ts');
 const { resultDigest } = require('../../src/results/FreshResults.ts');
 const planFile = 'experiments/plans/demo.yaml', planText = 'suite: demo\nmode: test\nseeds: [42,43]\n';
 function fixture() {
@@ -13,7 +13,7 @@ function fixture() {
   const host = { panelDisposed: false, resultCsvDirectory: 'experiments/results',
     hostOperationLease: { run: () => assert.fail('result publication must not use persistent operation/lease records') },
     captureProjectContext: () => ({ root }), projectContextIsCurrent: () => true, workerCodeSyncTargets: () => [worker],
-    workerActionTargets: () => [{id:worker.id,condaEnv:''}],
+    workerActionTargets: () => [{id:worker.id,condaEnv:''}], realtimeEndpoints: () => [{id:'a',role:'worker',localHost:'127.0.0.1',localPort:19001,token:'fixture',resourceServer:'configured-host:222',resourceProjectRoot:'/configured/project'}],
     currentResultPlanInputs: async () => [{ planFile, revision: resultDigest(planText), mode: 'test', seeds: [42,43], jobCount: 2 }],
     resultAdapterRules: () => ({}), parseFreshResultMetric: text => [{ dimensions: { case: 'alpha', seed: '42', dataset: 'set', method: 'demo' }, metrics: { auc: Number(text) } }],
     client: { getWorkerTasks: async (id, options) => {
@@ -37,6 +37,7 @@ function fixture() {
     loadDistributedQueue: () => assert.fail('queue must not supply results'), loadPlanSyncLedger: () => assert.fail('ledger must not supply results'),
     loadProjectTableRegistry: () => assert.fail('registry must not supply results'),
   };
+  if (process.env.SIMPLE_RESULT_BASELINE !== '1' && typeof bindResultClientEndpoints === 'function') bindResultClientEndpoints(host.client, host.realtimeEndpoints());
   const service = new ResultCollectionHost(host);
   return { root, host, service, calls, raw, offline: value => { offline = value; }, gone: value => { gone = value; }, protocol: value => { protocol = value; }, failTransfer: value => { failTransfer = value; }, block: promise => { release = promise; } };
 }
