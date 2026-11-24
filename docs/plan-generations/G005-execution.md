@@ -43,6 +43,8 @@ Worker 启动实际命令前重新检查独立输出目录，目录非空或为�
 
 原生旧任务缺少保存的实际命令时，显式预检返回不支持，保留旧记录、不转换或启动；同一目标测试退出 0、1/1。
 
+本地 PLAN 列表识别新命令格式并显示名称、命令和输出，不再按科研配置判无效或推测训练模式；矩阵数量留待实际校验。首次 `test/features/guidedCommandPlan.test.js` 退出 1，暴露双引号转义被保留；修正 YAML 字符串及引号内注释处理后两次退出 0、各 3/3，含引号、反斜杠及 `#`。`test/features/staticEntrypointProbe.test.js` 退出 0、3/3，noEmit 退出 0。检查现有 `yaml`、`js-yaml` 包时均因未安装退出 1，未新增依赖。尚未真实界面验收。
+
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
 Worker 命令协议的本机函数夹具通过；`node scripts/test-workflow.js test:tmux-lifecycle --dry-run --only test/features/declaredCommandPlan.test.js --max-parallel 1` 退出 0，选出 1 个独占文件，未运行该测试以外的任务。该片段不代表远端部署或端到端运行。

@@ -687,6 +687,9 @@ export function parsePlanSummary(yaml) {
         return existingCandidates.has(candidate) || existingCandidateKeys.has(normalizeOutputCandidateKey(candidate));
     });
     return {
+        declaredPlanId: firstTopLevelPlanScalar(clean, anchors, "plan_id"),
+        declaredPlanName: firstTopLevelPlanScalar(clean, anchors, "name"),
+        declaredOutputDir: firstTopLevelPlanScalar(clean, anchors, "output_dir"),
         declaredCommand: firstTopLevelPlanScalar(clean, anchors, "command"),
         workingDirectory: firstTopLevelPlanScalar(clean, anchors, "working_dir") || ".",
         suite: firstTopLevelPlanScalar(clean, anchors, "suite"),
@@ -1157,8 +1160,12 @@ export function stripYamlLineComment(value) {
     let quote = "";
     for (let i = 0; i < value.length; i++) {
         const ch = value[i];
-        if ((ch === "\"" || ch === "'") && value[i - 1] !== "\\")
-            quote = quote === ch ? "" : quote || ch;
+        if (quote === "'" && ch === "'" && value[i + 1] === "'") { i++; continue; }
+        if ((ch === "\"" || ch === "'") && (!quote || quote === ch)) {
+            let backslashes = 0;
+            if (ch === "\"") for (let j = i - 1; j >= 0 && value[j] === "\\"; j--) backslashes++;
+            if (backslashes % 2 === 0) quote = quote ? "" : ch;
+        }
         if (ch === "#" && !quote && (i === 0 || /\s/.test(value[i - 1])))
             return value.slice(0, i);
     }
@@ -1774,9 +1781,12 @@ function splitYamlFlowItems(text) {
     return items;
 }
 function stripYamlScalar(value) {
-    const trimmed = value.replace(/\s+#.*$/, "").trim();
-    if ((trimmed.startsWith("\"") && trimmed.endsWith("\"")) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
-        return trimmed.slice(1, -1).trim();
+    const trimmed = stripYamlLineComment(value).trim();
+    if (trimmed.startsWith("\"") && trimmed.endsWith("\"")) {
+        try { return JSON.parse(trimmed).trim(); } catch { return trimmed.slice(1, -1).trim(); }
+    }
+    if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+        return trimmed.slice(1, -1).replace(/''/g, "'").trim();
     }
     return trimmed;
 }

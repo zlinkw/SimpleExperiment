@@ -37268,17 +37268,21 @@ async function walkYaml(dir, options = {}) {
 }
 function parseLocalPlanText(file, text) {
     const summary = (0, PlanBuilder_1.parsePlanSummary)(text);
-    const contract = (0, PlanBuilder_1.validateDeepLearningPlanContract)(text);
+    const commandPlan = Boolean(summary.declaredPlanId || summary.declaredOutputDir || summary.declaredCommand);
+    const missing = commandPlan ? [["plan_id", summary.declaredPlanId], ["name", summary.declaredPlanName],
+        ["command", summary.declaredCommand], ["output_dir", summary.declaredOutputDir]].filter(([, value]) => !value).map(([key]) => key) : [];
+    const contract = commandPlan ? { ok: missing.length === 0, missing, issues: [] }
+        : (0, PlanBuilder_1.validateDeepLearningPlanContract)(text);
     const suite = summary.suite || "";
-    const mode = summary.mode || "";
+    const mode = commandPlan ? "" : summary.mode || "";
     const baseConfig = summary.baseConfig || "";
     const configSource = summary.configSource || baseConfig;
     const seeds = summary.seeds;
     const cases = summary.cases;
-    const trainCommand = summary.trainCommand || "";
-    const testCommand = summary.testCommand || "";
-    const outputCandidates = summary.outputCandidates;
-    const outputSignals = summary.outputSignals;
+    const trainCommand = commandPlan ? "" : summary.trainCommand || "";
+    const testCommand = commandPlan ? "" : summary.testCommand || "";
+    const outputCandidates = commandPlan ? [] : summary.outputCandidates;
+    const outputSignals = commandPlan ? [] : summary.outputSignals;
     const restoreVersion = String(text || "").match(/^# (?:SimpleExperiment|ZLK) restore version:\s*(v\d+)\s*$/m)?.[1] || "";
     const restoreSource = String(text || "").match(/^# (?:SimpleExperiment|ZLK) archived source:\s*(.+?)\s*$/m)?.[1] || "";
     const restoreOutputNamespace = String(text || "").match(/^# (?:SimpleExperiment|ZLK) restored output namespace:\s*(.+?)\s*$/m)?.[1] || "";
@@ -37286,6 +37290,7 @@ function parseLocalPlanText(file, text) {
     const restoreParameterDir = String(text || "").match(/^# (?:SimpleExperiment|ZLK) restored parameters:\s*(.+?)\s*$/m)?.[1] || "";
     const parseError = contract.ok
         ? undefined
+        : commandPlan ? `计划缺少必填项：${contract.missing.join("、")}`
         : contract.missing.includes("suite") || contract.missing.includes("base_config/config")
             ? "缺少 suite 或 base_config/config"
             : `计划强契约缺少：${contract.missing.join("、")}`;
@@ -37294,7 +37299,9 @@ function parseLocalPlanText(file, text) {
         planFile: file,
         file,
         revision: sha256Text(String(text || "")),
-        name: path.basename(file),
+        name: commandPlan && summary.declaredPlanName || path.basename(file),
+        command: commandPlan ? summary.declaredCommand : undefined,
+        outputDir: commandPlan ? summary.declaredOutputDir : undefined,
         suite,
         status: parseError ? "invalid" : "ready",
         mode,
@@ -37316,7 +37323,7 @@ function parseLocalPlanText(file, text) {
         planContractOk: contract.ok,
         planContractMissing: contract.missing,
         planContractIssues: contract.issues,
-        jobCount: Math.max(1, seeds.length || 1) * cases.length,
+        jobCount: commandPlan ? undefined : Math.max(1, seeds.length || 1) * cases.length,
         parseError,
         text,
     };
