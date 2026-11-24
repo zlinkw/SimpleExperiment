@@ -9200,28 +9200,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async ensureManualStopReason(command, body, message = {}) {
         if (command !== "stopExperiment")
             return;
-        const current = String(body.manualStopType || body.stopReason || body.options?.manualStopType || body.options?.stopReason || "").trim();
-        if (current)
-            return;
-        if ((stringField(message, "operationId") || stringField(message, "remoteOperationId"))
-            && (operationResultPlanFile(body) || stringField(message, "planFile"))) {
-            body.manualStopType = "scheduler_aborted";
-            body.stopReason = "scheduler_aborted";
-            body.options = { ...(body.options || {}), manualStopType: "scheduler_aborted", stopReason: "scheduler_aborted", stopSource: "user" };
-            return;
-        }
-        const picked = await vscode.window.showQuickPick([
-            { label: "代码有误或效果不好，停止后不再自动重跑", value: "manual_stop_bad_code_or_no_effect" },
-            { label: "模型已收敛，停止后作为待审核完成任务", value: "manual_stop_converged" },
-        ], {
-            placeHolder: "选择手动中断原因；任务会标记为已完成但需要你后续审核是否归档。",
-            ignoreFocusOut: true,
-        });
-        if (!picked)
-            throw new UiCommandCancelled("停止任务已取消。");
-        body.manualStopType = picked.value;
-        body.stopReason = picked.value;
-        body.options = { ...(body.options || {}), manualStopType: picked.value, stopReason: picked.value, stopSource: "user" };
+        body.manualStopType = "scheduler_aborted";
+        body.stopReason = "scheduler_aborted";
+        body.options = { ...(body.options || {}), manualStopType: "scheduler_aborted", stopReason: "scheduler_aborted", stopSource: "user" };
     }
     assertRetryPlanContext(command, message) {
         if (command !== "retryExperiment")
