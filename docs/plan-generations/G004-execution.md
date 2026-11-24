@@ -57,3 +57,5 @@ parallelPlanSubmission夹具仅从当前源码AST唯一提取真实samePath并�
 
 planOutputReplacementHost第3case以真实PlanCleanupHost类唯一execute AST取代已失效旧签名slice，原7case断言保留；node --check exit0仅语法，旧full撤当前资格、原事件/八输入/工具链保留。未来仅最终SOURCE/fixture冻结及真实新编译后原runner 20秒full7一次，尚未运行；注册隔离分支未进入、NETWORK_DISCONNECT为原fake，不冒真实删除。
 总控审parallelPlanStopClear、outputIsolationRecovery、pulledTaskControl三旧direct，仅2/3/4指定依赖条件适用；原并发及正确性等待、fake tmux/Worker、真实Host固定输入、内存和crypto边界保留，不冒新运行、真实文件删除或新dist。只读AST首次将const误判为函数后纠正，合并输出截断后补读，非测试失败。
+
+总控审prequeueRecallBulkSync和planRunRerunIntent两旧direct，各仅7指定依赖条件适用；前者保旧dist与fake Worker、原grace/pending，后者纯内存与crypto，未执行真实recall、rerun、文件写或远端；原3/14结果不冒新run。
