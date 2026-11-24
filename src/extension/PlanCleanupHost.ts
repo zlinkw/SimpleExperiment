@@ -56,14 +56,15 @@ export class PlanCleanupHost {
     else if (!this.runningOperations.has(id)) this.retainUnfinishedPaths(id, operation);
     return operation;
   }
-  conflictingPath(paths: string[], nodeId?: string): string | undefined {
+  conflictingPath(paths: string[], nodeId?: string, exceptOperationId?: string): string | undefined {
     const node = nodeId ? this.currentNode(nodeId) : undefined;
     const identity = (item: CleanupNode) => JSON.stringify([item.kind, item.host || "", item.port || 0, item.user || "", item.root]);
     const normal = (value: string, local: boolean) => {
       const result = value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "") || ".";
       return local && process.platform === "win32" ? result.toLowerCase() : result;
     };
-    for (const targets of this.activePaths.values()) for (const target of targets) {
+    for (const [operationId, targets] of this.activePaths) for (const target of targets) {
+      if (operationId === exceptOperationId) continue;
       if (node && identity(node) !== identity(target.node)) continue;
       const local = target.node.kind === "local", existing = normal(target.path, local);
       for (const path of paths.filter(Boolean).map(path => normal(path, local)))
@@ -82,7 +83,16 @@ export class PlanCleanupHost {
     const operation = await this.service.confirmedOperation(id);
     this.assertWorkspace();
     if (operation.state === "completed") return operation;
-    const work = this.start(id);
+    if (this.runningOperations.has(id)) cleanupError("OPERATION_BUSY");
+    const paths = operation.preview.rows.filter(row => ["delete", "move", "isolate", "restore"].includes(row.disposition))
+      .flatMap(row => [row.relativePath, row.destination].filter(Boolean).map(path => ({ node: row.node, path })));
+    for (const target of paths) {
+      const conflict = this.conflictingPath([target.path], target.node.id, id);
+      if (conflict) cleanupError("CLEANUP_TARGET_BUSY", "路径正在处理：" + conflict);
+    }
+    this.activePaths.set(id, paths);
+    let work: Promise<CleanupOperation>;
+    try { work = this.start(id); } catch (error) { this.activePaths.delete(id); throw error; }
     void work.catch((error: any) => {
       this.host.recordActionError({ command: "planCleanup", message: id + "：" + String(error.message || error) });
       this.host.postState();
@@ -469,7 +479,7 @@ export class PlanCleanupHost {
       const paths = initial.preview.rows.filter(row => ["delete", "move", "isolate", "restore"].includes(row.disposition))
         .flatMap(row => [row.relativePath, row.destination].filter(Boolean).map(path => ({ node: row.node, path })));
       for (const target of paths) {
-        const conflict = this.conflictingPath([target.path], target.node.id);
+        const conflict = this.conflictingPath([target.path], target.node.id, id);
         if (conflict) cleanupError("CLEANUP_TARGET_BUSY", "路径正在处理：" + conflict);
       }
       this.activePaths.set(id, paths);

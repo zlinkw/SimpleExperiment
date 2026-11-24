@@ -20,6 +20,7 @@ test('independent cleanup targets run concurrently and overlapping requests fail
   const paths = { a: 'work/a', b: 'work/b', overlap: 'work/a/nested' }, states = {};
   host.service = {
     registeredIsolationSource: async () => undefined,
+    confirmedOperation: async id => ({ id, state: 'ready', preview: { rows: [{ node, relativePath: paths[id], destination: '', disposition: 'isolate' }] } }),
     status: async id => ({ id, state: states[id] || 'ready', targets: {}, preview: { action: 'isolate', scope: { observationMode: 'managed_tmux' },
       rows: [{ node, relativePath: paths[id], destination: '', disposition: 'isolate' }] } }),
     execute: id => { entered.push(id); return new Promise((resolve, reject) => { resolvers[id] = { resolve, reject }; signals[id](); }); },
@@ -43,6 +44,7 @@ test('independent cleanup targets run concurrently and overlapping requests fail
   assert.deepEqual(entered, ['a', 'b']);
   assert.throws(() => host.start('a'), /OPERATION_BUSY/);
   await assert.rejects(host.execute('a'), /OPERATION_BUSY/);
+  await assert.rejects(host.startBackground('overlap'), /CLEANUP_TARGET_BUSY|路径正在处理/);
   await assert.rejects(host.execute('overlap'), /CLEANUP_TARGET_BUSY|路径正在处理/);
   assert.equal(host.conflictingPath(['work/a/child'], 'local'), 'local:work/a');
   assert.equal(host.conflictingPath(['work/other'], 'local'), undefined);
@@ -63,7 +65,7 @@ test('API background acceptance keeps confirmation and failure visible', async (
   let rejectWork, confirmed = false;
   host.service = { confirmedOperation: async id => {
     if (!confirmed) throw Error('CONFIRM_REQUIRED');
-    return { id, state: 'ready' };
+    return { id, state: 'ready', preview: { rows: [] } };
   } };
   host.execute = () => new Promise((resolve, reject) => { rejectWork = reject; });
   await assert.rejects(host.startBackground('request'), /CONFIRM_REQUIRED/);

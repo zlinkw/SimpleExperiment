@@ -59,7 +59,11 @@
 
 已同步 `f583dd01`：清理审核页在所需确认后返回请求身份（永久删除保留双确认）并释放页面操作，后台结果和失败仍可见；重复请求不重新启动。`node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js` 退出 0、19/19；`node --test --test-force-exit --test-timeout 20000 test/features/cleanupConcurrentTargets.test.js` 退出 0、1/1；noEmit 退出 0。仅假清理器及页面桥接验证，无真实文件删除。
 
-清理 API/MCP 执行与继续入口读取已有人工确认后返回受理身份，后台错误进入诊断，实际结果仍查原状态；永久删除仍需两次确认。`node --test --test-force-exit --test-timeout 20000 test/features/cleanupConcurrentTargets.test.js` 首次退出 0、2/2，补充确认边界后退出 0、3/3；`npx tsc --noEmit --incremental false` 退出 0。均使用替身，未删除文件。提交链、配套传输端及重启后未决操作的范围保护仍未完成。
+已同步 `94f8bdad`：清理 API/MCP 执行与继续入口读取已有人工确认后返回受理身份，后台错误进入诊断，实际结果仍查原状态；永久删除仍需两次确认。`node --test --test-force-exit --test-timeout 20000 test/features/cleanupConcurrentTargets.test.js` 首次退出 0、2/2，补充确认边界后退出 0、3/3；`npx tsc --noEmit --incremental false` 退出 0。均使用替身，未删除文件。
+
+配套 SimpleSFTP 已同步 `62de187`、`024c1bc`：清理租约按实际源和目的路径声明；清理请求不占用普通传输容量或作为全局传输忙状态阻断其他请求。`node --test --test-force-exit --test-timeout 20000 test/cleanupLeaseScope.test.js` 退出 0、1/1；`test/cleanupBackgroundAdmission.test.js` 两次退出 0、各 1/1；`--test-name-pattern '用户确认后的自身隔离执行完整走完' test/cleanupExecuteSelfBusy.test.js` 退出 0、1/1；两处 JS `node --check` 退出 0。均为替身，未执行真实删除或远端操作。现有普通传输反向阻断清理的全局判断、提交链与重启后未决操作的范围保护仍未完成；未打包或安装配套版本。
+
+清理 API/MCP 受理前先以已确认记录检查并预约本窗口实际目标，同一在途重叠路径即时返回冲突；无关目标仍可受理，后台再次核实实际状态。`node --test --test-force-exit --test-timeout 20000 test/features/cleanupConcurrentTargets.test.js` 退出 0、3/3；`npx tsc --noEmit --incremental false` 退出 0，均为替身，无真实删除。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
