@@ -2815,7 +2815,12 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
         for gpu_id in list(probe.get("idle_gpu_ids") or []):
             if not queue:
                 break
-            experiment_index = queue.popleft()
+            experiment_index = next((index for index in queue
+                if (not jobs_by_index[index].get("worker") or jobs_by_index[index]["worker"] == str(worker.get("id") or ""))
+                and (not jobs_by_index[index].get("gpu") or jobs_by_index[index]["gpu"] == str(gpu_id))), None)
+            if experiment_index is None:
+                continue
+            queue.remove(experiment_index)
             job = jobs_by_index[int(experiment_index)]
             slot_key = f"{worker.get('id')}:{gpu_id}:{experiment_index}"
             simulated_active[slot_key] = {"worker_id": worker.get("id"), "gpu_id": gpu_id, "experiment_index": experiment_index}
@@ -2839,6 +2844,10 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
                 blocked_reasons.append(f"{probe.get('worker_id') or probe.get('worker_name')}: {','.join(reasons) or 'no_idle_gpu'}")
             else:
                 blocked_reasons.append(f"{probe.get('worker_id') or probe.get('worker_name')}: no_idle_gpu")
+    for index in queue:
+        job = jobs_by_index[index]
+        if job.get("worker") or job.get("gpu"):
+            blocked_reasons.append(f"job {index}: waiting for its specified Worker/GPU or an available slot")
     payload = {
         "schemaVersion": 1,
         "ok": True,

@@ -5,6 +5,8 @@ import tempfile
 import os
 import shlex
 import json
+import io
+from contextlib import redirect_stdout
 from collections import deque
 from types import SimpleNamespace
 
@@ -45,6 +47,17 @@ preview_scope = {"Path": pathlib.Path, "json": json, "deque": deque, "Any": obje
                  "ordered_workers_for_dispatch": lambda workers: workers, "now": lambda: "now"}
 exec(compile("from __future__ import annotations\n" + source[start:end], "dry_run_plan_mode", "exec"), preview_scope)
 preview_scope["dry_run_plan_mode"](SimpleNamespace(plan="p.yaml", workers_json=None, worker_status_ttl_seconds=180, availability_path=""))
+workers_file = root / "workers.json"
+workers_file.write_text(json.dumps([{"id": "worker-1"}, {"id": "worker-2"}]), encoding="utf-8")
+preview_scope["load_plan"] = lambda _path: plan
+preview_scope["probe_idle_gpus"] = lambda worker, active: {"idle_gpu_ids": ["0", "1"]}
+capture = io.StringIO()
+with redirect_stdout(capture):
+    preview_scope["dry_run_plan_mode"](SimpleNamespace(plan="p.yaml", workers_json=str(workers_file), worker_status_ttl_seconds=180, availability_path=""))
+preview = json.loads(capture.getvalue())
+assert [(row["experimentIndex"], row["workerId"], row["gpuId"]) for row in preview["assignments"]] == [(0, "worker-1", "1")]
+assert preview["queuedExperimentIndexes"] == [1]
+assert any("job 1:" in reason for reason in preview["blockedReasons"])
 print("declared command plan ok; fixture retained:", root)
 
 # Exercise only the new task function with a fake shell process and pane.

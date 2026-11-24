@@ -43,7 +43,9 @@
 
 已同步 `00142285`：PLAN 的可选 `gpu` 随矩阵展开并进入队列分配；指定卡不可用时等待，内存预算也只选择指定卡。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared GPU override|declared Worker override' test/features/taskLifecycle.test.js` 两次退出 0、各 2/2；`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；noEmit 退出 0。均为本机夹具，未操作真实 GPU。
 
-通用声明输出的人工隔离预览补充外部文件和目录的实际类型/存在性检查；查询未知及包含任务目录的外部父目录阻断，未放宽 Worker 执行前的存在性保护。`node --test --test-force-exit --test-timeout 20000 test/features/declaredOutputCleanup.test.js` 退出 0、2/2；noEmit 退出 0。使用假文件接口，没有执行真实文件操作。完整真实界面和远端链仍未验证。
+已同步 `55c9fd43`：通用声明输出的人工隔离预览补充外部文件和目录的实际类型/存在性检查；查询未知及包含任务目录的外部父目录阻断，未放宽 Worker 执行前的存在性保护。`node --test --test-force-exit --test-timeout 20000 test/features/declaredOutputCleanup.test.js` 退出 0、2/2；noEmit 退出 0。使用假文件接口，没有执行真实文件操作。完整真实界面和远端链仍未验证。
+
+PLAN 预演按声明的 Worker/GPU 选择可用位置，无法匹配的任务保留排队并显示等待原因；`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 修改后两次退出 0、各 1/1。该验证用本机假 Worker 状态，不执行真实调度。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
