@@ -1,6 +1,6 @@
 import { cleanupDigest, cleanupRelative, type CleanupNode, type CleanupCandidate, type CleanupProgressSink } from "./PlanCleanup";
 
-export type ManifestDeclaration = { index: number; case: string; seed: number; output_dir: string; result_csv: string };
+export type ManifestDeclaration = { index: number; case: string; seed: number; output_dir: string; result_csv: string; outputs?: string[] };
 export type ManifestSelection = { declarations: ManifestDeclaration[]; replacement: boolean };
 const spelling = (value: unknown) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
 function relativeTo(node: CleanupNode, value: unknown) {
@@ -16,7 +16,7 @@ export function recordedDeclarations(queue: any, file: string): ManifestDeclarat
   const result: ManifestDeclaration[] = [];
   for (const plan of queue.plans || []) if (spelling(plan.planFile).toLowerCase() === spelling(file).toLowerCase()) {
     for (const job of plan.jobs || []) result.push({ index: job.index, case: job.case, seed: job.seed,
-      output_dir: job.outputDir, result_csv: job.collectionResultCsv });
+      output_dir: job.outputDir, result_csv: job.collectionResultCsv, outputs: job.outputs });
   }
   for (const job of queue.clearedJobs || []) if (spelling(job.planFile).toLowerCase() === spelling(file).toLowerCase())
     result.push({ index: job.experimentIndex, case: job.case, seed: job.seed, output_dir: job.outputDir, result_csv: job.collectionResultCsv });
@@ -45,12 +45,12 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
   // They must not multiply a current PLAN review with every former output root.
   if (!declarations.length) declarations.push(...recordedDeclarations(queue, file));
   const unique = [...new Map(declarations.filter(row => row?.output_dir).map(row =>
-    [spelling(row.output_dir) + "\0" + spelling(row.result_csv), row])).values()]
+    [spelling(row.output_dir) + "\0" + spelling(row.result_csv) + "\0" + JSON.stringify(row.outputs || []), row])).values()]
     .sort((a,b) => spelling(a.output_dir).localeCompare(spelling(b.output_dir)) || spelling(a.result_csv).localeCompare(spelling(b.result_csv)));
   if (!unique.length && nodes.some(node => node.kind === "remote"))
     blockers.push({ code: "PLAN_DECLARATIONS_UNVERIFIED", detail: "无法取得所选 PLAN 的精确 job 声明；可恢复连接后主动重查，未推断目录归属。" });
   const selected = explicit.length ? unique.filter(row => explicit.some(item => spelling(item.output_dir) === spelling(row.output_dir)
-    && spelling(item.result_csv) === spelling(row.result_csv))) : unique;
+    && spelling(item.result_csv) === spelling(row.result_csv) && JSON.stringify(item.outputs || []) === JSON.stringify(row.outputs || []))) : unique;
   const planKey = cleanupDigest([root, file]);
   // One bounded read per actual node/output, even if several result declarations
   // refer to it. Process evidence below in a stable order, independent of latency.
@@ -82,6 +82,43 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
       let output: string, csv = "";
       try { output = relativeTo(node, declaration.output_dir); }
       catch { blockers.push({ code: "UNSAFE_DECLARED_PATH", nodeId: node.id, detail: "output_dir：" + declaration.output_dir }); continue; }
+      if (pathOnly && Array.isArray(declaration.outputs)) {
+        const external: string[] = [];
+        for (const value of declaration.outputs) {
+          try {
+            const relative = relativeTo(node, value);
+            if (output.startsWith(relative + "/")) {
+              blockers.push({ code: "UNSAFE_DECLARED_PATH", nodeId: node.id, detail: "声明输出包含任务输出目录：" + relative });
+              continue;
+            }
+            if (relative !== output && !relative.startsWith(output + "/")) external.push(relative);
+          } catch { blockers.push({ code: "UNSAFE_DECLARED_PATH", nodeId: node.id, detail: "outputs：" + value }); }
+        }
+        const covered: string[] = [];
+        for (const relative of [...new Set(external)].sort((a, b) => a.length - b.length || a.localeCompare(b))) {
+          if (covered.some(parent => relative.startsWith(parent + "/"))) continue;
+          try {
+            assertCurrent?.();
+            let type: "file" | "directory" = "file";
+            let result: any;
+            try {
+              result = await host.simpleSftpApiCall("files.cleanup.inspect", { node, target: { relativePath: relative, type }, presenceOnly: true, allowMissing: true }, 0, undefined, undefined, assertCurrent);
+            } catch (error: any) {
+              if ((error?.apiData?.code || error?.code) !== "TYPE_CHANGED") throw error;
+              type = "directory";
+              result = await host.simpleSftpApiCall("files.cleanup.inspect", { node, target: { relativePath: relative, type }, presenceOnly: true, allowMissing: true }, 0, undefined, undefined, assertCurrent);
+            }
+            if (result.target?.missing === true) continue;
+            if (result.target?.missing !== false || result.target?.type !== type) throw Error("声明输出的类型或存在性未核实");
+            candidates.push({ nodeId: node.id, relativePath: relative, type, category: "用户确认的声明输出",
+              owners: [planKey], evidence: ["PLAN 声明输出=" + relative], dependencies: [] });
+            if (type === "directory") covered.push(relative);
+          } catch (error: any) {
+            assertCurrent?.();
+            blockers.push({ code: "NODE_UNREACHABLE", nodeId: node.id, detail: relative + "：" + String(error.message || error) });
+          }
+        }
+      }
       // Older cleared-job indexes only retained outputDir. An absent CSV is
       // missing discovery information, not an unsafe output path on every node.
       if (spelling(declaration.result_csv)) {

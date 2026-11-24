@@ -232,7 +232,7 @@ export class PlanCleanupHost {
       const retired = queue.clearedJobs?.find((row: any) => row.workflowId === job.workflowId && row.commandId === job.commandId && row.experimentIndex === job.index);
       const source = entry || retired;
       if (!source) cleanupError("JOB_DECLARATIONS_UNVERIFIED");
-      declarations = [{ index: job.index, case: source.case, seed: source.seed, output_dir: source.outputDir, result_csv: source.collectionResultCsv }];
+      declarations = [{ index: job.index, case: source.case, seed: source.seed, output_dir: source.outputDir, result_csv: source.collectionResultCsv, outputs: source.outputs }];
     }
     onProgress?.({ phase: "manifests", message: "读取声明目录内的产物清单…" });
     const discovered = await discoverManifestCandidates(this.host, this.root, file, nodes, queue, declarations, authorizationMode === "confirmed_paths", onProgress, assertCurrent);

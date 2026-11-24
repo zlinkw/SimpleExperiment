@@ -41,7 +41,9 @@
 
 已同步 `5d5d3735`：PLAN 可用可选 `worker` 和 `environment` 覆盖默认值并参与参数组合；未启用的 Worker 明确拒绝，自动分配保留该选择，所选环境随任务发送。`declaredCommandPlan.test.js` 退出 0、1/1；`distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared Worker override|live declared commands recover' test/features/taskLifecycle.test.js` 退出 0、2/2；noEmit 退出 0。完整调用链仍待实施。
 
-PLAN 的可选 `gpu` 随矩阵展开并进入队列分配；指定卡不可用时等待，内存预算也只选择指定卡。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared GPU override|declared Worker override' test/features/taskLifecycle.test.js` 两次退出 0、各 2/2；`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；noEmit 退出 0。均为本机夹具，未操作真实 GPU。
+已同步 `00142285`：PLAN 的可选 `gpu` 随矩阵展开并进入队列分配；指定卡不可用时等待，内存预算也只选择指定卡。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared GPU override|declared Worker override' test/features/taskLifecycle.test.js` 两次退出 0、各 2/2；`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；noEmit 退出 0。均为本机夹具，未操作真实 GPU。
+
+通用声明输出的人工隔离预览补充外部文件和目录的实际类型/存在性检查；查询未知及包含任务目录的外部父目录阻断，未放宽 Worker 执行前的存在性保护。`node --test --test-force-exit --test-timeout 20000 test/features/declaredOutputCleanup.test.js` 退出 0、2/2；noEmit 退出 0。使用假文件接口，没有执行真实文件操作。完整真实界面和远端链仍未验证。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
