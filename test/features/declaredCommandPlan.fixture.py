@@ -84,6 +84,7 @@ agent_scope = {"os": os, "shlex": shlex, "subprocess": SimpleNamespace(run=run),
                "worker_task_console_log": lambda command_id: "logs/" + command_id + ".log",
                "formal_job_command_env": lambda command: {},
                "task_option": lambda *args: calls.append(args),
+               "task_assert_output_available": lambda root, command: None,
                "task_assert_external_outputs_absent": lambda root, command: None,
                "job_shell_environment_prefix": lambda env, args: "env",
                "simple_conda_wrapped_args": lambda args, env: args}
@@ -140,6 +141,20 @@ except ValueError as error:
 else:
     raise AssertionError("execution overwrote an existing independent output")
 assert len(calls) == previous_calls + 1  # source proof only; no process or output mutation
+start = lifecycle.index("def task_assert_output_available(")
+end = lifecycle.index("\n\ndef ", start)
+exec(compile(lifecycle[start:end], "task_assert_output_available", "exec"), output_scope)
+agent_scope["task_assert_output_available"] = output_scope["task_assert_output_available"]
+old_result = root / "work/one/existing.txt"
+old_result.write_text("preserve", encoding="utf-8")
+previous_calls = len(calls)
+try:
+    agent_scope["execute_declared_command"](str(root), task)
+except ValueError as error:
+    assert "TASK_OUTPUT_EXISTS" in str(error)
+else:
+    raise AssertionError("existing output directory was accepted")
+assert old_result.read_text(encoding="utf-8") == "preserve" and len(calls) == previous_calls + 1
 try:
     queue_scope["task_queue_job"](str(root), "w", {key: value for key, value in request.items() if key != "command"})
 except ValueError:

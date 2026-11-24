@@ -862,6 +862,15 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
         raise RuntimeError(result.get("error") or "SCHEDULER_ACTION_FAILED")
     return result.get("value")
 
+def task_assert_output_available(root, job):
+    output = task_safe_path(root, job["outputDir"])
+    if os.path.lexists(output):
+        if not os.path.isdir(output):
+            raise ValueError("TASK_OUTPUT_EXISTS: " + job["outputDir"] + "; review the existing path before starting")
+        with os.scandir(output) as entries:
+            if next(entries, None) is not None:
+                raise ValueError("TASK_OUTPUT_EXISTS: " + job["outputDir"] + "; review the existing path before starting")
+
 def task_assert_external_outputs_absent(root, job):
     output_dir = job["outputDir"].rstrip("/")
     for output in job.get("outputs") or []:

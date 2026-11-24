@@ -67,6 +67,8 @@
 
 已同步 `7fff7f88`：面板创建 PLAN 改为填写名称、实际命令及独立输出目录，生成新格式并保留当前项目选择；取消或路径不安全不写 PLAN，不再触发结果自动解析。`node --test --test-force-exit --test-timeout 20000 test/features/guidedCommandPlan.test.js` 退出 0、2/2，补充项目切换后退出 0、3/3；`test/features/onboardingAutoParse.test.js` 退出 0、1/1；`npx tsc --noEmit --incremental false` 退出 0。现有快速接入目标用例首次退出 1（断言旧单参数连接调用），修正为现有双参数后再次退出 1（断言已退役科研配置门槛），按实际命令静态检查调整后退出 0、1/1：`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'quick project onboarding records local recognition' test/features/projectQuickStartWorkflow.test.js`。为提取实际方法及替身验证，未做真实界面验收。
 
+Worker 启动实际命令前重新检查独立输出目录，目录非空或为文件则拒绝，空目录仍允许；防止提交后的新文件被覆盖。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1，`npx tsc --noEmit --incremental false` 退出 0；只抽取函数并使用假进程，保留本机夹具，无真实 Worker。
+
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
 Worker 命令协议的本机函数夹具通过；`node scripts/test-workflow.js test:tmux-lifecycle --dry-run --only test/features/declaredCommandPlan.test.js --max-parallel 1` 退出 0，选出 1 个独占文件，未运行该测试以外的任务。该片段不代表远端部署或端到端运行。
