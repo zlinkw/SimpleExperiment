@@ -23,6 +23,9 @@
 
 已同步功能片段 `e2b503bb`：PLAN 就绪检查不再以科研输出结构为门槛，实际命令保留静态入口检查；P2 整链尚未完成。
 已同步 `c05bf94a`：声明命令按窗口退出码投影执行状态，结果和日志语义不作为完成门槛；真实远端观察仍未验证。
+已同步 `23766965`：Worker 协议展开并承载声明命令、工作目录和输出路径；调度入口接线、旧接口处理和端到端验证仍未完成。
+
+队列改为保存明确命令，旧训练模式与训练恢复测试整体退出现行选择（原文件保留）；失败任务不自动重派的约束由声明命令测试覆盖。`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、8/8；`taskLifecycle.test.js` 退出 0、16/16，noEmit 退出 0。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 

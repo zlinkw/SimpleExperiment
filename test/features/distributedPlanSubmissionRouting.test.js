@@ -97,7 +97,8 @@ test("tuning Plan submission automatically validates on one Worker and allocates
     selectPlanSubmissionWorker: async () => { throw new Error("unexpected manual Worker chooser"); },
     finishDistributedPlanSubmission: async (_command, _message, _plan, body) => {
       calls.push(body.schedulerOwnerWorkerId);
-      const jobs = Array.from({ length: 36 }, (_, index) => ({ index, case: `case-${Math.floor(index / 3)}`, seed: 42 + index % 3, outputDir: `work_dirs/tuning/job-${index}` }));
+      const jobs = Array.from({ length: 36 }, (_, index) => ({ index, case: `case-${Math.floor(index / 3)}`,
+        command: `python analyze.py --index ${index}`, workingDirectory: '.', outputs: [], outputDir: `work_dirs/tuning/job-${index}` }));
       const pending = queue.enqueuePlan(queue.emptyDistributedQueue(), { planFile: body.planFile, revision: "revision", codeFingerprint: "code", jobs }, "run-tuning");
       const allocation = queue.allocateAvailable(pending, availability.map(row => ({ workerId: row.workerId, idleGpuIds: row.availableGpuIds, online: true, declaredJobPaths:true })));
       assert.equal(allocation.queue.plans[0].jobs.length, 36);
@@ -108,6 +109,18 @@ test("tuning Plan submission automatically validates on one Worker and allocates
   });
   await route.call(host, "runPlan", { planFile: "experiments/plans/comparison_tuning/method.yaml" }, {}, {});
   assert.deepEqual(calls, ["worker-b"]);
+});
+
+test('failed declared commands are not automatically replayed', () => {
+  const now=Date.now(), at=new Date(now).toISOString();
+  let current=queue.enqueuePlan(queue.emptyDistributedQueue(),{projectId:'p',planFile:'plan.yaml',revision:'r',codeFingerprint:'code',
+    jobs:[{index:0,case:'analysis',command:'python analyze.py',workingDirectory:'.',outputs:[],outputDir:'work/run'}]},'flow',at);
+  const job=current.plans[0].jobs[0];
+  Object.assign(job,{status:'failed',workerId:'worker',commandId:'original',runKey:'original',error:'command failed',finishedAt:at,trustedTerminalStatus:'failed'});
+  current=queue.scheduleAutomaticJobRetries(current,[],'p',{now:now+30000,makeAttemptId:()=>{throw Error('unexpected retry');}});
+  assert.equal(current.plans[0].jobs[0].commandId,'original');
+  assert.equal(current.plans[0].jobs[0].status,'failed');
+  assert.equal(queue.allocateAvailable(current,[{workerId:'worker',online:true,idleGpuIds:['0'],declaredJobPaths:true,codeFingerprint:'code'}]).dispatches.length,0);
 });
 
 test("run all uses the production automatic route with zero idle GPUs and later allocates across enabled Workers", async () => {
@@ -130,7 +143,8 @@ test("run all uses the production automatic route with zero idle GPUs and later 
     finishDistributedPlanSubmission: async (_command, message, _plan, body) => {
       inputs++;
       pending = queue.enqueuePlan(pending, { planFile: body.planFile, revision: "revision", codeFingerprint: "code",
-        jobs: [0, 1].map(index => ({ index, case: "case", seed: 42 + index, outputDir: `work/${inputs}/${index}` })) }, `run-${inputs}`);
+        jobs: [0, 1].map(index => ({ index, case: "case", command: `python analyze.py --index ${index}`,
+          workingDirectory: '.', outputs: [], outputDir: `work/${inputs}/${index}` })) }, `run-${inputs}`);
       host.localOperations[message.clientActionId] = { status: "queued", message: "local queue accepted" };
     },
   });

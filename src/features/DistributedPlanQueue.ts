@@ -18,8 +18,11 @@ export type QueuedJob = {
   gpuMemoryWaitReason?: string;
   index: number;
   case: string;
-  seed: number;
+  seed?: number;
   outputDir: string;
+  command?: string;
+  workingDirectory?: string;
+  outputs?: string[];
   resultPathPolicy?: "declared";
   collectionResultCsv?: string;
   checkpointSource?: Record<string, string>;
@@ -195,7 +198,7 @@ export type DeferredPlan = { id: string; planFile: string; revision: string; cod
   confirmedOutputChoice?: boolean; overwriteExisting?: boolean; distributedSkipJobIndices?: number[];
   waitingForPlanId?: string; waitingForPlanFile?: string; waitingForRevision?: string; waitingForFingerprint?: string; reason?: string };
 export type ClearedDistributedJob = { projectId: string; workflowId: string; planFile: string; planRevision: string;
-  codeFingerprint: string; experimentIndex: number; case: string; seed: number; attempt?: number;
+  codeFingerprint: string; experimentIndex: number; case: string; seed?: number; attempt?: number;
   resultPathPolicy?: "declared"; globalJobId?: string; outputDir: string;
   collectionResultCsv?: string; status?: JobState; actualExecutionMode?: PlanExecutionMode;
   checkpointSource?: QueuedJob["checkpointSource"]; mirroredWorkerIds?: string[]; fragmentWorkerIds?: string[];
@@ -1133,7 +1136,7 @@ export function legacyDistributedQueuePath(storageRoot: string, projectRoot: str
   return path.join(storageRoot, "distributed-plan-queues", key + ".json");
 }
 
-export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
+export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "command" | "workingDirectory" | "outputs" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
   const missingIdentity = Object.entries({ revision: plan.revision, codeFingerprint: plan.codeFingerprint, planFile: plan.planFile, id })
     .filter(([, value]) => !value).map(([field]) => field);
   if (missingIdentity.length) throw new Error("Plan identity and code fingerprint are required. Missing: " + missingIdentity.join(", "));
@@ -1142,14 +1145,15 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
     if (registered.planFile !== plan.planFile || registered.revision !== plan.revision || registered.codeFingerprint !== plan.codeFingerprint
       || registered.executionMode !== plan.executionMode || registered.jobs.length !== plan.jobs.length
       || plan.jobs.some(job => !registered.jobs.some(prior => prior.index === job.index && prior.case === job.case && prior.seed === job.seed
-        && prior.outputDir === job.outputDir && prior.collectionResultCsv === job.collectionResultCsv
+        && prior.outputDir === job.outputDir && prior.command === job.command && prior.workingDirectory === job.workingDirectory
+        && JSON.stringify(prior.outputs) === JSON.stringify(job.outputs) && prior.collectionResultCsv === job.collectionResultCsv
         && JSON.stringify(prior.checkpointSource || null) === JSON.stringify(job.checkpointSource || null))))
       throw new Error("FORMAL_JOB_IDENTITY_CONFLICT: duplicate workflow has different declarations.");
     return queue;
   }
   const indices = new Set<number>();
   const jobs = plan.jobs.map((job) => {
-    if (!Number.isInteger(job.index) || job.index < 0 || indices.has(job.index) || !job.case || !Number.isInteger(job.seed) || !job.outputDir) throw new Error("Invalid or repeated Plan job.");
+    if (!Number.isInteger(job.index) || job.index < 0 || indices.has(job.index) || !job.case || !job.command?.trim() || !job.workingDirectory || !Array.isArray(job.outputs) || !job.outputDir) throw new Error("Invalid or repeated Plan job.");
     indices.add(job.index);
     if (job.outputDir.split("/").includes("attempts") || job.outputDir.startsWith("/") || /^[A-Za-z]:/.test(job.outputDir)
       || job.outputDir.split("/").some(part => !part || part === "." || part === "..")) throw new Error("FORMAL_JOB_PATH_REQUIRED: historical attempts are read-only.");
@@ -1165,7 +1169,8 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
         && prior.lifecycleProtocol === 2 && prior.status === "pending" && !prior.workerId && !prior.commandId
         && (prior.outputDir === job.outputDir || job.collectionResultCsv && prior.collectionResultCsv === job.collectionResultCsv))))
       throw new Error("FORMAL_JOB_CONFLICT: duplicate local pending job declarations; cancel the unsent duplicate first.");
-    return { index: job.index, case: job.case, seed: job.seed, outputDir: job.outputDir,
+    return { index: job.index, case: job.case, ...(job.seed === undefined ? {} : { seed: job.seed }), outputDir: job.outputDir,
+      command: job.command, workingDirectory: job.workingDirectory, outputs: job.outputs,
       ...(job.collectionResultCsv ? { collectionResultCsv: job.collectionResultCsv } : {}),
       ...(job.checkpointSource ? { checkpointSource: job.checkpointSource } : {}),
       // r82：隔离阻断 job 照常入队（可见、pending），标记随行持久化；派发过滤、面板解释与
@@ -1286,7 +1291,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
   return { queue: { ...queue, plans }, dispatches };
 }
 
-export function previewAvailable(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir">> }, workers: readonly WorkerSlots[]) {
+export function previewAvailable(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "command" | "workingDirectory" | "outputs">> }, workers: readonly WorkerSlots[]) {
   const previewId = "distributed-preview";
   // Capacity preview does not authorize a writer. Retain original terminal rows
   // in the real queue and surface their conflicts for the explicit output review.
@@ -1712,6 +1717,9 @@ function formalStopIdentityMatches(plan: QueuedPlan, job: QueuedJob, identity: R
 }
 
 export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identity: Record<string, unknown>): boolean {
+  if (job.command) return Boolean(job.commandId && job.workerId && plan.projectId
+    && String(identity.commandId || identity.targetCommandId || "") === job.commandId
+    && String(identity.projectId || "") === plan.projectId && String(identity.workerId || "") === job.workerId);
   const gpuMatches = job.gpuId === undefined || String(identity.gpuId ?? "") === String(job.gpuId);
   const formalMatches = plan.resultPathPolicy !== "declared" || formalStopIdentityMatches(plan, job, identity);
   return Boolean(job.commandId && job.workerId && gpuMatches && formalMatches

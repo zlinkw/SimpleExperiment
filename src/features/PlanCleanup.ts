@@ -14,7 +14,7 @@ export type CleanupJobSelection = { workflowId: string; index: number; commandId
 export type CleanupCandidate = { nodeId: string; relativePath: string; type: "file" | "directory"; category: string;
   owners: string[]; evidence: string[]; protectedReason?: string; scopeProtectedReason?: string; dependencies: string[]; expectedSha256?: string;
   requiredInputs?: string[];
-  expectedOwner?: { workflowId: string; commandId: string; workerId: string; outputDir: string; attempt?: number; case: string; seed: number;
+  expectedOwner?: { workflowId: string; commandId: string; workerId: string; outputDir: string; attempt?: number; case: string; seed?: number;
     resultPathPolicy?: "declared"; globalJobId?: string; planRevision?: string; codeFingerprint?: string; index?: number; collectionResultCsv?: string; expectedState?: string } };
 export type CleanupScope = { projectId: string; planKey: string; planFile: string; planHash: string; runIds: string[];
   // Machine-state guard PER NODE (endpoint identity), never one unioned list:

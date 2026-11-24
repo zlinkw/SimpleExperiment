@@ -31,6 +31,21 @@ test('declared command progress does not query research result or log semantics'
   assert.equal(result.runtimeQueryError,undefined);
   assert.equal(result.tasks[0].observation.executionContract,'declared-command-v1');
 });
+test('queue retains the resolved command without research mode or seed', () => {
+  const queue = require('../../src/features/DistributedPlanQueue.ts');
+  const initial = queue.enqueuePlan(queue.emptyDistributedQueue(),
+    {projectId:'p',planFile:'plan.yaml',revision:'r',codeFingerprint:'code',jobs:[{index:0,case:'analysis',
+      outputDir:'work/run',command:'python analyze.py',workingDirectory:'.',outputs:[]}]},'flow');
+  const job=JSON.parse(queue.serializeDistributedQueue(initial)).plans[0].jobs[0];
+  assert.equal(job.command,'python analyze.py');
+  assert.equal(job.workingDirectory,'.');
+  assert.deepEqual(job.outputs,[]);
+  assert.equal(job.seed,undefined);
+  const bound={...initial.plans[0].jobs[0],commandId:'cmd',workerId:'w'};
+  assert.equal(queue.stopIdentityMatchesJob(initial.plans[0],bound,{targetCommandId:'cmd',projectId:'p',workerId:'w'}),true);
+  assert.equal(queue.stopIdentityMatchesJob(initial.plans[0],bound,{targetCommandId:'cmd',projectId:'other',workerId:'w'}),false);
+});
+
 test('explicit runtime errors fail an ended job despite exit zero and complete artifacts', () => {
   const runtimeDiagnostics={schemaVersion:1,commandId:'c',runId:'c',state:'anomalous',count:1,scanComplete:true};
   const result={runId:'c',status:'completed',present:true,verified:true,artifactsComplete:true,exitCode:0};
