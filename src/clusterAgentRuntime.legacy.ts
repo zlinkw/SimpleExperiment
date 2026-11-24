@@ -5861,6 +5861,7 @@ def execute_declared_command(root, command):
     cwd = project_dir if working == "." else task_safe_path(project_dir, working)
     output = task_safe_path(project_dir, command["outputDir"])
     resolve_durable_code_sync_proof(project_dir, command)
+    task_assert_external_outputs_absent(project_dir, command)
     os.makedirs(output, exist_ok=True)
     log_relative = worker_task_console_log(command_id)
     log_path = safe_project_path(project_dir, log_relative)

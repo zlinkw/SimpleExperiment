@@ -66,6 +66,7 @@ agent_scope = {"os": os, "shlex": shlex, "subprocess": SimpleNamespace(run=run),
                "worker_task_console_log": lambda command_id: "logs/" + command_id + ".log",
                "formal_job_command_env": lambda command: {},
                "task_option": lambda *args: calls.append(args),
+               "task_assert_external_outputs_absent": lambda root, command: None,
                "job_shell_environment_prefix": lambda env, args: "env",
                "simple_conda_wrapped_args": lambda args, env: args}
 exec(compile(agent[start:end], "execute_declared_command", "exec"), agent_scope)
@@ -76,6 +77,10 @@ assert calls[0] == "proof" and calls[1] == ("%fixture", "log", "logs/cmd.log")
 assert "printf actual" in calls[2][0][2] and calls[2][1]["cwd"] == str(root)
 
 lifecycle = (pathlib.Path(__file__).resolve().parents[2] / "src/runtime/TmuxTaskLifecycle.ts").read_text(encoding="utf-8")
+start = lifecycle.index("def task_assert_external_outputs_absent(")
+end = lifecycle.index("\n\ndef ", start)
+output_scope = {"os": os, "task_safe_path": lambda root, relative: str(pathlib.Path(root) / relative)}
+exec(compile(lifecycle[start:end], "task_assert_external_outputs_absent", "exec"), output_scope)
 start = lifecycle.index("def task_public_observation(")
 end = lifecycle.index("\n\ndef ", start)
 observation_scope = {"now_iso": lambda: "now"}
@@ -91,7 +96,7 @@ assert observe(str(root), job, {**row, "exitCode": 4})["status"] == "failed"
 start = lifecycle.index("def task_queue_job(")
 end = lifecycle.index("\n\ndef ", start)
 queue_scope = {"os": os, "re": re, "task_safe_path": lambda root, relative: str(pathlib.Path(root) / relative),
-               "task_inventory": lambda root: []}
+               "task_inventory": lambda root: [], "task_assert_external_outputs_absent": output_scope["task_assert_external_outputs_absent"]}
 exec(compile(lifecycle[start:end], "task_queue_job", "exec"), queue_scope)
 request = {"action": "start-worker-task", "commandId": "cmd", "projectId": "p", "workerId": "w", "workflowId": "flow",
            "planFile": "plan.yaml", "outputDir": "work/one", "planRevision": "revision", "codeFingerprint": "code",
@@ -99,6 +104,23 @@ request = {"action": "start-worker-task", "commandId": "cmd", "projectId": "p", 
            "workingDirectory": ".", "outputs": []}
 queued = queue_scope["task_queue_job"](str(root), "w", request)
 assert queued["command"] == "printf actual" and queued["outputs"] == []
+(root / "report.txt").write_text("existing", encoding="utf-8")
+try:
+    queue_scope["task_queue_job"](str(root), "w", {**request, "outputs": ["report.txt"]})
+except ValueError as error:
+    assert "TASK_EXTERNAL_OUTPUT_EXISTS" in str(error)
+else:
+    raise AssertionError("existing independent output was accepted")
+assert (root / "report.txt").read_text(encoding="utf-8") == "existing"
+agent_scope["task_assert_external_outputs_absent"] = output_scope["task_assert_external_outputs_absent"]
+previous_calls = len(calls)
+try:
+    agent_scope["execute_declared_command"](str(root), {**task, "outputs": ["report.txt"]})
+except ValueError as error:
+    assert "TASK_EXTERNAL_OUTPUT_EXISTS" in str(error)
+else:
+    raise AssertionError("execution overwrote an existing independent output")
+assert len(calls) == previous_calls + 1  # source proof only; no process or output mutation
 try:
     queue_scope["task_queue_job"](str(root), "w", {key: value for key, value in request.items() if key != "command"})
 except ValueError:

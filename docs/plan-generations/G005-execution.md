@@ -31,7 +31,9 @@
 
 已同步 `7844db66`：通用命令的不同输出目录分别保留最新任务，普通声明产物按用户勾选的同步范围求交；`node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js` 退出 0、4/4。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared commands synchronize' test/features/completedJobLatestSync.test.js` 退出 0、1/1，使用假传输，未进行真实传输。
 
-重跑的已确认隔离流程保留旧产物，不再联动后台永久删除或空目录清理；独立删除审核保留。`node --test --test-force-exit --test-timeout 20000 test/features/planRunReplacement.test.js` 两次退出 0、各 17/17；第二次为测试说明整理后的复核。`node node_modules/typescript/bin/tsc -p . --noEmit --incremental false --pretty false` 退出 0。均未执行真实删除。
+已同步 `75b0914a`：重跑的已确认隔离流程保留旧产物，不再联动后台永久删除或空目录清理；独立删除审核保留。`node --test --test-force-exit --test-timeout 20000 test/features/planRunReplacement.test.js` 两次退出 0、各 17/17；第二次为测试说明整理后的复核。`node node_modules/typescript/bin/tsc -p . --noEmit --incremental false --pretty false` 退出 0。均未执行真实删除。
+
+独立声明输出位于任务目录外且已存在时，Worker 接收及真正执行前均明确拒绝，避免绕过现有只覆盖任务目录的隔离预览。此时需先经独立文件审核处理；将这些外部输出纳入统一重跑审核仍待完成。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 两次退出 0、各 1/1；含私有夹具文件保护及假进程，未操作真实 Worker。noEmit 再次退出 0。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 

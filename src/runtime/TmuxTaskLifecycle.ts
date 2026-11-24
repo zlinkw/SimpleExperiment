@@ -862,6 +862,14 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
         raise RuntimeError(result.get("error") or "SCHEDULER_ACTION_FAILED")
     return result.get("value")
 
+def task_assert_external_outputs_absent(root, job):
+    output_dir = job["outputDir"].rstrip("/")
+    for output in job.get("outputs") or []:
+        if output == output_dir or output.startswith(output_dir + "/"):
+            continue
+        if os.path.lexists(task_safe_path(root, output)):
+            raise ValueError("TASK_EXTERNAL_OUTPUT_EXISTS: " + output + "; review the existing path before submitting")
+
 def task_queue_job(root, worker_id, command):
     allowed = {"action", "commandId", "operationId", "runKey", "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint",
                "globalJobId", "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount",
@@ -895,6 +903,7 @@ def task_queue_job(root, worker_id, command):
         task_safe_path(root, job[key])
     for output in job["outputs"]:
         task_safe_path(root, output)
+    task_assert_external_outputs_absent(root, job)
     working = str(job.get("workingDirectory") or ".")
     if working != ".":
         task_safe_path(root, working)
