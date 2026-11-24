@@ -49,7 +49,7 @@ import { hasVerifiedCompletion, trustedTerminalProofFor } from "../features/Veri
 import { PlanRunHost } from "./PlanRunHost";
 import { WorkerPreparation } from "../features/WorkerPreparation";
 import { CompletedJobSyncHost } from "./CompletedJobSyncHost";
-import { resultCollectionHost } from "./ResultCollectionHost";
+import { bindResultClientEndpoints, captureResultConnection, resultCollectionHost, resultConnectionIsCurrent } from "./ResultCollectionHost";
 import { latestResultCatalog, readLatestResultExport, regenerateLatestResultTables, mapLatestResultDatasets } from "../results/LatestResultExport";
 import { RunConfirmation } from "./RunConfirmation";
 import { jobEvidenceName, verifyNativeResult } from "../results/NativeResultManifest";
@@ -14210,7 +14210,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const target = this.workerActualWorkRootTarget(worker);
         const dirs = this.agentRuntimeDirs(target.remotePath);
         if (!dirs.workDir)
-            throw new Error(`Worker ${target.id} 项目父目录缺失，无法执行 SFTP 代码同步。`);
+            throw Object.assign(new Error(`Worker ${target.id} 项目父目录缺失，无法执行 SFTP 代码同步。`), { code: "WORKER_PROJECT_ROOT_MISSING" });
         return { ...target, remotePath: dirs.workDir };
     }
     workerActualWorkRootTargets() {
@@ -14220,7 +14220,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     workerActualWorkRootTarget(worker, config = this.setupConfig) {
         const remotePath = worker.agentProjectDir;
         if (!remotePath)
-            throw new Error(`Worker ${worker.id} 项目父目录缺失，无法执行 SFTP 代码同步。`);
+            throw Object.assign(new Error(`Worker ${worker.id} 项目父目录缺失，无法执行 SFTP 代码同步。`), { code: "WORKER_PROJECT_ROOT_MISSING" });
         const identity = this.sshTransportIdentity({
             id: worker.id,
             label: worker.displayName || worker.id,
@@ -24572,7 +24572,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return resultCollectionHost(this).refreshAutomatic();
 }
     async rebuildProjectResultTablesFromUi(options: { planFiles?: string[]; title?: string } = {}) {
-        const context = this.captureProjectContext(), client = this.client;
+        const context = this.captureProjectContext(), connection = captureResultConnection(this);
         const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: options.title || "更新结果汇总", cancellable: true }, async (progress, token) => {
             const abort = new AbortController();
             const listener = token.onCancellationRequested?.(() => abort.abort());
@@ -24581,7 +24581,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             catch (error) { if (abort.signal.aborted) return { status: "cancelled", cancelled: true, notificationShown: true }; throw error; }
             finally { listener?.dispose(); }
         });
-        if (!this.projectContextIsCurrent(context) || this.client !== client) return result;
+        if (!this.projectContextIsCurrent(context) || !resultConnectionIsCurrent(this, connection)) return result;
         if (result.cancelled) { void vscode.window.showInformationMessage("本次结果查询已取消；其他入口仍在使用的查询可以继续，已有导出文件保留。"); return result; }
         const message = result.current ? (result.scope === "selected_plans" ? "所选 PLAN 查询完成（未覆盖整批导出）：" : "结果已更新：") + result.completed + "/" + result.expected + " 个 job；未完成或待核实 " + result.missing.length + "。"
             : "本轮无法核实服务器结果；保留原导出文件，它不是本轮查询结果。";
@@ -25815,10 +25815,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.applyOfflineResultsSummaryFromBundle(this.offlineBundle); this.postState(); return { ok: true };
         }
         if (this.lowTrafficMode && !manualRetry) return { ok: false, reason: "低流量模式未刷新，请先手动刷新结果" };
-        const context = this.captureProjectContext(), client = this.client;
-        const isCurrent = () => this.projectContextIsCurrent(context) && this.client === client;
-        try { await resultCollectionHost(this).update(); if (!isCurrent()) return { ok: false, reason: "项目已切换，旧项目结果未发布到当前界面。" }; this.lastError = undefined; }
-        catch (error) { const reason = errorMessage(error); if (!isCurrent()) return { ok: false, reason }; this.lastError = reason; this.recordActionError({ command: "refreshResults", message: reason }); this.postState(); return { ok: false, reason }; }
+        const context = this.captureProjectContext();
+        let connection;
+        const isCurrent = () => this.projectContextIsCurrent(context) && resultConnectionIsCurrent(this, connection);
+        try { connection = captureResultConnection(this); await resultCollectionHost(this).update(); if (!isCurrent()) return { ok: false, reason: "项目已切换，旧项目结果未发布到当前界面。" }; this.lastError = undefined; }
+        catch (error) { const reason = errorMessage(error); if (connection !== undefined && !isCurrent()) return { ok: false, reason }; this.lastError = reason; this.recordActionError({ command: "refreshResults", message: reason }); this.postState(); return { ok: false, reason }; }
         this.postState();
         return { ok: true };
 }
@@ -26941,8 +26942,9 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
     }
     private createClient(): MultiEndpointRealtimeClient {
         const generation = this.projectContextGeneration;
+        const endpoints = this.realtimeEndpoints();
         let client;
-        client = new MultiEndpointRealtimeClient_1.MultiEndpointRealtimeClient(this.realtimeEndpoints(), (endpoint) => {
+        client = new MultiEndpointRealtimeClient_1.MultiEndpointRealtimeClient(endpoints, (endpoint) => {
             if (endpoint.id === "hub")
                 return this.budget;
             return new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
@@ -26980,6 +26982,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
             if (this.shouldPushLocalAvailabilityFromRealtime(uiRefs.gpu)) void this.pushLocalWorkerAvailability(false);
             if (this.shouldPostRealtimeStateForWebview(uiRefs)) this.postState();
         });
+        bindResultClientEndpoints(client, endpoints);
         client.setProtectedLogKeys(this.logProtectedKeys());
         return client;
     }

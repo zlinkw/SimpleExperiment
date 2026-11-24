@@ -69,7 +69,7 @@ export function resolveSshTransportIdentity(
     target.sshHost,
   ]);
   if (!configuredHost) {
-    throw new Error(`${text(target.label) || text(target.displayName) || text(target.id) || "SSH 目标"} 缺少服务器地址；请在插件设置中填写 IP 地址或可直接解析的域名。`);
+    throw Object.assign(new Error(`${text(target.label) || text(target.displayName) || text(target.id) || "SSH 目标"} 缺少服务器地址；请在插件设置中填写 IP 地址或可直接解析的域名。`), { code: "SSH_TRANSPORT_HOST_MISSING" });
   }
   return {
     transportHost: configuredHost,

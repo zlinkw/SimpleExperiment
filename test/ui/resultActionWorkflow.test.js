@@ -44,7 +44,7 @@ test("result workflow actions and evidence summary are wired without duplicated 
   const next=service.update(),totalReads=pending.length;pending.at(-1)(report);await next;
   assert.equal(totalReads,2,'a completed request is released before a later query');
   assert.match(collector, /context = h\.captureProjectContext\(\)/);
-  assert.match(collector, /h\.projectContextIsCurrent\(context\) && key\(\) === binding/);
+  assert.match(collector, /h\.projectContextIsCurrent\(context\) && resultConnectionIsCurrent\(h, connection\) && key\(\) === binding/);
   // The current collector reads server declarations. This existing fixture rejects
   // queue, sync-ledger and registry reads instead of treating them as live results.
   require('../_helpers/registerTsRequire');

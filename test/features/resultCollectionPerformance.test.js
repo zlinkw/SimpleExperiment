@@ -92,7 +92,7 @@ test('actual endpoint replacement during reads rejects late publication',async()
 });
 test('health rebuilding a client for identical targets does not invalidate current file verification',async()=>{
   const f=fixture(),read=f.host.client.getWorkerTasks;let requests=0;
-  f.host.client.getWorkerTasks=async(...args)=>{if(requests++)throw Error('client disposed');const value=await read(...args);f.host.client={getWorkerTasks:read};return value;};
+  f.host.client.getWorkerTasks=async(...args)=>{if(requests++)throw Error('client disposed');const value=await read(...args);f.host.client={getWorkerTasks:read};if(!baseline)require('../../src/extension/ResultCollectionHost.ts').bindResultClientEndpoints(f.host.client,f.host.realtimeEndpoints());return value;};
   const report=await f.service.update();assert.equal(report.completed,1);assert.equal(report.current,true);
 });
 test('unchanged bytes cannot bypass the hardlink protection in local rebuild',async()=>{

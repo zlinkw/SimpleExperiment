@@ -8,6 +8,40 @@ import { canonicalMetricName, metricsWithMetadata } from "../results/ProjectResu
 import { ProgressInactivity } from "../core/ProgressInactivity";
 
 const hosts = new WeakMap<object, ResultCollectionHost>();
+const resultClientEndpoints = new WeakMap<object, string>();
+const resultEndpointIdentity = (endpoints: any[]) => JSON.stringify(endpoints.map(endpoint => [
+  endpoint.id, endpoint.role, endpoint.localHost, endpoint.localPort, endpoint.token,
+  endpoint.resourceServer, endpoint.resourceProjectRoot,
+]));
+export function bindResultClientEndpoints(client: object, endpoints: any[]) {
+  resultClientEndpoints.set(client, resultEndpointIdentity(endpoints));
+}
+function resultConnectionIdentity(host: any) {
+  const endpointIdentity = resultEndpointIdentity(host.realtimeEndpoints());
+  const clientIdentity = resultClientEndpoints.get(host.client);
+  if (clientIdentity === undefined) throw Error("结果查询的客户端缺少连接身份。");
+  const execution = host.workerActionTargets();
+  const targets = host.workerCodeSyncTargets().map((worker: any) => {
+    const task = execution.find((row: any) => row.id === worker.id);
+    const { label, ...server } = host.sftpServerOptions(worker);
+    return [worker.id, server, String(task?.condaEnv ?? task?.conda_env ?? worker.condaEnv ?? "")];
+  });
+  return { current: clientIdentity === endpointIdentity, identity: JSON.stringify([endpointIdentity, targets]) };
+}
+export function captureResultConnection(host: any) {
+  const result = resultConnectionIdentity(host);
+  if (!result.current) throw Error("结果查询的客户端与当前连接配置不一致。");
+  return result.identity;
+}
+export function resultConnectionIsCurrent(host: any, identity: string) {
+  try {
+    const result = resultConnectionIdentity(host);
+    return result.current && result.identity === identity;
+  } catch (error: any) {
+    if (error?.code === "WORKER_PROJECT_ROOT_MISSING" || error?.code === "SSH_TRANSPORT_HOST_MISSING") return false;
+    throw error;
+  }
+}
 export type ResultReadProgress = { message: string };
 type ReadOptions = { planFiles?: string[]; automatic?: boolean; onProgress?: (progress: ResultReadProgress) => void };
 const cancelled = (signal?: AbortSignal) => Object.assign(Error("结果查询已取消"), { name: "AbortError", cause: signal?.reason });
@@ -183,8 +217,9 @@ export class ResultCollectionHost {
   }
   private async collect(signal?: AbortSignal, selection?: string[]) {
     this.report({ message: "读取本机 PLAN 声明…" });
-    const h = this.h, context = h.captureProjectContext(), root = context.root, client = h.client;
+    const h = this.h, context = h.captureProjectContext(), root = context.root;
     if (!root) throw Error("请先打开当前实验项目。");
+    const connection = captureResultConnection(h);
     // Sync destinations carry transport identity. The selected task environment
     // belongs to execution targets (including the global Conda fallback).
     const currentTargets = () => {
@@ -212,7 +247,7 @@ export class ResultCollectionHost {
     const binding = key();
     const signals = [signal, context.signal, retryRequestSignal()].filter(Boolean) as AbortSignal[];
     const requestSignal = signals.length ? AbortSignal.any(signals) : undefined;
-    const current = () => !requestSignal?.aborted && h.projectContextIsCurrent(context) && h.client === client && key() === binding
+    const current = () => !requestSignal?.aborted && h.projectContextIsCurrent(context) && resultConnectionIsCurrent(h, connection) && key() === binding
       && (() => { const latest = ownerMap(); return [...readOwners].every(([key, value]) => latest.get(key) === value); })();
     const check = () => { if (!current()) throw Error("结果查询已取消或项目/服务器配置已变化。"); };
     const retryRead = async <T>(read: () => Promise<T>, attempts = 3): Promise<T> => {

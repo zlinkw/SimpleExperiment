@@ -99,7 +99,7 @@ test("workspace reset precedes project loaders and stale scans cannot win", () =
   assert.match(source, /if \(this\.localPlanMetadataRefreshPromise === refresh\)/);
   assert.ok([...source.matchAll(/generation !== this\.projectContextGeneration/g)].length >= 6);
   const collection = fs.readFileSync(path.join(__dirname, "../../src/extension/ResultCollectionHost.ts"), "utf8");
-  assert.match(collection, /h\.projectContextIsCurrent\(context\) && key\(\) === binding/);
+  assert.match(collection, /h\.projectContextIsCurrent\(context\) && resultConnectionIsCurrent\(h, connection\) && key\(\) === binding/);
   assert.match(collection, /const check = \(\) => \{ if \(!current\(\)\) throw/);
   assert.match(source, /client\.postWorkerAction\(workerId, action, request\)[\s\S]{0,400}generation !== this\.projectContextGeneration \|\| client !== this\.client/);
   assert.match(legacyNotes, /切换工作区目录.*清空上一项目/);
