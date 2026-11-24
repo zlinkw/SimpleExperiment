@@ -73,11 +73,15 @@ function providerFor(workspace, csvText, oldRegistry) {
     selectedRunKeys: new Set(), selectedExperimentIds: new Set(), selectedArchiveKeys: new Set(), selectedTaskUiKeys: new Set(),
     panelSectionInterest: { documentGeneration: "1", mainSection: "results", visibleSections: ["results"], expandedSections: ["results"], pinnedInspectorSection: "" },
     planFileInput: "", selectedPlanId: "", selectedRunKey: "", resultsSummary: undefined,
-    captureProjectContext: () => ({ root: workspace, generation: 1 }), projectContextIsCurrent: () => true,
+    captureProjectContext: () => {
+      const uri = vscode.workspace.workspaceFolders[0]?.uri;
+      return { root: uri ? resolveWorkspaceLocation({ scheme: uri.scheme, path: uri.path, fsPath: uri.fsPath, external: uri.toString() }, {}).hostPath : undefined, generation: 1 };
+    }, projectContextIsCurrent: () => true,
     lastWorkerProbes: {},
     refreshResultCatalogForCurrentInterest: () => undefined,
     refreshDistributedResultSyncProbes: async function () { this.lastWorkerProbes = { "worker-a": { status: "ok" } }; },
     effectiveConnectionMode: () => "tunnel", refreshLocalPlanMetadataForAction: async () => {},
+    unifiedDomainState: () => ({ active: false, blocked: "" }),
     loadPlanSyncLedger: async () => ({ schemaVersion: 2, entries: { demo: { planFile, revision: "rev-1", runId: "run-complete",
       sourceWorkerId: "worker-a", artifactPaths: [remoteCsv], directoryPaths: ["simple_cluster/results/worker-a"], destinations: {} } } }),
     loadDistributedQueue: async () => ({ schemaVersion: 1, plans: [] }),

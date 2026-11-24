@@ -64,9 +64,9 @@ sftpCaller/planRun/codeSync/isolatedAutoDelete/planCleanup ContextFence五新ide
 
 历史runner35、Agent24旧job+14direct及SE/SFTP逐闭包适用完整取4c0cd04e三文档、f064/4e60/17692/55b4/60c8及0d7c2721计划；保原快照/unknown/首失败/真实私有FS/Python/registry/config等效果，不冒零机器状态或现行性能。SFTP73未齐，120的69/466仅aggregate，119日志缺口/条件继承非新full，槽7/lease9不继承；e467 changed body不继承，合成unit不冒现场，最终fresh仍待。
 
-actionLifecycle385b94d5已同步，完整常量/夹具/argv/原证取4e60c06e本节/execution。旧49漂移ineligible；root误准负向pattern命中祖先，bd25实际49中47pass/2fail、exit1、8退役误执行保。核Node递归祖先后正向选41/排8、父名不匹配；真实常量/PLAN计数/retired-error及原断言保。dfd352 literal41/41 exit0/no session/skip0，root亲核；旧dist不冒新compile，最终门禁不变。
+actionLifecycle完整常量/夹具/argv与失败取4e60c06e/execution及dcfdc0da计划。误准负向pattern命中祖先，bd25实际49/47pass/2fail exit1且误执行8退役；纠正为正向41/排8、父名不匹配，dfd352 literal41/41 exit0/no session/skip0已亲核。旧49 ineligible/历史区，断言保，旧dist不冒新compile。
 
-SFTP api末静态case校正槽cap 0/2/0及禁止auto-expiry caller，stagedSlotLifecycle只改只读发现注释/default不改；root完整源审/亲核f4cf3b精确1/1、147.3703ms、exit0/no session/skip0，无listener/SSH/Python/删除。两测试file953fba2a普通同步，root实核三HEAD/空index/tracked clean；不是api全file或WSL生命周期/新包通过。
+SFTP953fba2a两test普通同步、HEAD/index/tracked clean已亲核：cap0/2/0、禁止auto-expiry、只读注释。f4cf3b仅精确1/1、147.3703ms、exit0/no session/skip0，无listener/SSH/Python/删除，非api full/WSL生命周期或新包；完整原证见dcfdc0da计划/execution。
 
 最终稳定HEAD/输入后，planning289原精确pattern唯一fresh一次，新runner仅锚定 ^runner: G004 staged slot fixed wrapper evidence$ finalfresh。新dist后resultSyncFailureVisibility及jobArtifactStagedSlotIdentity原20秒各单文件一次；五旧隔离消费者仅指定case不整world。F的mcpProject仅锚定 ^routine cleanup queries need no extra Codex prompt$ 新dist后20秒一次：私有mkdtemp保留/假端/配置生成读新目录，无网络删除；适配断言随F提交不冒当前已验。Panel须真build＋模块/真实渲染脚本VM/node-c、10890零命中，未经门禁不提交。其余动态先审效果。
 
@@ -80,7 +80,7 @@ SFTP api末静态case校正槽cap 0/2/0及禁止auto-expiry caller，stagedSlotL
 
 当前裁决取代上文“待找五pattern”：旧授权全文未找到，现已按实际源码批准新编译后六个精确case（Review2、Lifecycle1、ledger2、Map1，完整正向pattern及效果见2d6796e执行记录）。Review/Lifecycle/Boundaries/ledger四完整身份仍缺现行证据，已向用户明确申请各full一次扩大原精确范围，尚无答复；不按时间或预选项开跑。若获准四full，不再重复其内五精确；Map仍仅该单项，不开32项。四full及最终freeze/build均未开放。
 
-旧证逐闭包适用已随2d6796e、6d94e43e、f3115114、482ad7b6、180db759文档批普通同步；每条原运行快照、事件、argv、工具链未知及旧dist/假端/私有FS效果保留，不冒新跑。149补三项实际dist闭包仅据pre-run5a3ca8f6与当前字节相同，原执行未逐项冻结事实保留。原eligible漂移表只作导航，不能据行数认剩余fresh或覆盖比例；按当前manifest的identity+argv逐项决定。
+旧2d6796e/6d94e43e/f3115114/482ad7b6/180db759逐闭包适用保原快照/事件/argv/未知工具链与真实效果；详dcfdc0da计划/execution。149三dist仅pre-run5a3ca8f6条件比对、非当时逐项冻结。漂移行数只导航，不是覆盖率或fresh数，按现identity+argv审，不冒新跑。
 
 结果等价client重建批：collect误用对象相等拒原支持的同目标重建，常规probe现不reset。createClient以实际同一endpoints绑定client；身份取Agent路由/token、真实SFTP投影/有效Conda，排label/probe能力，只内存、不日志/哈希。保context/signal/key/readOwners，collect/summary/rebuild同规则，automatic/update对象owner分流不改。配置先赋值后await再reset窗口实证；原缺根/host Error只加WORKER_PROJECT_ROOT_MISSING/SSH_TRANSPORT_HOST_MISSING，isCurrent仅对此返回false，初次capture/内部错仍抛；保已发事实和原report/error，不向新上下文发布。6case focused仅源码AST/VM与内存，不冒真实collect集成。
 
@@ -100,4 +100,6 @@ SFTP api末静态case校正槽cap 0/2/0及禁止auto-expiry caller，stagedSlotL
 
 另准最终freeze/newdist后mcpProject full44原runner20s一次，不重复routine cleanup精确项，当前未跑。两真实loopback接口及SDK专属stdio子Node、私有discovery/instances/registry/sidecar/atomic rename保留；SDK关闭只限自有child，resolver signal0只查私有记录的测试父PID。preferredPort0实际fallback19766后避让，不冒随机端口。APPDATA/LOCALAPPDATA等私有，unset SIMPLE_EXPERIMENT_API_FILE/SIMPLE_CLI_INSTANCE_ID/SIMPLE_CLI_RESOLVED_EXPERIMENT，保fixture内显式pin；业务授权/Worker/停止/清理皆fake，无真实删除或产品API。focused6的23文件闭包已核，21间接输入仅adc基线条件适用，非原执行逐项冻结，已审条件复用，不因此重跑或冒完整runtime快照。
 
-Panel共享消费者新增未来许可：最终SOURCE/fixture冻结且真实新compile后，resultDatasetHierarchy full14/resultCommandPhaseRouting full3/panelWebviewScriptHealth full13各原runner20s一次，当前未跑。完整file/实际renderer→AST/VM/fake DOM/click及helper初始化已审；完整渲染脚本受当前Panel变化影响，三旧direct d1ed7c39/f08ff251/f35a35a1资格false、原证保留。仅源码/包元数据读取、合成catalog及内存界面，无真实UI/网络/Worker/文件写或子进程；不顶替npm run build、实际dist渲染VM/node-c/10890 P0。metrics原18及39依赖仍待负责链审：单项目providerFor准加inactive unifiedDomainState fake，避免读用户APPDATA登记；原断言不减、生产不改，当前不运行/冒旧证仍通过。
+Panel共享消费者新增未来许可：最终SOURCE/fixture冻结且真实新compile后，resultDatasetHierarchy full14/resultCommandPhaseRouting full3/panelWebviewScriptHealth full13各原runner20s一次，当前未跑。完整file/renderer→AST/VM/fake DOM/click及helper初始化已审；三旧direct d1ed7c39/f08ff251/f35a35a1因Panel变化资格false保原证。源码/包元数据读取、合成catalog/内存界面，无真实UI/网络/Worker/文件写或子进程；不顶替真实build/dist渲染VM/node-c/10890 P0，Hierarchy实际ResultsSection读取须进冻结依赖。
+
+metricsDownloadEndToEnd准最终SOURCE/fixture冻结且新compile后原runner full18一次20s，当前不跑。SOURCE collect/update/observe/send确受改动影响，旧4f6d84fa full资格false保原证；38源码＋helper原39漂移，fixture改后另含test。providerFor补inactive unifiedDomainState及按当前fixture URI/真实mapper捕获root（空窗undefined），保原18断言/生产；历史APPDATA登记可能读且当时未冻，不回写全fake。handoff纯内存、scope/lease/POST fake，私有TEMP导出/staging flush rename/Windows pipe保留；catalog刷新fake，未证明Worker线程。新增import仅Invocation的AsyncLocalStorage/node:crypto，顶层定义/空WeakMap，无新真实业务作用；非Worker/newdist通过。
