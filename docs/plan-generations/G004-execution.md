@@ -67,3 +67,5 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 
 四direct两docs批 efedbb341850326ab1eeb56dccff173e6e82824b 已普通push/fetch、四HEAD一致及索引空。总控审pluginLogRetention、hostOperationLeaseIntegration、planStructuralValidationCache、planBatchPhysicalPipeline四direct实际slice/方法与4c0/current同，Physical的saveQueue/withQueue与385b同，其他依赖/工具链/log匹配，仅legacy当前适用ca1d→20d；保原私有FS与registry、保留式rename、受控Python抽函数和fake Worker/队列，未真实删除或新运行。
 同批另审mcpPreflightContract、mcpTaskDispatch、schedulerContract、mcpProjectOpsContract四direct，实际方法和slice与4c0/current LF同，其他依赖/Node/log匹配，仅legacy当前适用ca1d→20d；保原fake授权、GPU、队列、POST与私有TEMP、SDK内存transport边界，无真Worker、删除或新dist。
+
+八direct两docs批 a6efa5dcf36847cc6502a54988e5ff59e54291d6 已普通push/fetch、四HEAD一致及索引空。总控审localResultCatalogContext、checkStaticReportList与mcpNativeLifecycle三direct，仅legacy当前适用ca1d→20d：前两不进C五方法，内存精确逆转C五方法/import后raw SHA回ca1d；后者实际tasks.list箭头与4c0/current LF同。其他依赖/Node/log匹配，保原fake catalog/Panel VM、native私有TEMP index及假Worker和旧compiled范围，未新运行，不冒Panel P0或真Worker。
