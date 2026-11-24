@@ -35,7 +35,9 @@
 
 已同步 `2dd2cd9d`：独立声明输出位于任务目录外且已存在时，Worker 接收及真正执行前均明确拒绝，避免绕过现有只覆盖任务目录的隔离预览。此时需先经独立文件审核处理；将这些外部输出纳入统一重跑审核仍待完成。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 两次退出 0、各 1/1；含私有夹具文件保护及假进程，未操作真实 Worker。noEmit 再次退出 0。
 
-原生窗口查询携带实际命令和声明，允许按真实窗口重建本代任务而不要求 seed/CSV；无完整声明不重建。`node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js` 退出 0、17/17；源码路径校验调整后 `--test-name-pattern 'live declared commands recover'` 退出 0、1/1；`declaredCommandPlan.test.js` 退出 0、1/1，noEmit 退出 0。均为本机夹具。
+已同步 `b4bb0505`：原生窗口查询携带实际命令和声明，允许按真实窗口重建本代任务而不要求 seed/CSV；无完整声明不重建。`node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js` 退出 0、17/17；源码路径校验调整后 `--test-name-pattern 'live declared commands recover'` 退出 0、1/1；`declaredCommandPlan.test.js` 退出 0、1/1，noEmit 退出 0。均为本机夹具。
+
+通用任务的明确重试使用当前 PLAN 命令及全 Worker 同步链，不再调用科研源码推断；服务器状态未知时不继续。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a declared command rerun' test/features/planRunRerunIntent.test.js` 两次退出 0、各 1/1；noEmit 退出 0。实际 Worker、停止及隔离未执行。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 

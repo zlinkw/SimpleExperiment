@@ -17447,6 +17447,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const assertCurrent = () => {
             if (!isCurrent()) throw new UiCommandCancelled("项目或服务器连接已变化，停止后续清理和重排；已发生的操作请返回原项目核查。");
         };
+        if (job.command) return this.retryChangedSourceJobs(plan, job, root, isCurrent, "使用当前 PLAN 的实际命令");
         const currentPlan = await fs.readFile(path.join(root, plan.planFile), "utf8");
         assertCurrent();
         let sourceChange = crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision ? "PLAN 声明已变化" : "";
@@ -17820,7 +17821,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const acceptedRevision = crypto.createHash("sha256").update(await fs.readFile(path.join(root, plan.planFile), "utf8"), "utf8").digest("hex");
         const acceptedFingerprint = await this.localDistributedCodeFingerprint(root);
         const answer = await vscode.window.showWarningMessage(
-            `重跑使用当前源码和配置\n${plan.planFile} / ${job.case} / seed ${job.seed}\n${sourceChange}\n\n请选择范围。仅重跑当前 job 会保留其他 job 的旧版本结果；重跑全部 job 使用当前 PLAN 的全部声明。所选旧任务必须已停止；已有产物核实后先移入 clean 隔离区，确认后新任务立即可用原路径，永久删除稍后单独两次确认。取消不会停止、同步或派发任务。`,
+            `重跑使用当前源码和配置\n${plan.planFile} / ${job.case}${job.seed === undefined ? "" : " / seed " + job.seed}\n${sourceChange}\n\n请选择范围。仅重跑当前 job 会保留其他 job 的旧版本结果；重跑全部 job 使用当前 PLAN 的全部声明。所选旧任务必须已停止；已有产物核实后先移入 clean 隔离区，确认后新任务立即可用原路径，永久删除稍后单独两次确认。取消不会停止、同步或派发任务。`,
             { modal: true }, "仅重跑当前 job", "重跑全部 job");
         if (!["仅重跑当前 job", "重跑全部 job"].includes(answer) || !isCurrent())
             return { status: "cancelled", message: "已取消重跑，原任务与产物保留。" };
@@ -17855,6 +17856,8 @@ this.assertPlanTopologyReady("Plan 调度");
                 assertCurrent();
                 if (["running", "starting", "queued"].includes(state.execution))
                     throw new Error("所选范围仍有服务器排队或运行的任务；请先中止或召回这些任务，再确认重跑范围。");
+                if (state.execution === "unknown")
+                    throw new Error("所选任务的服务器状态未知；请先刷新核实，未继续重跑。");
             }
             const body: any = { planFile: plan.planFile, options: {}, runReplacement: {}, submissionWorkflowId: rerunWorkflowId };
             await this.refreshLocalPlanMetadataForAction(body);
@@ -17883,19 +17886,23 @@ this.assertPlanTopologyReady("Plan 调度");
             if (!preflight) return { status: "cancelled", message: "校验或预演未通过，未重跑。" };
             const validation = planValidationFromResult(preflight);
             if (validation?.result_path_policy !== "declared") throw new Error("当前 PLAN 必须声明逐 job 产物路径；未重跑。");
-            const jobs = all ? validation?.jobs : validation?.jobs?.filter(row => row.case === job.case && Number(row.seed) === Number(job.seed)
-                && row.output_dir === job.outputDir && String(row.result_csv || "") === String(job.collectionResultCsv || ""));
-            if (!jobs?.length || !all && jobs.length !== 1) throw new Error("当前 PLAN 无法唯一匹配原 job 的 case、seed 和产物路径；请从当前 PLAN 选择任务。");
+            const jobs = all ? validation?.jobs : validation?.jobs?.filter(row => job.command
+                ? Number(row.index) === job.index && row.output_dir === job.outputDir
+                : row.case === job.case && Number(row.seed) === Number(job.seed)
+                    && row.output_dir === job.outputDir && String(row.result_csv || "") === String(job.collectionResultCsv || ""));
+            if (!jobs?.length || !all && jobs.length !== 1) throw new Error("当前 PLAN 无法唯一匹配原任务和产物路径；请从当前 PLAN 选择任务。");
             const scoped = { ...validation, fullPlanJobCount: validation.jobs.length, jobs, existing: (validation.existing || []).filter(row => jobs.some(j => Number(j.index) === Number(row.index))) };
             const sourcePlan = { ...plan, revision: body.planRevision, codeFingerprint: this.lastCodeSyncState?.fingerprint, executionSource: undefined };
-            body.executionSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, sourcePlan);
-            if (!body.executionSource) throw new Error("PLAN_SOURCE_ORIGINAL_HASH_UNAVAILABLE：当前源码未核实，未重跑。");
-            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource, this.projectFileObservationIndex?.());
+            if (!job.command) {
+                body.executionSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, sourcePlan);
+                if (!body.executionSource) throw new Error("PLAN_SOURCE_ORIGINAL_HASH_UNAVAILABLE：当前源码未核实，未重跑。");
+                await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource, this.projectFileObservationIndex?.());
+            }
             await assertOriginalCommands();
             await this.assertPlanSubmissionWorkers(body, { validation: scoped });
             await new PlanRunHost(this, root).replace(sourcePlan, body, scoped);
             await assertOriginalCommands();
-            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource, this.projectFileObservationIndex?.());
+            if (body.executionSource) await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource, this.projectFileObservationIndex?.());
             if (this.lastCodeSyncState?.fingerprint !== sourcePlan.codeFingerprint)
                 throw new Error("同步版本在确认期间已变化；未重新派发。");
             if (!body.assignedExperimentIndices?.length || body.existingOutputChoice === "keep_existing")

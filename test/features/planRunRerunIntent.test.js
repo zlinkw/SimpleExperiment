@@ -9,6 +9,35 @@ const statusRow=(status,over={})=>({status,...over});
 const scope=crypto.createHash('sha256').update('scope-fixture').digest('hex');
 const base=selector.rerunWorkflowBaseId(scope);
 
+test('a declared command rerun uses the current PLAN command without a scientific source parser',async()=>{
+ const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const tree=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let method;
+ function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(tree)==='retryChangedSourceJobs')method=node;ts.forEachChild(node,visit);}visit(tree);
+ const code=ts.transpileModule('class Subject {'+method.getText(tree)+'}',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+ const revision=crypto.createHash('sha256').update('plan text').digest('hex');let submitted,execution='exited';
+ class Replacement{async replace(_plan,body){body.assignedExperimentIndices=[0];body.existingOutputChoice='rerun_all';}}
+ const call=new Function('crypto','fs','path','vscode','selectRerunWorkflowInstance','PulledTaskControl','PlanCodeScopeHost','PlanRunHost',
+  'planValidationFromResult','makeOpId','UiCommandCancelled',code+';return Subject.prototype.retryChangedSourceJobs;')(
+  crypto,{readFile:async()=> 'plan text'},path,{window:{showWarningMessage:async()=> '仅重跑当前 job'}},selector.selectRerunWorkflowInstance,
+  {queryTask:async()=>({state:{execution}}),stopPulledTask:async()=>{}},
+  {resolvePlanExecutionSource:()=>assert.fail('must not infer scientific source'),verifyLocalPlanSource:()=>assert.fail('no inferred source')},
+  Replacement,value=>value.validation,()=> 'stop',Error);
+ const old={index:0,case:'analysis',command:'old command',commandId:'old',workerId:'worker',outputDir:'work/a',status:'completed'};
+ const plan={id:'flow',planFile:'p.yaml',revision:'old-revision',codeFingerprint:'old-code',jobs:[old]};
+ const queue={plans:[plan]},host={manualDispatchInFlight:new Set(),localDistributedCodeFingerprint:async()=> 'code',
+  loadDistributedQueue:async()=>queue,client:{},refreshLocalPlanMetadataForAction:async()=>{},stampPlanRevision:body=>body.planRevision=revision,
+  assertPlanLocalConfigFiles:async()=>{},selectDistributedPlanPrimary:async()=>{},captureProjectContext:()=>({}),ensureCodeReadyForRun:async()=>{},
+  workerCodeSyncTargets:()=>[],lastCodeSyncState:{fingerprint:'code'},runPlanPreflight:async()=>({validation:{result_path_policy:'declared',jobs:[
+   {index:0,name:'analysis',command:'new command',working_dir:'.',outputs:[],output_dir:'work/a'}]}}),
+  assertPlanSubmissionWorkers:async()=>{},saveDistributedQueue:async(_root,_queue,opts)=>{Object.assign(queue,opts.mutateLatest(queue));},
+  enqueueDistributedPlan:async(_body,input)=>{submitted=input.validation.jobs[0];return{enqueued:true};},tickDistributedQueue:async()=>{}};
+ const result=await call.call(host,plan,old,'/fixture',()=>true,'source changed');
+ assert.equal(result.status,'queued');assert.equal(submitted.command,'new command');
+ execution='unknown';submitted=undefined;
+ await assert.rejects(call.call(host,plan,old,'/fixture',()=>true,'source changed'),/状态未知/);
+ assert.equal(submitted,undefined);
+});
+
 test('empty queue opens the legacy-compatible base rerun instance',()=>{
  const decision=selector.selectRerunWorkflowInstance({plans:[]},scope);
  assert.equal(decision.workflowId,base);assert.equal(decision.activeRunId,'');assert.equal(decision.familyRunCount,0);
