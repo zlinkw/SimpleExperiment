@@ -60,3 +60,8 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 文档批ca6cfaea、0d7c2721、e4bfe2a2、f2708006、efedbb34、a6efa5dc、895d44bc均已普通push/fetch、四HEAD一致和索引空。各次只读/写前脚本定位错误、截断补读、失败与修正事实原样可取自 `895d44bc:docs/plan-generations/G004-execution.md` 及其前序Git引用，不是测试失败。
 
 总控审agentTmuxPolicy、projectFileIndex、terminalPlanHistory、completedPlanWorkerMirror、gpuMemoryScheduling、serverPlanQueueRecovery、windowScopeIsolation七direct，真实提取方法/slice与4c0/current LF同，其余依赖/外部工具链/log匹配，仅legacy当前适用ca1d→20d。保原受控Python、私有TEMP文件/index/registry/loopback与fake Worker/SFTP、旧compiled和GPU历史条件限制；未新运行、传输或删除。执行登记本次集中归并后8177字符，脚本自设<8000目标断言在写后失败exit1；实际低于10800阈值，UTF8回读、范围与历史引用已复核，非测试失败。
+
+七direct两docs批221adc9d8a779f727941d80b2c251f76c6b65b4f已普通push/fetch，四HEAD一致及索引空。总控审actionLifecycle正向41与stagedSlot假端10，仅legacy当前适用分别ca1d/3ce7→20d；前者保77c→847→ca1d及八Draft未选，后者原whole legacy运行时未冻不可补造。另审resultCollectionAutoResume真实订阅与假collect 3项，仅Host当前适用8506→330a；原执行和依赖保留，均非新运行、真实删除或新dist/Panel P0。
+同批审remoteResultInspection旧direct的真实源码slice、五方法及静态断言，仅legacy f6a9→20d和Panel 21c4→8af7当前条件适用；保原自有loopback 413、私有TEMP lease与fake UI、旧dist及工具链限制，未新运行、真实传输或通过Panel P0。
+同批审planCleanupReconnect 13项旧direct，前九仅旧dist、后四实际路径不进入新增可选guard或隔离分支，三个依赖仅当前条件适用；原私有LOCALAPPDATA/state、两次保留式rename与fake SFTP/旧compiled保留，不冒真实删除或新运行。总控首次误猜safe-delete路径及全diff截断后已按真实入口和方法补核，非测试失败。
+同批审syncScopeAgentIndex旧direct三个依赖的条件适用，实际索引方法与1e91 raw同、变更的tmux定义不被实际HTTP索引分支调用；保原私有Python脚本/元数据扫描/线程、fake POST与工具链未知，未新运行或连接真实Worker。
