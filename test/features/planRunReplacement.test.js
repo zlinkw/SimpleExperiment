@@ -19,28 +19,20 @@ function fixture(){
  execute:async id=>{events.push('isolate'+id);for(const file of [...files])if(file.startsWith('job'+id.slice(2)+'/'))files.delete(file);const result={state:'completed',pendingNodes:[]};if(autoDelete)result.preview={autoDeleteCapability:1,rows:[{disposition:'isolate',isolationReceipt:{renamed:true,sourceMissingAtMove:true,registered:autoDelete==='full'}}]};operations.set(id,result);if(lost)throw Error('response lost');return result;}};
  return {ports,state,jobs,events,files,set:(v)=>{({choice=choice,cancel=cancel,fail=fail,lost=lost,autoDelete=autoDelete}=v);},run:()=>replaceRunOutputs(ports,state,'plans/p.yaml',jobs,[0],'frozen')};
 }
-test('overwrite confirms artifact destinations and empty parents twice before isolation; missing-only preserves both',async()=>{
+test('reruns isolate confirmed outputs without scheduling permanent deletion',async()=>{
  for(const choice of ['rerun_all','rerun_missing']){
-  const f=fixture();f.set({choice,autoDelete:'full'});const pages=[],phases=[],deletes=[];
-  f.ports.prepareEmptyParents=async preview=>[{token:'parents-'+preview.token,digest:'d',node:{id:'worker',kind:'remote'},sourceIsolationTokens:[preview.token],confirmations:0,
-   confirmationPaths:['/safe/clean_dir/'+preview.token,'/safe/clean_dir/'+preview.token+'/work/job'],
-   confirmationTargets:[{absolutePath:'/safe/clean_dir/'+preview.token,type:'directory'},{absolutePath:'/safe/clean_dir/'+preview.token+'/work/job',type:'directory'}]}];
-  f.ports.confirmEmptyParents=async (rows,phase)=>{phases.push(phase);for(const row of rows)row.confirmations=phase;};
+  const f=fixture();f.set({choice,autoDelete:'full'});const pages=[],deletes=[];
   const ask=f.ports.ask;f.ports.ask=async page=>{pages.push(page);return ask(page);};
-  f.ports.autoDeleteIsolated=async(id,parents)=>{assert.ok(parents.every(row=>row.confirmations===2));deletes.push(id);return{state:'accepted'};};
+  f.ports.autoDeleteIsolated=async id=>{deletes.push(id);return{state:'accepted'};};
   await f.run();
-  if(choice==='rerun_all'){
-   assert.deepEqual(phases,[1,2]);assert.deepEqual(deletes,['op0','op1']);
-   for(const page of pages)assert.ok(page.groups[0].targets.some(row=>row.path==='/safe/clean_dir/op0'));
-  }else{assert.deepEqual(phases,[]);assert.deepEqual(deletes,[]);assert.ok(!pages[1].groups[0].targets.some(row=>row.path.includes('/clean_dir/')));}
+  assert.deepEqual(deletes,[]);
+  assert.ok(pages.every(page=>page.groups[0].targets.every(row=>!row.path.includes('/clean_dir/'))));
   assert.equal(f.state.emptyParents,undefined,'finished run does not retain deletion inventories');
  }
 });
-test('cancel second parent confirmation never moves or deletes old outputs',async()=>{
- const f=fixture();f.set({cancel:2,autoDelete:'full'});const phases=[];
- f.ports.prepareEmptyParents=async preview=>[{token:preview.token,confirmationPaths:['/safe/clean_dir/'+preview.token],confirmationTargets:[{absolutePath:'/safe/clean_dir/'+preview.token,type:'directory'}],node:{id:'worker'}}];
- f.ports.confirmEmptyParents=async(_rows,phase)=>phases.push(phase);
- await assert.rejects(f.run(),/已取消/);assert.deepEqual(phases,[1]);assert.equal(f.files.size,3);
+test('cancel second isolation confirmation never moves or deletes old outputs',async()=>{
+ const f=fixture();f.set({cancel:2,autoDelete:'full'});
+ await assert.rejects(f.run(),/已取消/);assert.equal(f.files.size,3);
  assert.ok(!f.events.some(row=>row.startsWith('isolate')||row.startsWith('delete')));
 });
 test('parent preview binds all backend chunks to the current node and rejects extra deletion paths',async()=>{
@@ -127,17 +119,14 @@ test('actual injected modal script renders full paths and sends only one correla
  const full='/safe/'+('中文 very long path/'.repeat(60))+'model';handlers.message({data:{type:'planRunConfirmation',requestId:'request1',payload:{title:'confirm',planFile:'p.yaml',phase:2,groups:[{value:'isolate_and_run',label:'隔离并重跑',targets:[{path:full,server:'w',connection:'u@h:22',type:'directory'}]}]}}});
  assert.ok(nodes['.paths'].children.some(n=>n.textContent.includes(full)));const button=nodes['.buttons'].children[0];button.onclick();button.onclick();assert.equal(sent.length,1);assert.equal(sent[0].requestId,'request1');
 });
-// r87 块4（0.5.414）：隔离完成即派发 + 后台自动删接线。回执齐备（rename、移动当时源缺失、登记成功）
-// 即准入，后台删除是旁路任务绝不进 await 链；能力缺失保持旧复核链并明确提示需更新插件。
-test('r87 block4: complete isolation receipts admit immediately — background delete is fired off the dispatch chain and verify is skipped',async()=>{
- const f=fixture();let release;const blockedDelete=new Promise(resolve=>{release=resolve;});const deleted=[];
- f.set({autoDelete:'full'});f.ports.autoDeleteIsolated=async id=>{deleted.push(id);await blockedDelete;return {state:'accepted'};};
+test('complete isolation receipts admit immediately while the isolated copies remain',async()=>{
+ const f=fixture(),deleted=[];
+ f.set({autoDelete:'full'});f.ports.autoDeleteIsolated=async id=>{deleted.push(id);return {state:'accepted'};};
  const r=await f.run();
  assert.deepEqual(r.selectedIndices,[0,1,2]);assert.deepEqual(r.blocked,[]);
- assert.deepEqual(deleted,['op0','op1'],'仅本批已隔离完成的令牌提交后台删除；absent 的 job2 无令牌可删');
+ assert.deepEqual(deleted,[],'重跑不触发永久删除');
  assert.ok(!f.events.some(e=>e.startsWith('verify')),'回执齐备后不再逐条复核原路径（不再读隔离副本后才派发）');
- assert.ok(f.events.includes('hold:0,1,2'),'删除请求仍悬而未决时 hold/派发已经完成——后台删除不在 await 链上');
- release();
+ assert.ok(f.events.includes('hold:0,1,2'));
 });
 test('r87 block4: capability reported with an incomplete receipt blocks that job as unverified, dispatches nothing for it and never starts a background delete',async()=>{
  const f=fixture();const deleted=[];f.set({autoDelete:'partial'});f.ports.autoDeleteIsolated=async id=>{deleted.push(id);return {state:'accepted'};};
@@ -155,11 +144,11 @@ test('r87 block4: rerun_missing with complete receipts still skips verify but ne
  assert.deepEqual(deleted,[],'rerun_missing 不触发后台删除');
  assert.ok(!f.events.some(e=>e.startsWith('verify')));
 });
-test('r87 block4: an old plugin without the capability keeps the verify chain untouched and tells the user 0.2.111 is required',async()=>{
+test('without isolation receipts the original verification remains and copies stay retained',async()=>{
  const f=fixture();const notes=[];f.ports.progress=text=>notes.push(text);
  const r=await f.run();
  assert.deepEqual(r.selectedIndices,[0,1,2]);assert.deepEqual(r.blocked,[]);
  assert.ok(f.events.includes('verifyop0')&&f.events.includes('verifyop1'),'能力缺失时旧逐条复核链原样保留，不削弱');
  assert.ok(!f.events.some(e=>e.startsWith('delete')),'旧插件绝不调用新删除接口');
- assert.ok(notes.some(text=>/0\.2\.111/.test(text)&&/不会自动删除/.test(text)),'兼容矩阵行1：明确提示自动清理需更新 SimpleSFTP 到 0.2.111');
+ assert.ok(notes.some(text=>/隔离并保留/.test(text)));
 });

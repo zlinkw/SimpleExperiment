@@ -29,7 +29,9 @@
 
 已同步 `c34cb3b8`：提交入口将校验给出的命令、工作目录与可选输出保存并发往所选 Worker；旧无命令任务暂停，声明输出的活动占用仍阻止提交。本机提取真实 Host 方法及假 Worker 的 `node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'old Worker capability' test/features/formalIdentityContract.test.js` 退出 0、1/1。未连接真实 Worker，P2 其他路径待接通。
 
-通用命令的不同输出目录分别保留最新任务，普通声明产物按用户勾选的同步范围求交；`node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js` 退出 0、4/4。未进行真实传输。
+已同步 `7844db66`：通用命令的不同输出目录分别保留最新任务，普通声明产物按用户勾选的同步范围求交；`node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js` 退出 0、4/4。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared commands synchronize' test/features/completedJobLatestSync.test.js` 退出 0、1/1，使用假传输，未进行真实传输。
+
+重跑的已确认隔离流程保留旧产物，不再联动后台永久删除或空目录清理；独立删除审核保留。`node --test --test-force-exit --test-timeout 20000 test/features/planRunReplacement.test.js` 两次退出 0、各 17/17；第二次为测试说明整理后的复核。`node node_modules/typescript/bin/tsc -p . --noEmit --incremental false --pretty false` 退出 0。均未执行真实删除。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 

@@ -32,6 +32,17 @@ test('two completed Plans use one archive per Worker pair and keep independent j
 });
 
 function completedPair(){const f=fixture();f.jobs[1].status='completed';giveJob1Source(f);return f;}
+test('declared commands synchronize each selected ordinary output without scientific result files',async()=>{
+ const f=fixture();
+ for(const job of f.jobs) Object.assign(job,{case:'analysis',seed:undefined,command:`run ${job.index}`,outputs:[`reports/job${job.index}`],collectionResultCsv:undefined,status:'completed'});
+ for(const file of Object.keys(f.inventory.a)) delete f.inventory.a[file];
+ for(const id of ['b','c']) for(const file of Object.keys(f.inventory[id])) delete f.inventory[id][file];
+ for(const index of [0,1]) f.inventory.a[`reports/job${index}/report.txt`]={sha256:String(index+1).repeat(64),size:3,modifiedAtMs:1};
+ const result=await f.run(['reports']);
+ assert.equal(result.synced,2);assert.deepEqual(result.errors,[]);
+ assert.ok(f.transfers.every(row=>row.relativePaths.every(file=>file.startsWith('reports/'))));
+ for(const job of f.jobs) assert.equal(job.latestArtifactSync.state,'synced');
+});
 test('combined transport retains both exact scope guards through transfer and fresh verification, with independent corruption results',async()=>{
  const f=completedPair(),transfer=f.h.simpleSftpApiCall,inventory=f.h.verifiedSftpProjectInventory;
  const guards=()=>assert.equal(f.h.activeArtifactSyncScopes.size,2,'both job scopes remain protected until the batch finishes');
