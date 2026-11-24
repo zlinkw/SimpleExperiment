@@ -39,7 +39,9 @@
 
 已同步 `aacf2f40`：通用任务的明确重试使用当前 PLAN 命令及全 Worker 同步链，不再调用科研源码推断；服务器状态未知时不继续。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a declared command rerun' test/features/planRunRerunIntent.test.js` 两次退出 0、各 1/1；noEmit 退出 0。实际 Worker、停止及隔离未执行。
 
-PLAN 可用可选 `worker` 和 `environment` 覆盖默认值并参与参数组合；未启用的 Worker 明确拒绝，自动分配保留该选择，所选环境随任务发送。`declaredCommandPlan.test.js` 退出 0、1/1；`distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared Worker override|live declared commands recover' test/features/taskLifecycle.test.js` 退出 0、2/2；noEmit 退出 0。GPU 覆盖及完整调用链仍待实施。
+已同步 `5d5d3735`：PLAN 可用可选 `worker` 和 `environment` 覆盖默认值并参与参数组合；未启用的 Worker 明确拒绝，自动分配保留该选择，所选环境随任务发送。`declaredCommandPlan.test.js` 退出 0、1/1；`distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared Worker override|live declared commands recover' test/features/taskLifecycle.test.js` 退出 0、2/2；noEmit 退出 0。完整调用链仍待实施。
+
+PLAN 的可选 `gpu` 随矩阵展开并进入队列分配；指定卡不可用时等待，内存预算也只选择指定卡。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared GPU override|declared Worker override' test/features/taskLifecycle.test.js` 两次退出 0、各 2/2；`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；noEmit 退出 0。均为本机夹具，未操作真实 GPU。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 

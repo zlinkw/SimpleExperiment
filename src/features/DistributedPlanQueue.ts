@@ -24,6 +24,7 @@ export type QueuedJob = {
   workingDirectory?: string;
   outputs?: string[];
   environment?: string;
+  requestedGpuId?: string;
   resultPathPolicy?: "declared";
   collectionResultCsv?: string;
   checkpointSource?: Record<string, string>;
@@ -1144,7 +1145,7 @@ export function legacyDistributedQueuePath(storageRoot: string, projectRoot: str
   return path.join(storageRoot, "distributed-plan-queues", key + ".json");
 }
 
-export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "command" | "workingDirectory" | "outputs" | "automaticWorkerId" | "environment" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
+export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "command" | "workingDirectory" | "outputs" | "automaticWorkerId" | "environment" | "requestedGpuId" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
   const missingIdentity = Object.entries({ revision: plan.revision, codeFingerprint: plan.codeFingerprint, planFile: plan.planFile, id })
     .filter(([, value]) => !value).map(([field]) => field);
   if (missingIdentity.length) throw new Error("Plan identity and code fingerprint are required. Missing: " + missingIdentity.join(", "));
@@ -1154,7 +1155,7 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
       || registered.executionMode !== plan.executionMode || registered.jobs.length !== plan.jobs.length
       || plan.jobs.some(job => !registered.jobs.some(prior => prior.index === job.index && prior.case === job.case && prior.seed === job.seed
         && prior.outputDir === job.outputDir && prior.command === job.command && prior.workingDirectory === job.workingDirectory
-        && prior.automaticWorkerId === job.automaticWorkerId && prior.environment === job.environment
+        && prior.automaticWorkerId === job.automaticWorkerId && prior.environment === job.environment && prior.requestedGpuId === job.requestedGpuId
         && JSON.stringify(prior.outputs) === JSON.stringify(job.outputs) && prior.collectionResultCsv === job.collectionResultCsv
         && JSON.stringify(prior.checkpointSource || null) === JSON.stringify(job.checkpointSource || null))))
       throw new Error("FORMAL_JOB_IDENTITY_CONFLICT: duplicate workflow has different declarations.");
@@ -1181,6 +1182,7 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
     return { index: job.index, case: job.case, ...(job.seed === undefined ? {} : { seed: job.seed }), outputDir: job.outputDir,
       command: job.command, workingDirectory: job.workingDirectory, outputs: job.outputs,
       ...(job.automaticWorkerId ? { automaticWorkerId: job.automaticWorkerId } : {}), ...(job.environment ? { environment: job.environment } : {}),
+      ...(job.requestedGpuId ? { requestedGpuId: job.requestedGpuId } : {}),
       ...(job.collectionResultCsv ? { collectionResultCsv: job.collectionResultCsv } : {}),
       ...(job.checkpointSource ? { checkpointSource: job.checkpointSource } : {}),
       // r82：隔离阻断 job 照常入队（可见、pending），标记随行持久化；派发过滤、面板解释与
@@ -1276,17 +1278,20 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
       for (const job of caseJobs) {
         const allowedWorkers = workers.filter(worker => eligibleWorkerIds.has(worker.workerId)
           && (!job.automaticWorkerId || worker.workerId === job.automaticWorkerId));
-        const budgetChoice = options.memoryBudget?.choose(plan, job, allowedWorkers, slots);
+        const jobSlots = job.requestedGpuId ? new Map([...slots].map(([id, ids]) => [id, ids.filter(gpu => gpu === job.requestedGpuId)])) : slots;
+        const jobRanked = () => [...jobSlots].filter(([id, gpuIds]) => gpuIds.length && allowedWorkers.some(worker => worker.workerId === id))
+          .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+        const budgetChoice = options.memoryBudget?.choose(plan, job, allowedWorkers, jobSlots);
         const chosen = options.memoryBudget ? budgetChoice?.workerId : job.automaticWorkerId ? allowedWorkers.some(worker => worker.workerId === job.automaticWorkerId)
-          && slots.get(job.automaticWorkerId)?.length ? job.automaticWorkerId : undefined
+          && jobSlots.get(job.automaticWorkerId)?.length ? job.automaticWorkerId : undefined
           : job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
-          && slots.get(job.reassignmentWorkerId)?.length ? job.reassignmentWorkerId : undefined
-          : whole?.[0] && slots.get(whole[0])?.length ? whole[0]
-          : slots.get(primary)?.length ? primary : ranked()[0]?.[0];
+          && jobSlots.get(job.reassignmentWorkerId)?.length ? job.reassignmentWorkerId : undefined
+          : whole?.[0] && jobSlots.get(whole[0])?.length ? whole[0]
+          : jobSlots.get(primary)?.length ? primary : jobRanked()[0]?.[0];
         if (!chosen) continue;
-        const gpuId = options.memoryBudget ? budgetChoice?.gpuId : slots.get(chosen)?.shift();
-        if (gpuId === undefined) break;
-        if (options.memoryBudget) slots.get(chosen)!.splice(slots.get(chosen)!.indexOf(gpuId), 1);
+        const gpuId = options.memoryBudget ? budgetChoice?.gpuId : jobSlots.get(chosen)?.[0];
+        if (gpuId === undefined) { if (!job.requestedGpuId) break; continue; }
+        slots.get(chosen)!.splice(slots.get(chosen)!.indexOf(gpuId), 1);
         const commandId = durableCommandId(plan, job, chosen, gpuId);
         if (commandId !== job.commandId) Object.assign(job, { runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined });
         Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined,

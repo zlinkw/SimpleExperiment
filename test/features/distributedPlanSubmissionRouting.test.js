@@ -53,7 +53,7 @@ test("submission persists the actual command returned by PLAN validation", async
   };
   const result = await method.call(host, { planFile: "plans/a.yaml", planRevision: "rev" }, { jobs: [{
     index: 0, name: "analysis", command: "python analyze.py --size 8", working_dir: ".", outputs: [], output_dir: "work/run",
-    worker: "worker", environment: "/env/analysis",
+    worker: "worker", environment: "/env/analysis", gpu: "1",
   }] }, true);
   assert.equal(result.enqueued, true);
   assert.equal(saved.plans[0].jobs[0].command, "python analyze.py --size 8");
@@ -61,6 +61,7 @@ test("submission persists the actual command returned by PLAN validation", async
   assert.deepEqual(saved.plans[0].jobs[0].outputs, []);
   assert.equal(saved.plans[0].jobs[0].automaticWorkerId, "worker");
   assert.equal(saved.plans[0].jobs[0].environment, "/env/analysis");
+  assert.equal(saved.plans[0].jobs[0].requestedGpuId, "1");
   assert.equal(saved.plans[0].jobs[0].seed, undefined);
   await assert.rejects(method.call(host, { planFile: "plans/a.yaml", planRevision: "rev" }, { jobs: [{
     index: 0, name: "analysis", command: "echo ok", working_dir: ".", outputs: [], output_dir: "work/other", worker: "absent",

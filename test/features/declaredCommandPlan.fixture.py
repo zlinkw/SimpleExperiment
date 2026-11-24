@@ -19,13 +19,15 @@ root = pathlib.Path(tempfile.mkdtemp(prefix="g005-plan-"))
 parse = scope["declared_command_jobs"]
 plan = {"plan_id": "p1", "name": "analysis", "command": "python analyze.py --size {matrix.size}",
         "output_dir": "work/run-{matrix.size}", "matrix": {"size": [1, 2]},
-        "worker": "worker-{matrix.size}", "environment": "/env/research"}
+        "worker": "worker-{matrix.size}", "environment": "/env/research", "gpu": "{matrix.size}"}
 jobs = parse(plan, root)
 assert [job["command"] for job in jobs] == ["python analyze.py --size 1", "python analyze.py --size 2"]
 assert [job["output_dir"] for job in jobs] == ["work/run-1", "work/run-2"]
 assert all(job["working_dir"] == "." and job["outputs"] == [] for job in jobs)
 assert [job["worker"] for job in jobs] == ["worker-1", "worker-2"]
 assert all(job["environment"] == "/env/research" for job in jobs)
+assert [job["gpu"] for job in jobs] == ["1", "2"]
+assert "gpu" not in parse({"plan_id": "p", "name": "n", "command": "echo ok", "output_dir": "out", "gpu": "auto"}, root)[0]
 assert parse({"plan_id": "p", "name": "n", "command": "echo ${HOME}", "output_dir": "work/one"}, root)[0]["command"] == "echo ${HOME}"
 for bad in ({**plan, "output_dir": "work/same"}, {**plan, "output_dir": "../outside"}, {**plan, "command": ""}):
     try:

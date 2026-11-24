@@ -54,6 +54,18 @@ test('a declared Worker override constrains automatic allocation', () => {
   const result=queue.allocateAvailable(current,workers);
   assert.equal(result.dispatches[0].workerId,'w2');assert.equal(result.queue.plans[0].jobs[0].environment,'/env/a');
 });
+test('a declared GPU override selects only the requested available device', () => {
+  const queue=require('../../src/features/DistributedPlanQueue.ts');
+  const current=queue.enqueuePlan(queue.emptyDistributedQueue(),{projectId:'p',planFile:'plan.yaml',revision:'r',codeFingerprint:'code',jobs:[{
+    index:0,case:'analysis',outputDir:'work/run',command:'echo ok',workingDirectory:'.',outputs:[],requestedGpuId:'1',
+  }]},'flow');
+  const worker={workerId:'w',online:true,idleGpuIds:['0','1'],declaredJobPaths:true,codeFingerprint:'code'};
+  assert.equal(queue.allocateAvailable(current,[worker]).dispatches[0].gpuId,'1');
+  assert.equal(queue.allocateAvailable(current,[{...worker,idleGpuIds:['0']}]).dispatches.length,0);
+  const budget={sortPlans:plans=>plans,choose:(_plan,_job,_workers,slots)=>{
+    assert.deepEqual(slots.get('w'),['1']);return{workerId:'w',gpuId:'1'};},reserve:()=>{}};
+  assert.equal(queue.allocateAvailable(current,[worker],{memoryBudget:budget}).dispatches[0].gpuId,'1');
+});
 test('live declared commands recover from the exact Worker window without seed or CSV', () => {
   const queue = require('../../src/features/DistributedPlanQueue.ts');
   const now=Date.now(), observedAt=new Date(now).toISOString();

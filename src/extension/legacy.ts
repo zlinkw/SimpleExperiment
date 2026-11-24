@@ -8715,6 +8715,7 @@ return this.testTunnel(true);
                     jobs: validation.jobs.map((job) => ({ index: Number(job.index), case: String(job.name),
                         command: String(job.command), workingDirectory: String(job.working_dir), outputs: job.outputs,
                         ...(job.worker ? { automaticWorkerId: String(job.worker) } : {}), ...(job.environment ? { environment: String(job.environment) } : {}),
+                        ...(job.gpu ? { requestedGpuId: String(job.gpu) } : {}),
                         outputDir: String(job.output_dir).replace(/\\/g, "/") })) }, workers);
                 return { ...validated, distributedPreview: preview };
             }
@@ -15827,6 +15828,7 @@ this.assertPlanTopologyReady("Plan 调度");
             outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
             command: String(job.command || ""), workingDirectory: String(job.working_dir || "."), outputs: job.outputs,
             ...(job.worker ? { automaticWorkerId: String(job.worker) } : {}), ...(job.environment ? { environment: String(job.environment) } : {}),
+            ...(job.gpu ? { requestedGpuId: String(job.gpu) } : {}),
             collectionResultCsv: String(job.result_csv || ""),
             checkpointSource: job.checkpoint_source,
             // r82：隔离阻断 job 以 pending+job 级标记入队——面板可见、四条派发路径过滤、发送前再核都读这份持久事实。

@@ -2741,6 +2741,8 @@ def declared_command_jobs(plan: dict[str, Any], root: Path) -> list[dict[str, An
     for key in ("worker", "environment"):
         if key in plan and (not isinstance(plan[key], str) or not plan[key].strip()):
             raise ValueError("PLAN_FIELD_INVALID: " + key)
+    if "gpu" in plan and (isinstance(plan["gpu"], bool) or not isinstance(plan["gpu"], (str, int)) or not str(plan["gpu"]).strip()):
+        raise ValueError("PLAN_FIELD_INVALID: gpu")
     def render(value, params):
         for key, item in params.items():
             value = value.replace("{matrix." + key + "}", str(item))
@@ -2753,6 +2755,10 @@ def declared_command_jobs(plan: dict[str, Any], root: Path) -> list[dict[str, An
                                          "working_dir", allow_root=True, require_exists=True, require_directory=True)
         declared = [safe_project_relative_path(root, render(value, params), "outputs") for value in outputs]
         overrides = {key: render(plan[key], params).strip() for key in ("worker", "environment") if key in plan}
+        if "gpu" in plan:
+            gpu = render(str(plan["gpu"]), params).strip()
+            if gpu.lower() != "auto":
+                overrides["gpu"] = gpu
         if any(not value for value in overrides.values()):
             raise ValueError("PLAN_OVERRIDE_EMPTY")
         def overlaps(left, right):
