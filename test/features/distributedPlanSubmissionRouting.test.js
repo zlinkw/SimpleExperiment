@@ -53,12 +53,18 @@ test("submission persists the actual command returned by PLAN validation", async
   };
   const result = await method.call(host, { planFile: "plans/a.yaml", planRevision: "rev" }, { jobs: [{
     index: 0, name: "analysis", command: "python analyze.py --size 8", working_dir: ".", outputs: [], output_dir: "work/run",
+    worker: "worker", environment: "/env/analysis",
   }] }, true);
   assert.equal(result.enqueued, true);
   assert.equal(saved.plans[0].jobs[0].command, "python analyze.py --size 8");
   assert.equal(saved.plans[0].jobs[0].workingDirectory, ".");
   assert.deepEqual(saved.plans[0].jobs[0].outputs, []);
+  assert.equal(saved.plans[0].jobs[0].automaticWorkerId, "worker");
+  assert.equal(saved.plans[0].jobs[0].environment, "/env/analysis");
   assert.equal(saved.plans[0].jobs[0].seed, undefined);
+  await assert.rejects(method.call(host, { planFile: "plans/a.yaml", planRevision: "rev" }, { jobs: [{
+    index: 0, name: "analysis", command: "echo ok", working_dir: ".", outputs: [], output_dir: "work/other", worker: "absent",
+  }] }, true), /Worker 未启用或不存在/);
 });
 test("dispatch sends the saved command with the selected Worker context", async () => {
   const node = members.get("sendDistributedJob");
@@ -84,7 +90,7 @@ test("dispatch sends the saved command with the selected Worker context", async 
     workerActionTargets: () => [{ id: "worker", condaEnv: "research" }], enabledWorkerConfigs: () => [{ id: "worker" }],
     schedulerSettings: () => ({}), lastWorkerTaskSnapshots: new Map([[`${root}\u0000worker`, { capabilities: { taskLifecycle: 2 } }]]),
   };
-  const job = { index: 0, case: "analysis", command: "python analyze.py --size 8", workingDirectory: ".", outputs: [],
+  const job = { index: 0, case: "analysis", command: "python analyze.py --size 8", workingDirectory: ".", outputs: [], environment: "/env/analysis",
     outputDir: "work/run", lifecycleProtocol: 2, globalJobId: "flow:0" };
   const result = await method.call(host, { id: "flow", projectId: "p", planFile: "plans/a.yaml", revision: "rev",
     codeFingerprint: "code", resultPathPolicy: "declared", jobs: [job] }, job, "worker", "0", "cmd");
@@ -92,7 +98,7 @@ test("dispatch sends the saved command with the selected Worker context", async 
   assert.equal(sent.command, job.command);
   assert.equal(sent.workingDirectory, ".");
   assert.deepEqual(sent.outputs, []);
-  assert.equal(sent.condaEnv, "research");
+  assert.equal(sent.condaEnv, "/env/analysis");
   assert.equal(sent.gpuId, "0");
   assert.equal(sent.executionMode, undefined);
 });

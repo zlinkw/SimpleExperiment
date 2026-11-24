@@ -140,7 +140,7 @@ def task_execution_inventory(root, queries=()):
     for row in rows:
         public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
                   "experimentIndex", "outputDir", "command", "workingDirectory", "outputs", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
-                  "executionMode", "mode", "checkpointTestOnly", "runKey", "case", "seed", "configPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
+                  "executionMode", "mode", "checkpointTestOnly", "runKey", "case", "seed", "condaEnv", "configPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
         observed = {
             "lifecycleProtocol": 2, "commandId": row["commandId"], "projectId": row["projectId"], "workerId": row["workerId"],
             "observedAt": now_iso(), "tmux": None}
@@ -329,7 +329,7 @@ def task_public_observation(root, job, row=None):
                                 "exitCode": row["exitCode"], "phase": row["phase"]}
         public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision",
             "codeFingerprint", "experimentIndex", "case", "outputDir", "command", "workingDirectory", "outputs", "resultPathPolicy", "planJobCount", "fullPlanJobCount",
-            "enqueuedAt", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}
+            "enqueuedAt", "lifecycleProtocol", "runKey", "dispatchPolicy", "condaEnv") if key in job}
         return {**public, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
                 "status": status, "executionState": execution, "resultState": "not_required", "completionState": "verified" if status == "completed" else "unverified",
                 "successful": status == "completed", "logPath": row.get("logPath") if row else "", "observation": observed,

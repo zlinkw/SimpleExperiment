@@ -2738,6 +2738,9 @@ def declared_command_jobs(plan: dict[str, Any], root: Path) -> list[dict[str, An
     outputs = plan.get("outputs", [])
     if not isinstance(outputs, list) or any(not isinstance(value, str) or not value.strip() for value in outputs):
         raise ValueError("PLAN_OUTPUTS_INVALID")
+    for key in ("worker", "environment"):
+        if key in plan and (not isinstance(plan[key], str) or not plan[key].strip()):
+            raise ValueError("PLAN_FIELD_INVALID: " + key)
     def render(value, params):
         for key, item in params.items():
             value = value.replace("{matrix." + key + "}", str(item))
@@ -2749,13 +2752,17 @@ def declared_command_jobs(plan: dict[str, Any], root: Path) -> list[dict[str, An
         cwd = safe_project_relative_path(root, render(str(plan.get("working_dir") or "."), params),
                                          "working_dir", allow_root=True, require_exists=True, require_directory=True)
         declared = [safe_project_relative_path(root, render(value, params), "outputs") for value in outputs]
+        overrides = {key: render(plan[key], params).strip() for key in ("worker", "environment") if key in plan}
+        if any(not value for value in overrides.values()):
+            raise ValueError("PLAN_OVERRIDE_EMPTY")
         def overlaps(left, right):
             return left == right or left.startswith(right + "/") or right.startswith(left + "/")
         if any(overlaps(left, right) for row in jobs
                for left in [output, *declared] for right in [row["output_dir"], *row["outputs"]]):
             raise ValueError("PLAN_OUTPUT_OVERLAP: " + output)
         jobs.append({"index": index, "name": plan["name"].strip(), "command": render(plan["command"], params),
-                     "working_dir": cwd, "output_dir": output, "outputs": declared, "matrix": params})
+                     "working_dir": cwd, "output_dir": output, "outputs": declared, "matrix": params,
+                     **overrides})
     return jobs
 
 

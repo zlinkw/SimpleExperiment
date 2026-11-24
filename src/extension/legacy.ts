@@ -8714,6 +8714,7 @@ return this.testTunnel(true);
                     revision: String(body.planRevision || body.options?.planRevision || ""), codeFingerprint: fingerprint,
                     jobs: validation.jobs.map((job) => ({ index: Number(job.index), case: String(job.name),
                         command: String(job.command), workingDirectory: String(job.working_dir), outputs: job.outputs,
+                        ...(job.worker ? { automaticWorkerId: String(job.worker) } : {}), ...(job.environment ? { environment: String(job.environment) } : {}),
                         outputDir: String(job.output_dir).replace(/\\/g, "/") })) }, workers);
                 return { ...validated, distributedPreview: preview };
             }
@@ -15771,6 +15772,9 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!submissionCurrent()) return { enqueued: false, cancelled: true };
         const validation = planValidationFromResult(validated);
         if (!Array.isArray(validation?.jobs) || !validation.jobs.length) throw new Error("Agent 校验未返回逐 job 清单，无法分布式派发。");
+        const enabledWorkerIds = new Set(this.workerActionTargets().map(target => String(target.id)));
+        const unknownWorkers = [...new Set<string>(validation.jobs.map(job => String(job.worker || "").trim()).filter(id => id && !enabledWorkerIds.has(id)))];
+        if (unknownWorkers.length) throw new Error("PLAN 指定的 Worker 未启用或不存在：" + unknownWorkers.join("、"));
         if (Number(body.existingOutputCount || 0) > 0 && body.existingOutputChoice === undefined)
             throw new Error("历史产物处理方式未确认；未提交运行。");
         if (body.existingOutputChoice === undefined && Array.isArray(validation.existing) && validation.existing.length)
@@ -15822,6 +15826,7 @@ this.assertPlanTopologyReady("Plan 调度");
             index: Number(job.index), case: String(job.name),
             outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
             command: String(job.command || ""), workingDirectory: String(job.working_dir || "."), outputs: job.outputs,
+            ...(job.worker ? { automaticWorkerId: String(job.worker) } : {}), ...(job.environment ? { environment: String(job.environment) } : {}),
             collectionResultCsv: String(job.result_csv || ""),
             checkpointSource: job.checkpoint_source,
             // r82：隔离阻断 job 以 pending+job 级标记入队——面板可见、四条派发路径过滤、发送前再核都读这份持久事实。
@@ -16129,14 +16134,14 @@ this.assertPlanTopologyReady("Plan 调度");
             case: job.case, outputDir: job.outputDir, command: job.command, workingDirectory: job.workingDirectory, outputs: job.outputs,
             resultPathPolicy: "declared", globalJobId: job.globalJobId, collectionResultCsv: job.collectionResultCsv, checkpointSource: job.checkpointSource,
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
-            condaEnv: target.condaEnv, workflowId: plan.id, tmuxSessionPrefix,
+            condaEnv: job.environment || target.condaEnv, workflowId: plan.id, tmuxSessionPrefix,
             overwriteExisting: plan.overwriteExisting === true,
             options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: !job.manualDispatch && gpuId !== undefined,
                 maxConcurrentGpus: 0,
                 ...memoryScheduling,
                 projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
                 planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
-                condaEnv: target.condaEnv, tmuxSessionPrefix,
+                condaEnv: job.environment || target.condaEnv, tmuxSessionPrefix,
                 overwriteExisting: plan.overwriteExisting === true,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
         };

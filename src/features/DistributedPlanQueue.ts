@@ -23,6 +23,7 @@ export type QueuedJob = {
   command?: string;
   workingDirectory?: string;
   outputs?: string[];
+  environment?: string;
   resultPathPolicy?: "declared";
   collectionResultCsv?: string;
   checkpointSource?: Record<string, string>;
@@ -603,7 +604,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         }
         if (plan.projectId !== projectId || plan.jobs.some(job => job.index === index)) continue;
         plan.jobs.push({ index, case: task.case, ...(declaredCommand ? { command: task.command, workingDirectory: task.workingDirectory,
-          outputs: task.outputs } : { seed: Number(task.seed) }), attempt: 0, commandId: task.commandId, workerId: snapshot.workerId,
+          outputs: task.outputs, ...(typeof task.condaEnv === "string" && task.condaEnv ? { environment: task.condaEnv } : {}) }
+          : { seed: Number(task.seed) }), attempt: 0, commandId: task.commandId, workerId: snapshot.workerId,
           runKey: task.commandId, globalJobId: task.globalJobId, outputDir: task.outputDir, collectionResultCsv: task.collectionResultCsv,
           resultPathPolicy: "declared", lifecycleProtocol: 2, status: "unknown", actualExecutionMode: task.mode,
           checkpointSource: task.checkpointSource });
@@ -1142,7 +1144,7 @@ export function legacyDistributedQueuePath(storageRoot: string, projectRoot: str
   return path.join(storageRoot, "distributed-plan-queues", key + ".json");
 }
 
-export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "command" | "workingDirectory" | "outputs" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
+export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir" | "command" | "workingDirectory" | "outputs" | "automaticWorkerId" | "environment" | "collectionResultCsv" | "checkpointSource" | "outputIsolationBlocked">> }, id: string, enqueuedAt = new Date().toISOString()): DistributedQueue {
   const missingIdentity = Object.entries({ revision: plan.revision, codeFingerprint: plan.codeFingerprint, planFile: plan.planFile, id })
     .filter(([, value]) => !value).map(([field]) => field);
   if (missingIdentity.length) throw new Error("Plan identity and code fingerprint are required. Missing: " + missingIdentity.join(", "));
@@ -1152,6 +1154,7 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
       || registered.executionMode !== plan.executionMode || registered.jobs.length !== plan.jobs.length
       || plan.jobs.some(job => !registered.jobs.some(prior => prior.index === job.index && prior.case === job.case && prior.seed === job.seed
         && prior.outputDir === job.outputDir && prior.command === job.command && prior.workingDirectory === job.workingDirectory
+        && prior.automaticWorkerId === job.automaticWorkerId && prior.environment === job.environment
         && JSON.stringify(prior.outputs) === JSON.stringify(job.outputs) && prior.collectionResultCsv === job.collectionResultCsv
         && JSON.stringify(prior.checkpointSource || null) === JSON.stringify(job.checkpointSource || null))))
       throw new Error("FORMAL_JOB_IDENTITY_CONFLICT: duplicate workflow has different declarations.");
@@ -1177,6 +1180,7 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
       throw new Error("FORMAL_JOB_CONFLICT: duplicate local pending job declarations; cancel the unsent duplicate first.");
     return { index: job.index, case: job.case, ...(job.seed === undefined ? {} : { seed: job.seed }), outputDir: job.outputDir,
       command: job.command, workingDirectory: job.workingDirectory, outputs: job.outputs,
+      ...(job.automaticWorkerId ? { automaticWorkerId: job.automaticWorkerId } : {}), ...(job.environment ? { environment: job.environment } : {}),
       ...(job.collectionResultCsv ? { collectionResultCsv: job.collectionResultCsv } : {}),
       ...(job.checkpointSource ? { checkpointSource: job.checkpointSource } : {}),
       // r82：隔离阻断 job 照常入队（可见、pending），标记随行持久化；派发过滤、面板解释与

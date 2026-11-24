@@ -45,6 +45,15 @@ test('queue retains the resolved command without research mode or seed', () => {
   assert.equal(queue.stopIdentityMatchesJob(initial.plans[0],bound,{targetCommandId:'cmd',projectId:'p',workerId:'w'}),true);
   assert.equal(queue.stopIdentityMatchesJob(initial.plans[0],bound,{targetCommandId:'cmd',projectId:'other',workerId:'w'}),false);
 });
+test('a declared Worker override constrains automatic allocation', () => {
+  const queue=require('../../src/features/DistributedPlanQueue.ts');
+  const current=queue.enqueuePlan(queue.emptyDistributedQueue(),{projectId:'p',planFile:'plan.yaml',revision:'r',codeFingerprint:'code',jobs:[{
+    index:0,case:'analysis',outputDir:'work/run',command:'echo ok',workingDirectory:'.',outputs:[],automaticWorkerId:'w2',environment:'/env/a',
+  }]},'flow');
+  const workers=['w1','w2'].map(workerId=>({workerId,online:true,idleGpuIds:['0'],declaredJobPaths:true,codeFingerprint:'code'}));
+  const result=queue.allocateAvailable(current,workers);
+  assert.equal(result.dispatches[0].workerId,'w2');assert.equal(result.queue.plans[0].jobs[0].environment,'/env/a');
+});
 test('live declared commands recover from the exact Worker window without seed or CSV', () => {
   const queue = require('../../src/features/DistributedPlanQueue.ts');
   const now=Date.now(), observedAt=new Date(now).toISOString();
