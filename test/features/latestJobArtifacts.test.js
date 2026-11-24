@@ -16,6 +16,15 @@ test('job scope honors exact checkbox intersection, excludes other jobs and trai
  assert.notEqual(latestJobSyncKey(p,j,['.'],t),latestJobSyncKey(p,{...j,commandId:'next'},['.'],t));
  assert.notEqual(latestJobSyncKey(p,j,['.'],t),latestJobSyncKey(p,j,['.'],[{...t[0],remotePath:'/new'}]));
 });
+test('declared command matrix outputs stay distinct and respect selected paths',()=>{
+ const first={...job(0),case:'analysis',seed:undefined,command:'run 1',outputs:['reports/one']};
+ const second={...job(1),case:'analysis',seed:undefined,command:'run 2',outputs:['reports/two']};
+ const old={id:'old',projectId:'project',planFile:'p.yaml',enqueuedAt:'2026-10-14T01:00:00Z',jobs:[first,second]};
+ const next={...old,id:'new',enqueuedAt:'2026-10-14T02:00:00Z',jobs:[{...first,status:'running',commandId:'new'}]};
+ assert.deepEqual(newestJobOutputs({plans:[old,next]}).map(row=>[row.plan.id,row.job.index]),[['new',0],['old',1]]);
+ assert.deepEqual(jobArtifactScopes(first,['work_dirs/p/job0/logs','reports/one/figures','reports/two']),['reports/one/figures','work_dirs/p/job0/logs']);
+ assert.deepEqual(jobArtifactScopes(first,['.']),['reports/one','work_dirs/p/job0']);
+});
 test('artifact metadata cannot erase a current completion or revive a stale observation',()=>{
  const {keepCurrentObservations}=require('../../src/features/DistributedPlanQueue.ts'),now=Date.now();
  const live={schemaVersion:1,plans:[{id:'p',projectId:'project',jobs:[{...job(0),lastObservedAt:new Date(now).toISOString()}]}]},disk=structuredClone(live);disk.plans[0].jobs[0].status='unknown';

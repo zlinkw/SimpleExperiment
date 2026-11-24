@@ -9,20 +9,23 @@ export function newestJobOutputs(queue: any): Array<{ plan: any; job: any }> {
   const plans = (queue.plans || []).map((plan: any, index: number) => ({ plan, index }))
     .sort((a: any, b: any) => (Date.parse(a.plan.enqueuedAt) || 0) - (Date.parse(b.plan.enqueuedAt) || 0) || a.index - b.index);
   for (const { plan } of plans) for (const job of plan.jobs || [])
-    owners.set(JSON.stringify([plan.projectId, planKey(plan.planFile), job.case, job.seed]), { plan, job });
+    owners.set(JSON.stringify(job.command
+      ? [plan.projectId, planKey(plan.planFile), job.outputDir]
+      : [plan.projectId, planKey(plan.planFile), job.case, job.seed]), { plan, job });
   return [...owners.values()].filter(({ plan, job }) => !plan.cleanup && !job.cleanup && !job.outputRetiredAt);
 }
 
 /** Intersect only this job's declared artifacts with the saved Worker-to-Worker checkbox scope. */
 export function jobArtifactScopes(job: any, selected: string[]): string[] {
-  const owned = [job.outputDir, ...((job.actualExecutionMode || job.executionMode) !== "train" && job.collectionResultCsv ? [job.collectionResultCsv] : [])];
+  const owned = job.command ? [job.outputDir, ...(job.outputs || [])]
+    : [job.outputDir, ...((job.actualExecutionMode || job.executionMode) !== "train" && job.collectionResultCsv ? [job.collectionResultCsv] : [])];
   for (const item of owned) safeSyncPath(item);
   const paths = new Set<string>();
   for (const scope of selected) {
     if (scope !== ".") safeSyncPath(scope);
     for (const item of owned) {
       if (scope === "." || item === scope || item.startsWith(scope + "/")) paths.add(item);
-      else if (item === job.outputDir && scope.startsWith(item + "/")) paths.add(scope);
+      else if ((job.command || item === job.outputDir) && scope.startsWith(item + "/")) paths.add(scope);
     }
   }
   return [...paths].filter(item => ![...paths].some(parent => parent !== item && item.startsWith(parent + "/"))).sort();

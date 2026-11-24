@@ -27,7 +27,9 @@
 
 已同步 `9c390f4a`：队列保存明确命令，旧训练模式与训练恢复测试整体退出现行选择（原文件保留）；失败任务不自动重派的约束由声明命令测试覆盖。`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、8/8；`taskLifecycle.test.js` 退出 0、16/16，noEmit 退出 0。
 
-提交入口现将校验给出的命令、工作目录与可选输出保存并发往所选 Worker；旧无命令任务暂停，声明输出的活动占用仍阻止提交。本机提取真实 Host 方法及假 Worker 的 `node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'old Worker capability' test/features/formalIdentityContract.test.js` 退出 0、1/1。未连接真实 Worker，P2 其他路径待接通。
+已同步 `c34cb3b8`：提交入口将校验给出的命令、工作目录与可选输出保存并发往所选 Worker；旧无命令任务暂停，声明输出的活动占用仍阻止提交。本机提取真实 Host 方法及假 Worker 的 `node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'old Worker capability' test/features/formalIdentityContract.test.js` 退出 0、1/1。未连接真实 Worker，P2 其他路径待接通。
+
+通用命令的不同输出目录分别保留最新任务，普通声明产物按用户勾选的同步范围求交；`node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js` 退出 0、4/4。未进行真实传输。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
