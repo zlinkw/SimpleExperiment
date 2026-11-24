@@ -47,6 +47,8 @@ Worker 启动实际命令前重新检查独立输出目录，目录非空或为�
 
 手工派发确认绑定实际命令、工作目录及输出声明，确认期间变化则拒绝派发。`node --test --test-force-exit --test-timeout 20000 test/features/manualDeclaredIdentity.test.js` 退出 0、1/1；`npx tsc --noEmit --incremental false` 退出 0。使用内存队列替身，未派发真实任务。
 
+服务器队列审核也绑定同一命令、工作目录及输出声明，变化时不提交。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'server queue rejects changed declared commands' test/features/serverQueueDispatch.test.js` 首次退出 1，旧夹具缺少新格式必填声明；补齐夹具后退出 0、1/1；noEmit 退出 0。使用内存替身，未派发真实任务。
+
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
 Worker 命令协议的本机函数夹具通过；`node scripts/test-workflow.js test:tmux-lifecycle --dry-run --only test/features/declaredCommandPlan.test.js --max-parallel 1` 退出 0，选出 1 个独占文件，未运行该测试以外的任务。该片段不代表远端部署或端到端运行。

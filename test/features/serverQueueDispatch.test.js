@@ -10,7 +10,7 @@ try{Module._load=function(id,...args){return id==='vscode'?vscode:load.call(this
 const gpu={w:[{index:0,memoryTotalMb:100*1024,memoryUsedMb:0},{index:1,memoryTotalMb:100*1024,memoryUsedMb:0}]};
 const workers=[{id:'w',gpuQuotaConfigured:true,gpuJobsPerCard:1,gpuCardOverrides:{'1':{gpuJobsPerCard:6}}}];
 function plan(count=21){return Queue.enqueuePlan(Queue.emptyDistributedQueue(),{projectId:'project',executionMode:'train_test',schedulingMode:'server_prequeue',planFile:'plans/p.yaml',revision:'r',codeFingerprint:'code',
- jobs:Array.from({length:count},(_,index)=>({index,case:'case',seed:index,outputDir:'work/'+index}))},'p')}
+ jobs:Array.from({length:count},(_,index)=>({index,case:'case',seed:index,outputDir:'work/'+index,command:'python run.py',workingDirectory:'.',outputs:[]}))},'p')}
 test('old prequeue plans allocate all seven free quota slots locally and leave remaining work unbound',()=>{
  const initial=plan(),memory=Quota.quotaPlacement(gpu.w,new Map(),Quota.quotaSettings({},workers[0],gpu.w));
  const result=Queue.allocateAvailable(Policy.localSchedulingQueue(initial),[{workerId:'w',online:true,idleGpuAdmission:true,declaredJobPaths:true,codeFingerprint:'code',idleGpuIds:['0','1'],gpuSlots:memory.slots}],{requireIdleGpuAdmission:true,localIdleOnly:true});
@@ -37,6 +37,16 @@ function fixture(count=14){
   sendDistributedJob:async(plan,job,worker,gpu,command)=>{assert.equal(h.manualDispatchInFlight.size,1);sent.push({worker,gpu,command,index:job.index,origin:job.manualDispatch.origin})}};
  return {h,host:new ServerQueueHost(h,'project'),sent,get queue(){return saved},set queue(value){saved=value}};
 }
+
+test('server queue rejects changed declared commands after review',async()=>{
+ const old=ManualDispatchHost.prototype.review;
+ try{for(const change of [job=>{job.command='other';},job=>{job.workingDirectory='other';},job=>{job.outputs=['other'];}]){
+  const f=fixture(1);let ticks=0;f.h.tickDistributedQueue=async()=>{ticks++;};
+  ManualDispatchHost.prototype.review=async()=>{const queue=f.queue;change(queue.plans[0].jobs[0]);f.queue=queue;return true;};
+  await assert.rejects(f.host.dispatch({planId:'p'},true),/排队批次已变化/);
+  assert.equal(f.sent.length,0);assert.equal(f.queue.plans[0].jobs[0].manualDispatch,undefined);
+ }}finally{ManualDispatchHost.prototype.review=old;}
+});
 
 test('server queue keeps original project and client across save and preparation waits',async()=>{
  const old=ManualDispatchHost.prototype.review;ManualDispatchHost.prototype.review=async()=>true;
