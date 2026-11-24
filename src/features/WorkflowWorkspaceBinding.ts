@@ -16,7 +16,7 @@ export function probeWorkspace(root: string): WorkspaceIdentity {
 }
 function same(a: WorkspaceIdentity, b: WorkspaceIdentity): boolean { return key(a.canonical) === key(b.canonical) && a.device === b.device && a.inode === b.inode; }
 export function assertPlanSeedContract(params: Record<string, unknown>): void {
-  if (params.seed !== undefined) throw new Error("workflow 不支持 seed 覆盖；请在保存的 PLAN 中配置 seeds，移除 --seed 后重新预检。");
+  if (params.seed !== undefined) throw new Error("workflow 不支持单独覆盖 seed；请在 PLAN 实际命令或参数组合中明确指定。");
 }
 export function bindWorkflowWorkspace(requested: unknown, current: unknown, probe: Probe = probeWorkspace): WorkflowBinding {
   const root = absolute(current), target = requested === undefined ? root : absolute(requested), identity = probe(root);

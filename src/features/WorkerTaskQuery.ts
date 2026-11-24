@@ -28,11 +28,11 @@ export function assertLaunchObservations(snapshots: any[], jobs: any[]): void {
       throw Object.assign(new Error("Worker " + snapshot.workerId + " · 当前任务检查：" + reason + "；尚未提交，可重试失败步骤。"),
         { retryableSubmission: true, workerId: snapshot.workerId, stage: "checking_workers", cause: snapshot.error });
     }
-    for (const executor of snapshot.cleanupExecutors || []) if (jobs.some(job => [job.output_dir, job.result_csv].some(target =>
+    for (const executor of snapshot.cleanupExecutors || []) if (jobs.some(job => [job.output_dir, job.result_csv, ...(job.outputs || [])].some(target =>
       [executor.relativePath, executor.destination].some(active => overlap(target, active)))))
       throw new Error("ACTIVE_CLEANUP_WINDOW：" + snapshot.workerId + " " + executor.windowId + "；实际清理仍在执行，未启动重跑。");
     for (const task of snapshot.tasks || []) if (task.observation?.tmux && !task.observation.tmux.dead && jobs.some(job =>
-      [job.output_dir, job.result_csv].some(target => [task.outputDir, task.collectionResultCsv].some(active => overlap(target, active)))))
+      [job.output_dir, job.result_csv, ...(job.outputs || [])].some(target => [task.outputDir, task.collectionResultCsv, ...(task.outputs || [])].some(active => overlap(target, active)))))
       throw new Error("ACTIVE_TMUX_TASK：" + snapshot.workerId + " " + task.tmuxWindowId + "；请先中止对应窗口，未重复提交。");
   }
 }

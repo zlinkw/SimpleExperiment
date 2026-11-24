@@ -8712,8 +8712,9 @@ return this.testTunnel(true);
                     capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined }));
                 const preview = DistributedPlanQueue.previewAvailable(queue, { planFile: planKey,
                     revision: String(body.planRevision || body.options?.planRevision || ""), codeFingerprint: fingerprint,
-                    jobs: validation.jobs.map((job) => ({ index: Number(job.index), case: String(job.case),
-                        seed: Number(job.seed), outputDir: String(job.output_dir).replace(/\\/g, "/") })) }, workers);
+                    jobs: validation.jobs.map((job) => ({ index: Number(job.index), case: String(job.name),
+                        command: String(job.command), workingDirectory: String(job.working_dir), outputs: job.outputs,
+                        outputDir: String(job.output_dir).replace(/\\/g, "/") })) }, workers);
                 return { ...validated, distributedPreview: preview };
             }
             check = "预演(dry-run-plan)";
@@ -14782,17 +14783,9 @@ this.assertPlanTopologyReady("Plan 调度");
             if (queue.schemaVersion !== 1 || !Array.isArray(queue.plans)) throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
             if (Array.isArray(queue.deferred)) queue.deferred = queue.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
             for (const plan of queue.plans) {
-                if (!plan.executionMode) {
-                    try {
-                        const text = await fs.readFile(safeWorkspacePlanPath(root, plan.planFile, planDirSafe()), "utf8");
-                        const summary = (0, PlanBuilder_1.parsePlanSummary)(text);
-                        const mode = summary.modeValid ? PlanExecutionMode.modeFromMatchingPlan(plan.revision, text, summary.mode) : undefined;
-                        if (mode) Object.assign(plan, { executionMode: mode, executionModeSource: "matching_plan_revision" });
-                    } catch { /* Missing or unsafe original PLAN cannot authorize a new launch. */ }
-                }
-                plan.executionModeBlocked = !["train", "test", "train_test"].includes(plan.executionMode);
+                plan.executionModeBlocked = plan.jobs.some(job => !String(job.command || "").trim());
                 if (plan.executionModeBlocked) for (const job of plan.jobs) {
-                    if (job.status === "pending") job.blockReason = "原 Plan 运行模式无法核实，派发已暂停；请恢复相同 revision 的 Plan 后重新加载。正在运行的任务保持原状。";
+                    if (job.status === "pending") job.blockReason = "旧任务格式不受支持；请用新 PLAN 明确命令并重新提交。已有运行任务保持原状。";
                 }
             }
         } catch (error) {
@@ -15691,7 +15684,7 @@ this.assertPlanTopologyReady("Plan 调度");
     async submissionWorkerProbes(targets) {
         const root = workspaceRoot(), client = this.client, generation = this.projectContextGeneration;
         const probes = { ...this.lastWorkerProbes };
-        const required = { taskLifecycle: 2, declaredJobPaths: true, formalJobIdentityEnv: 1,
+        const required = { taskLifecycle: 2, declaredCommand: 1, declaredJobPaths: true, formalJobIdentityEnv: 1,
             taskShellEnvironment: 1, projectManagedValidation: 1 };
         const retry = targets.filter(target => {
             const probe = probes[target.id];
@@ -15727,7 +15720,8 @@ this.assertPlanTopologyReady("Plan 调度");
         assertCurrent?.();
         this.assertExecutionWorkersReady(targets, probes);
         this.assertExecutionCondaEnvReady(targets);
-        const incompatible = targets.filter(target => probes[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+        const incompatible = targets.filter(target => probes[target.id]?.capabilities?.endpoints?.declaredCommand !== 1
+            || probes[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
             || probes[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
             || probes[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
             || probes[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
@@ -15753,14 +15747,14 @@ this.assertPlanTopologyReady("Plan 调度");
     }
     async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "", binding?) {
         const workflowBinding = binding || WorkflowBinding.bindWorkflowWorkspace(body.workspace, workspaceRoot());
-        WorkflowBinding.assertPlanSeedContract(body);
         if (body.overwriteExisting === true || body.overwrite === true
             || body.options?.overwriteExisting === true || body.options?.overwrite === true)
             throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
         const targets = this.workerActionTargets().filter(target => !body.workerPreparationPendingLocal
             || this.workerPreparation?.preparation.ready.has(target.id));
         const probes = this.taskLifecycleProtocol === 2 ? await this.submissionWorkerProbes(targets) : this.lastWorkerProbes;
-        const incompatible = targets.filter(target => probes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+        const incompatible = targets.filter(target => probes?.[target.id]?.capabilities?.endpoints?.declaredCommand !== 1
+            || probes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
             || probes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
             || probes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
             || probes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
@@ -15777,7 +15771,6 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!submissionCurrent()) return { enqueued: false, cancelled: true };
         const validation = planValidationFromResult(validated);
         if (!Array.isArray(validation?.jobs) || !validation.jobs.length) throw new Error("Agent 校验未返回逐 job 清单，无法分布式派发。");
-        const executionMode = PlanExecutionMode.requirePlanExecutionMode(validation.execution_mode);
         if (Number(body.existingOutputCount || 0) > 0 && body.existingOutputChoice === undefined)
             throw new Error("历史产物处理方式未确认；未提交运行。");
         if (body.existingOutputChoice === undefined && Array.isArray(validation.existing) && validation.existing.length)
@@ -15821,14 +15814,14 @@ this.assertPlanTopologyReady("Plan 调度");
         }
         const stablePlanId = cleanupStablePlanId(await fs.readFile(path.join(root, planFile), "utf8"));
         const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root), stablePlanId,
-            executionMode, executionModeSource: "validation",
             schedulingMode: DistributedSchedulingPolicy.schedulingMode("local_idle"),
             planJobCount: selectedJobs.length, fullPlanJobCount: validation.fullPlanJobCount || validation.jobs.length, planFile, revision, codeFingerprint,
             // 块C：同一提交身份上追加 branch/HEAD/dirty/时间溯源（本机队列字段，不进 job/completion 身份、不改 Worker 协议）。
             gitProvenance: this.queueGitProvenance(body.gitProvenance),
             executionSource: body.executionSource, overwriteExisting, jobs: selectedJobs.map((job) => ({
-            index: Number(job.index), case: String(job.case), seed: Number(job.seed),
+            index: Number(job.index), case: String(job.name),
             outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
+            command: String(job.command || ""), workingDirectory: String(job.working_dir || "."), outputs: job.outputs,
             collectionResultCsv: String(job.result_csv || ""),
             checkpointSource: job.checkpoint_source,
             // r82：隔离阻断 job 以 pending+job 级标记入队——面板可见、四条派发路径过滤、发送前再核都读这份持久事实。
@@ -16058,7 +16051,8 @@ this.assertPlanTopologyReady("Plan 调度");
         const probes = this.taskLifecycleProtocol === 2 ? await this.submissionWorkerProbes([{ id: workerId }]) : this.lastWorkerProbes;
         if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch || !this.projectContextIsCurrent(projectContext))
             throw new Error("派发上下文已变化；未发送任务。");
-        if (probes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
+        if (probes?.[workerId]?.capabilities?.endpoints?.declaredCommand !== 1
+            || probes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
             || probes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
             || probes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
             || probes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
@@ -16076,7 +16070,6 @@ this.assertPlanTopologyReady("Plan 调度");
             if (persistedJob?.outputIsolationBlocked)
                 throw new Error("OUTPUT_ISOLATION_BLOCKED：" + DistributedPlanQueue.outputIsolationNotice(persistedJob));
         }
-        const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target) throw new Error(`Worker ${workerId} 配置已失效`);
         const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
@@ -16103,7 +16096,7 @@ this.assertPlanTopologyReady("Plan 调度");
         let codeProofFields;
         const prepareCodeProofFields = async () => {
             if (codeProofFields) return codeProofFields;
-            if (PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
+            if (!job.command && PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
                 const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, { ...plan }, projectContext.signal);
                 assertCurrent();
                 plan.executionSource = executionSource;
@@ -16133,13 +16126,12 @@ this.assertPlanTopologyReady("Plan 调度");
             requireIdleGpu: !job.manualDispatch && gpuId !== undefined, dispatchPolicy: job.manualDispatch ? "manual" : "automatic", projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
             planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
             planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
-            case: job.case, seed: job.seed, outputDir: job.outputDir, mode: executionMode, executionMode,
+            case: job.case, outputDir: job.outputDir, command: job.command, workingDirectory: job.workingDirectory, outputs: job.outputs,
             resultPathPolicy: "declared", globalJobId: job.globalJobId, collectionResultCsv: job.collectionResultCsv, checkpointSource: job.checkpointSource,
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
             condaEnv: target.condaEnv, workflowId: plan.id, tmuxSessionPrefix,
             overwriteExisting: plan.overwriteExisting === true,
             options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: !job.manualDispatch && gpuId !== undefined,
-                mode: executionMode, executionMode,
                 maxConcurrentGpus: 0,
                 ...memoryScheduling,
                 projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),

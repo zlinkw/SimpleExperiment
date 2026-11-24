@@ -25,7 +25,9 @@
 已同步 `c05bf94a`：声明命令按窗口退出码投影执行状态，结果和日志语义不作为完成门槛；真实远端观察仍未验证。
 已同步 `23766965`：Worker 协议展开并承载声明命令、工作目录和输出路径；调度入口接线、旧接口处理和端到端验证仍未完成。
 
-队列改为保存明确命令，旧训练模式与训练恢复测试整体退出现行选择（原文件保留）；失败任务不自动重派的约束由声明命令测试覆盖。`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、8/8；`taskLifecycle.test.js` 退出 0、16/16，noEmit 退出 0。
+已同步 `9c390f4a`：队列保存明确命令，旧训练模式与训练恢复测试整体退出现行选择（原文件保留）；失败任务不自动重派的约束由声明命令测试覆盖。`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、8/8；`taskLifecycle.test.js` 退出 0、16/16，noEmit 退出 0。
+
+提交入口现将校验给出的命令、工作目录与可选输出保存并发往所选 Worker；旧无命令任务暂停，声明输出的活动占用仍阻止提交。本机提取真实 Host 方法及假 Worker 的 `node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'old Worker capability' test/features/formalIdentityContract.test.js` 退出 0、1/1。未连接真实 Worker，P2 其他路径待接通。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
@@ -50,3 +52,4 @@ Worker 命令协议的本机函数夹具通过；`node scripts/test-workflow.js 
 一次只读源码搜索的 PowerShell 重定向参数被外层展开导致解析失败；改用不带重定向的定向搜索，无项目修改。
 一次准备分块暂存的命令因嵌套 PowerShell here-string 解析失败，退出 1、未更改索引；改用 pwsh 直接解释并检查补丁后暂存指定 Host 片段。
 一次只读 manifest 查询误把对象当数组，Node 退出 1；改按对象键读取，无项目修改。
+一次只读搜索使用 Windows 不接受的路径通配符、另一次指定了不存在的工作目录；均未修改项目，已定向读取。

@@ -129,7 +129,8 @@ export class PlanRunHost {
     assertCurrent();
     const submissionSignal = h.distributedSubmissionAborts?.get(body.submissionOperationIdLocal)?.signal;
     const sourceSignal = submissionSignal && context.signal ? AbortSignal.any([submissionSignal, context.signal]) : submissionSignal || context.signal;
-    const executionSource = body.executionSource || await resolvePlanExecutionSource(h, sourcePlan, sourceSignal);
+    const executionSource = jobs.every((job: any) => typeof job.command === "string" && job.command.trim())
+      ? undefined : body.executionSource || await resolvePlanExecutionSource(h, sourcePlan, sourceSignal);
     assertCurrent();
     if (executionSource) { await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.()); assertCurrent(); body.executionSource = executionSource; }
     const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
@@ -149,7 +150,8 @@ export class PlanRunHost {
             throw Error(snapshot?.error || "查询未完成");
           if ((snapshot.declaredResults || []).some((row: any) => row.error)) throw Error("声明产物查询失败");
           if (!declarations.every((job: any) => (snapshot.declaredResults || []).some((row: any) =>
-            Number(row.index) === Number(job.index) && row.outputDir === job.output_dir && row.collectionResultCsv === job.result_csv)))
+            Number(row.index) === Number(job.index) && row.outputDir === job.output_dir
+              && (job.command || row.collectionResultCsv === job.result_csv))))
             throw Error("声明产物查询不完整");
           return snapshot;
         } catch (error: any) { assertCurrent(); throw Error(worker.id + "：产物状态未核实；未生成删除清单。" + String(error.message || error)); }
@@ -173,8 +175,10 @@ export class PlanRunHost {
       for (const task of snapshot.tasks || []) if (task.observation && observationMatches(task.observation,
         { commandId: task.commandId, workerId: snapshot.workerId, projectId: task.projectId })
         && taskLifecycle(task.observation).status === "completed" && executionAllowsCompletion(task.outputDir, task.commandId)) {
-        const declaration = jobs.find((row: any) => row.case === task.case && Number(row.seed) === Number(task.seed)
-          && row.output_dir === task.outputDir && row.result_csv === task.collectionResultCsv);
+        const declaration = jobs.find((row: any) => row.command
+          ? Number(row.index) === Number(task.experimentIndex) && row.output_dir === task.outputDir
+          : row.case === task.case && Number(row.seed) === Number(task.seed)
+            && row.output_dir === task.outputDir && row.result_csv === task.collectionResultCsv);
         if (declaration) completed.add(Number(declaration.index));
       }
     }

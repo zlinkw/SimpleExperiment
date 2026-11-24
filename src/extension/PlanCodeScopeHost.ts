@@ -160,7 +160,9 @@ export async function inspectPlanCodeSlots(h: any, queue: any, workers: any[], s
   const wanted = new Set<string>();
   let accepting = true;
   const requests: Promise<any>[] = [];
-  const pending = queue.plans.filter((p: any) => p.projectId && p.resultPathPolicy === "declared" && p.jobs.some((j: any) => j.status === "pending" && !j.commandId));
+  const pending = queue.plans.filter((p: any) => p.projectId && p.resultPathPolicy === "declared"
+    && !p.jobs.every((j: any) => typeof j.command === "string" && j.command.trim())
+    && p.jobs.some((j: any) => j.status === "pending" && !j.commandId));
   for (const plan of pending) {
     for (const w of workers) if (w.online && !supportsPlanCodeScope(h,w.workerId) && w.codeFingerprint !== plan.codeFingerprint)
       (w.codeScopeErrors ||= {})[plan.id] = w.workerId + "：请更新 Agent/Scheduler（planCodeScope=1）以核实本 PLAN 源码；无需重建 PLAN 或重跑其他 job。";

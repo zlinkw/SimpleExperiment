@@ -28,6 +28,84 @@ function productionMethod(name) {
 const eligible = productionMethod("distributedPlanEligible");
 const primary = productionMethod("selectDistributedPlanPrimary");
 const preflightTarget = productionMethod("ensureWorkerPoolPlanTarget");
+test("submission persists the actual command returned by PLAN validation", async () => {
+  const node = members.get("enqueueDistributedPlan");
+  const code = ts.transpileModule(`class Subject { ${node.getText(ast)} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const root = require("node:path").resolve(__dirname, "../..");
+  const method = new Function("WorkflowBinding", "workspaceRoot", "planValidationFromResult", "operationResultPlanFile",
+    "makeOpId", "DistributedPlanQueue", "DistributedSchedulingPolicy", "cleanupStablePlanId", "fs", "path",
+    `${code}; return Subject.prototype.enqueueDistributedPlan;`)(
+    { bindWorkflowWorkspace: () => ({}), assertWorkflowWorkspace: () => {} }, () => root, value => value,
+    body => body.planFile, () => "flow", queue, { schedulingMode: value => value }, () => "stable",
+    { readFile: async () => "plan_id: example" }, require("node:path"));
+  let saved = queue.emptyDistributedQueue();
+  const host = {
+    taskLifecycleProtocol: 2, workerActionTargets: () => [{ id: "worker" }],
+    submissionWorkerProbes: async () => ({ worker: { capabilities: { endpoints: {
+      declaredCommand: 1, declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1,
+    } } } }),
+    lastCodeSyncState: { fingerprint: "code" }, loadDistributedQueue: async () => saved,
+    assertPlanSubmissionWorkers: async () => {}, queueGitProvenance: () => undefined,
+    saveDistributedQueue: async (_root, next) => { saved = next; },
+    commitIsolatedEnqueueLocal: async () => {}, postState: () => {},
+  };
+  const result = await method.call(host, { planFile: "plans/a.yaml", planRevision: "rev" }, { jobs: [{
+    index: 0, name: "analysis", command: "python analyze.py --size 8", working_dir: ".", outputs: [], output_dir: "work/run",
+  }] }, true);
+  assert.equal(result.enqueued, true);
+  assert.equal(saved.plans[0].jobs[0].command, "python analyze.py --size 8");
+  assert.equal(saved.plans[0].jobs[0].workingDirectory, ".");
+  assert.deepEqual(saved.plans[0].jobs[0].outputs, []);
+  assert.equal(saved.plans[0].jobs[0].seed, undefined);
+});
+test("dispatch sends the saved command with the selected Worker context", async () => {
+  const node = members.get("sendDistributedJob");
+  const code = ts.transpileModule(`class Subject { ${node.getText(ast)} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const root = require("node:path").resolve(__dirname, "../..");
+  const method = new Function("workspaceRoot", "DistributedPlanQueue", "GpuQuotaScheduling", "vscode", "AgentTmuxPolicy_1",
+    "durableCodeProofRequestFields", "DistributedSchedulingPolicy", `${code}; return Subject.prototype.sendDistributedJob;`)(
+    () => root, queue, { quotaSettings: () => ({}) }, { workspace: { getConfiguration: () => ({}) } },
+    { normalizeRemoteTmuxSessionPrefix: value => value }, () => ({ codeSyncProofId: "proof" }),
+    { schedulingMode: value => value });
+  const endpoints = { declaredCommand: 1, declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1,
+    projectManagedValidation: 1, gpuQuotaScheduling: 1, gpuMemoryBudgetScheduling: 1 };
+  let sent;
+  const host = {
+    captureProjectContext: () => ({ root }), projectContextIsCurrent: () => true, distributedQueueGeneration: 1,
+    client: { postWorkerAction: async (_worker, _action, request) => { sent = request; } },
+    unifiedDomainState: () => ({ active: false }), taskLifecycleProtocol: 2,
+    submissionWorkerProbes: async () => ({ worker: { capabilities: { endpoints } } }),
+    lastWorkerProbes: { worker: { capabilities: { actionEndpoints: { "register-code-sync-proof": true } } } },
+    lastCodeSyncState: { workerVersions: { worker: { codeSyncProofId: "proof" } } },
+    workerActionTargets: () => [{ id: "worker", condaEnv: "research" }], enabledWorkerConfigs: () => [{ id: "worker" }],
+    schedulerSettings: () => ({}), lastWorkerTaskSnapshots: new Map([[`${root}\u0000worker`, { capabilities: { taskLifecycle: 2 } }]]),
+  };
+  const job = { index: 0, case: "analysis", command: "python analyze.py --size 8", workingDirectory: ".", outputs: [],
+    outputDir: "work/run", lifecycleProtocol: 2, globalJobId: "flow:0" };
+  const result = await method.call(host, { id: "flow", projectId: "p", planFile: "plans/a.yaml", revision: "rev",
+    codeFingerprint: "code", resultPathPolicy: "declared", jobs: [job] }, job, "worker", "0", "cmd");
+  assert.equal(result.status, "unknown");
+  assert.equal(sent.command, job.command);
+  assert.equal(sent.workingDirectory, ".");
+  assert.deepEqual(sent.outputs, []);
+  assert.equal(sent.condaEnv, "research");
+  assert.equal(sent.gpuId, "0");
+  assert.equal(sent.executionMode, undefined);
+});
+test("submission detects active operations on optional declared outputs", () => {
+  const { assertLaunchObservations } = require("../../src/features/WorkerTaskQuery.ts");
+  const snapshot = { workerId: "worker", queryComplete: true, capabilities: { taskLifecycle: 2 },
+    cleanupExecutors: [{ relativePath: "shared/results", windowId: "cleanup" }] };
+  const jobs = [{ output_dir: "work/run", outputs: ["shared/results/report.txt"] }];
+  assert.throws(() => assertLaunchObservations([snapshot], jobs), /ACTIVE_CLEANUP_WINDOW/);
+  snapshot.cleanupExecutors = [];
+  snapshot.tasks = [{ outputDir: "other", outputs: ["shared/results"], tmuxWindowId: "task", observation: { tmux: { dead: false } } }];
+  assert.throws(() => assertLaunchObservations([snapshot], jobs), /ACTIVE_TMUX_TASK/);
+});
 test('native lifecycle routes formal jobs in every configured topology through the same queue, independent of research prefixes',()=>{
   for(const mode of ['single_worker','worker_pool','hub_worker']) {
     const host=provider({distributedResults:false,distributed:{planPrefixes:['other/']}},mode);host.taskLifecycleProtocol=2;
