@@ -68,3 +68,9 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 总控审taskProgressStability、gpuWorkerSnapshotRecovery、probeConnectionContinuity三旧direct，仅6/2/2依赖条件适用；保原受控Python/假tmux、fake GPU/HTTP/SSE及原timer、旧工具链/旧dist限制。原根或client变化实际分支保留，非新运行、真实Worker或性能证明。
 
 总控审准resultDatasetHierarchy full14、resultCommandPhaseRouting full3、panelWebviewScriptHealth full13仅在最终源码/夹具冻结与真实新编译后按原runner 20秒各一次；当前未运行。原三full因Panel变化撤当前资格、原事件和快照保留；源码render与fake DOM/VM不替代真实build、render脚本、node-c和10890 P0。总控计划首次归并写后16205字触90%门槛断言exit1，继续归并至15875，非写前零写或测试失败。
+
+总控审extensionUpdates、prepareAgentsProgressWatchdog、planOutputGateAlignment三旧direct，仅legacy/Panel源码各两依赖条件适用；实际静态提取与断言原现相同，Gate实际八个regex。原旧dist渲染/模块、工具链及假端边界保留，非新运行、新编译或Panel P0；未来resultDatasetHierarchy freeze须补其实际读取的ResultsSection源码依赖。
+
+总控审taskLifecycle旧full13，仅Queue及Tmux两依赖条件适用；原Python抽函数、私有TEMP manifest/weights/result真实写及读取、空和损坏文件保留，未新运行或访问Worker。总控只读首次误猜fixture路径ENOENT，按实际taskManifestEvidence.fixture.py补读，零写非测试。
+
+总控审workerProgressResults及dispatchWake旧direct，各仅四依赖条件适用；保原Python抽函数、假fs/Worker/GPU、线程事件和原等待、内存队列与工具链未知，未新运行、真实调度或性能验证。
