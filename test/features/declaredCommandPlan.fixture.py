@@ -186,3 +186,11 @@ except ValueError as error:
     assert "IDENTITY_MISMATCH" in str(error)
 else:
     raise AssertionError("changed command was accepted by preflight")
+old_task = {key: value for key, value in frozen.items() if key != "command"}
+preflight_scope["task_inventory"] = lambda root: [old_task]
+try:
+    preflight(str(root), {"targetCommandId": "cmd", "expectedIdentity": old_task}, "w")
+except ValueError as error:
+    assert "LEGACY_TASK_UNSUPPORTED" in str(error)
+else:
+    raise AssertionError("legacy task without a saved command was accepted")

@@ -6107,6 +6107,8 @@ def preflight_existing_worker_task(root, payload, worker_id):
                    ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource", "executionMode", "mode"))):
         raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH")
     declared_command = native and isinstance(row.get("command"), str) and bool(row["command"].strip())
+    if native and not declared_command:
+        raise ValueError("LEGACY_TASK_UNSUPPORTED: task has no saved actual command")
     if declared_command and any(row.get(key) != expected.get(key) for key in ("command", "workingDirectory", "outputs")):
         raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH")
     environment_only = payload.get("environmentOnly") is True
