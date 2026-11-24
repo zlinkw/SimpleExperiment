@@ -37,6 +37,8 @@ test("warm Host preflight still requests fresh artifacts and reads queue/GPU on 
   let count = 0, gpuReads = 0, queueReads = 0;
   const host = {
     assertActionAuthorityCurrent() {}, planSchedulerWorkerId: () => "worker-a", enabledWorkerConfigs: () => [],
+    assertRetentionWindow: () => assert.fail('old log retention must not block a new PLAN'),
+    claimRetentionWindow: () => assert.fail('new PLAN must not claim an old retention window'),
     distributedPlanEligible: () => true, planValidationCacheKey: () => "key", cachedPlanValidation: () => ({ validation: { existing: [{ index: 99 }] } }),
     planValidationCache: new Map(), rememberPlanValidation() {},
     async postPlanSchedulerAction(action) {

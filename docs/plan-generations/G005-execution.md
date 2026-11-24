@@ -47,7 +47,9 @@
 
 已同步 `8203311a`：PLAN 预演按声明的 Worker/GPU 选择可用位置，无法匹配的任务保留排队并显示等待原因；`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 修改后两次退出 0、各 1/1。该验证用本机假 Worker 状态，不执行真实调度。
 
-新声明命令的提交不再把相同输出路径上的旧任务或旧结果误认成本次完成。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a new declared submission' test/features/planRunRerunIntent.test.js` 退出 0、1/1；noEmit 退出 0。使用假 Worker 快照，未连接真实服务器。
+已同步 `8fae34e6`：新声明命令的提交不再把相同输出路径上的旧任务或旧结果误认成本次完成。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a new declared submission' test/features/planRunRerunIntent.test.js` 退出 0、1/1；noEmit 退出 0。使用假 Worker 快照，未连接真实服务器。
+
+提交预检不再以旧两代日志保留及清理为新任务准入条件；独立清理入口未改。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'warm Host preflight' test/features/planStructuralValidationCache.test.js` 退出 0、1/1，含旧门槛不可调用断言；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'log retention is not' test/features/pluginLogRetention.test.js` 退出 0、1/1；noEmit 退出 0。未执行实际清理。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 

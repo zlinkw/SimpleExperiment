@@ -8634,9 +8634,6 @@ return this.testTunnel(true);
             failure.planPreflightReported = true;
             return failure;
         };
-        // Two-generation retention admission: while a task's older generations still exist on disk
-        // unconfirmed (or an old generation is still active), a third generation must not land.
-        await this.assertRetentionWindow?.(planKey, failPreflight);
         let check = "校验(validate-plan)";
         try {
             let validated;
@@ -8739,7 +8736,6 @@ return this.testTunnel(true);
             if (!planCheckAccepted(previewed)) {
                 throw failPreflight(check, String(previewed?.error || previewed?.message || resultStatus(previewed) || "预演未通过"), previewed?.output || previewed?.message);
             }
-            await this.claimRetentionWindow?.(planKey, body, failPreflight, authority);
             return previewed ? validated : false;
         }
         catch (error) {

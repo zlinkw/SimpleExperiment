@@ -229,11 +229,10 @@ test("admission preview virtual-joins the incoming generation and holds until de
   assert.equal(other.allowed, true);
 });
 
-test("preflight wires the preview early and the fenced claim last", () => {
+test("log retention is not a preflight admission gate", () => {
   const legacy = readSource("src/extension/legacy.ts");
-  // Wiring smoke only — behaviour is proven by the claim-fence test below.
-  assert.match(legacy, /await this\.assertRetentionWindow\?\.\(planKey, failPreflight\);\s*\n\s*let check = "校验\(validate-plan\)";/);
-  assert.match(legacy, /await this\.claimRetentionWindow\?\.\(planKey, body, failPreflight, authority\);\s*\n\s*return previewed \? validated : false;/);
+  const preflight = legacy.slice(legacy.indexOf("async runPlanPreflight("), legacy.indexOf("async confirmDistributedPlanExistingOutputs("));
+  assert.doesNotMatch(preflight, /this\.(?:assertRetentionWindow|claimRetentionWindow)/);
   const start = legacy.indexOf("async evaluateRetentionWindow(planKey)");
   const end = legacy.indexOf("async runActionCommandCore(", start);
   assert.ok(start > 0 && end > start, "retention methods must live outside the runActionCommandCore→runPlanPreflight fixture span");
