@@ -61,9 +61,11 @@
 
 已同步 `94f8bdad`：清理 API/MCP 执行与继续入口读取已有人工确认后返回受理身份，后台错误进入诊断，实际结果仍查原状态；永久删除仍需两次确认。`node --test --test-force-exit --test-timeout 20000 test/features/cleanupConcurrentTargets.test.js` 首次退出 0、2/2，补充确认边界后退出 0、3/3；`npx tsc --noEmit --incremental false` 退出 0。均使用替身，未删除文件。
 
-配套 SimpleSFTP 已同步 `62de187`、`024c1bc`：清理租约按实际源和目的路径声明；清理请求不占用普通传输容量或作为全局传输忙状态阻断其他请求。`node --test --test-force-exit --test-timeout 20000 test/cleanupLeaseScope.test.js` 退出 0、1/1；`test/cleanupBackgroundAdmission.test.js` 两次退出 0、各 1/1；`--test-name-pattern '用户确认后的自身隔离执行完整走完' test/cleanupExecuteSelfBusy.test.js` 退出 0、1/1；两处 JS `node --check` 退出 0。均为替身，未执行真实删除或远端操作。现有普通传输反向阻断清理的全局判断、提交链与重启后未决操作的范围保护仍未完成；未打包或安装配套版本。
+配套 SimpleSFTP `62de187` 按实际源和目的路径声明清理租约，`node --test --test-force-exit --test-timeout 20000 test/cleanupLeaseScope.test.js` 退出 0、1/1。后续 `024c1bc`、`33f5519` 尝试解除全局传输忙及容量限制，替身测试虽通过，但发现受管远端清理在本机返回后仍运行，未证明普通传输共享其路径锁；故 `32e9b40` 暂时恢复原守卫，未把尝试视为并发安全完成。恢复后 `test/cleanupBackgroundAdmission.test.js` 与 `--test-name-pattern '用户确认后的自身隔离执行完整走完' test/cleanupExecuteSelfBusy.test.js` 各退出 0、1/1，`node --check extension.js` 退出 0。一次只读基线片段准备断言退出 1，未写文件，修正后按目标恢复。均为替身，未执行真实删除或远端操作；提交链、路径级跨传输生命周期保护及重启后未决范围均未完成，未打包或安装配套版本。
 
 清理 API/MCP 受理前先以已确认记录检查并预约本窗口实际目标，同一在途重叠路径即时返回冲突；无关目标仍可受理，后台再次核实实际状态。`node --test --test-force-exit --test-timeout 20000 test/features/cleanupConcurrentTargets.test.js` 退出 0、3/3；`npx tsc --noEmit --incremental false` 退出 0，均为替身，无真实删除。
+
+面板创建 PLAN 改为填写名称、实际命令及独立输出目录，生成新格式并保留当前项目选择；取消或路径不安全不写 PLAN，不再触发结果自动解析。`node --test --test-force-exit --test-timeout 20000 test/features/guidedCommandPlan.test.js` 退出 0、2/2；`test/features/onboardingAutoParse.test.js` 退出 0、1/1；`npx tsc --noEmit --incremental false` 退出 0。为提取实际方法及替身验证，未做真实界面验收。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 

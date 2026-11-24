@@ -56,7 +56,7 @@ import { jobEvidenceName, verifyNativeResult } from "../results/NativeResultMani
 import * as JobAvailability from "../features/JobAvailability";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
 import { PlanCleanupHost } from "./PlanCleanupHost";
-import { cleanupDigest } from "../features/PlanCleanup";
+import { cleanupDigest, cleanupRelative } from "../features/PlanCleanup";
 import { cleanupStablePlanId } from "../features/PlanCleanupEvidence";
 import RequestBudget_1 = require("../tunnel/RequestBudget");
 import TunnelGateway_1 = require("../tunnel/TunnelGateway");
@@ -21055,118 +21055,31 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async generatePlanGuideFromUi(openAfterCreate = true) {
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
-        if (!root)
-            throw new Error("需要先打开工作区。");
+        if (!root) throw new Error("需要先打开工作区。");
         const dir = path.join(root, planDirSafe());
         await fs.mkdir(dir, { recursive: true });
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        const configs = (await discoverProjectConfigFiles(root))
-            .map((file) => path.relative(root, file).replace(/\\/g, "/"));
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        const suite = safePlanToken(path.basename(root) || "experiment");
+        if (!this.projectContextIsCurrent(projectContext)) return;
         const fullPath = await nextAvailableFile(dir, "guided_plan", ".yaml");
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
+        if (!this.projectContextIsCurrent(projectContext)) return;
         const relative = path.relative(root, fullPath).replace(/\\/g, "/");
-        const entries = await detectEntryCandidates(root);
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        const mode = await pickGuidedPlanMode(entries);
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        const stages = guidedPlanStages(mode);
-        let trainEntry = "";
-        let trainCommand = "";
-        let trainSuggestion = guidedPlanCommandInfo("", "train");
-        if (stages.train) {
-            const trainCommandStage = mode === "train" ? "train_result" : "train";
-            trainEntry = await this.pickGuidedPlanEntry(root, entries.trainEntries, trainCommandStage);
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            trainSuggestion = await guidedPlanCommandSuggestion(root, trainEntry, trainCommandStage);
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const value = await inputRequired("确认训练命令", trainSuggestion.command, "例如 python tools/train.py --config {config} --output-dir {output_dir}", guidedPlanCommandPrompt(trainSuggestion, trainCommandStage), "请填写当前项目可执行的训练命令。");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (value === undefined)
-                throw new UiCommandCancelled("生成 Plan 已取消。");
-            trainCommand = value;
-        }
-        let testEntry = "";
-        let testCommand = "";
-        let testSuggestion = guidedPlanCommandInfo("", "test");
-        if (stages.test) {
-            testEntry = await this.pickGuidedPlanEntry(root, entries.testEntries, "test");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            testSuggestion = await guidedPlanCommandSuggestion(root, testEntry, "test");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            const value = await inputRequired("确认评估命令", testSuggestion.command, "例如 python tools/test.py --config {config} --result-csv {result_csv}", guidedPlanCommandPrompt(testSuggestion, "test"), "请填写当前项目可执行的评估命令。");
-            if (!this.projectContextIsCurrent(projectContext))
-                return;
-            if (value === undefined)
-                throw new UiCommandCancelled("生成 Plan 已取消。");
-            testCommand = value;
-        }
-        const resultStage = mode === "train" ? "train" : "test";
-        const resultCommand = resultStage === "train" ? trainCommand : testCommand;
-        const resultSuggestion = resultStage === "train" ? trainSuggestion : testSuggestion;
-        const resultReview = guidedPlanResultPathReview(resultCommand, suite, resultSuggestion.resultExtension, this.resultCsvDirectory);
-        const resultPath = await inputPlanResultPath("确认最终结果文件", resultReview.path, "例如 {output_dir}/metrics_summary.csv", `建议来源：${resultReview.source}。${resultReview.needsReview ? "当前文件名包含静态推断，必须核对命令真实写出的文件。" : "已从命令中识别到明确结果位置，仍需确认与实际实现一致。"} 必须填写${resultStage === "train" ? "训练" : "评估"}命令实际生成的项目内结果文件。使用 {result_csv} 时该路径会注入命令；固定输出路径必须与命令完全一致。CSV、JSON、TXT、LOG 均可解析，后续归档只读取此结果链路。`);
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        if (resultPath === undefined)
-            throw new UiCommandCancelled("生成 Plan 已取消。");
-        const requiresConfig = guidedPlanCommandUsesConfig(trainCommand) || guidedPlanCommandUsesConfig(testCommand);
-        const baseConfig = await this.pickPlanBaseConfig(configs, { root, suite, requiresConfig });
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        const generatedFallbackConfig = !configs.length && !requiresConfig;
-        const configReview = stages.train ? await guidedPlanConfigReview(root, baseConfig, generatedFallbackConfig) : { needsReview: false, summary: "仅评估，不启动训练", reason: "将直接运行评估命令。" };
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        await confirmGuidedPlanCreation({ relative, mode, baseConfig, trainEntry, testEntry, trainCommand, testCommand, resultPath, resultReview, configReview });
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        if (generatedFallbackConfig)
-            await ensureGuidedFallbackConfig(root, baseConfig);
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
-        const text = [
-            "# 由 SimpleExperiment 生成。",
-            "# 首次接入固定为单 case、单 seed；运行前请确认运行模式、配置规模、runner 命令和结果路径。",
-            "# case/name/id 均可作为实验 case 名；case 内可覆盖 base_config、config、outputDir/output_dir 和 runner 命令。",
-            `suite: ${suite}`,
-            `base_config: ${baseConfig}`,
-            `mode: ${mode}`,
-            "seeds: [42]",
-            "paper:",
-            "  result_group: guided",
-            `  result_csv: ${JSON.stringify(resultPath)}`,
-            `  table_name: ${suite}`,
-            "runner:",
-            ...(stages.train ? [`  train_command: ${JSON.stringify(trainCommand)}`] : []),
-            ...(stages.test ? [`  test_command: ${JSON.stringify(testCommand)}`] : []),
-            "naming:",
-            `  sweep_dir: work_dirs/multirun/${suite}`,
-            "  job_name: ${index}_${case}_seed${seed}",
-            "  experiment_name: ${suite}/${case}/seed_${seed}",
-            "cases:",
-            "  - case: baseline",
-            "    description: baseline",
-            `    outputDir: ${JSON.stringify(`work_dirs/multirun/${suite}/{index}_{case}_seed{seed}`)}`,
-            "    expectedResults:",
-            `      - ${JSON.stringify(resultPath)}`,
-            "    overrides: {}",
-            "",
-        ].join("\n");
-        await atomicWriteText(fullPath, text);
-        if (!this.projectContextIsCurrent(projectContext))
-            return;
+        const planId = safePlanToken(path.basename(fullPath, ".yaml"));
+        const name = await inputRequired("实验名称", path.basename(root) || "experiment", "实验名称", "填写便于识别的名称。", "请填写实验名称。");
+        if (!this.projectContextIsCurrent(projectContext)) return;
+        if (name === undefined) throw new UiCommandCancelled("生成 Plan 已取消。");
+        const command = await inputRequired("实际执行命令", "", "例如 python run.py", "填写项目实际运行的完整命令；工作目录默认为项目根。", "请填写实际执行命令。");
+        if (!this.projectContextIsCurrent(projectContext)) return;
+        if (command === undefined) throw new UiCommandCancelled("生成 Plan 已取消。");
+        const output = await inputRequired("独立输出目录", "work_dirs/" + planId, "例如 work_dirs/experiment", "填写相对于项目根的独立目录。", "请填写独立输出目录。");
+        if (!this.projectContextIsCurrent(projectContext)) return;
+        if (output === undefined) throw new UiCommandCancelled("生成 Plan 已取消。");
+        cleanupRelative(output);
+        const text = ["# 实际命令由项目维护；可按需添加 matrix、outputs、worker、environment 或 gpu。",
+            `plan_id: ${JSON.stringify(planId)}`, `name: ${JSON.stringify(name)}`,
+            `command: ${JSON.stringify(command)}`, `output_dir: ${JSON.stringify(output)}`, ""].join("\n");
+        await atomicWriteText(fullPath, text, { noReplace: true, beforeRename: async () => {
+            if (!this.projectContextIsCurrent(projectContext)) throw new Error("项目已切换，未生成 Plan。");
+        } });
+        if (!this.projectContextIsCurrent(projectContext)) return;
         try {
             await this.refreshLocalPlanMetadata({ post: false, force: true });
             if (!this.projectContextIsCurrent(projectContext)) return;
@@ -21179,9 +21092,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
         if (!this.projectContextIsCurrent(projectContext)) return;
         this.postState();
-        this.queuePlanScopedResultParse("生成计划模板", relative, relative);
-        if (openAfterCreate && this.projectContextIsCurrent(projectContext))
-            await openWorkspaceFile(relative);
+        if (openAfterCreate && this.projectContextIsCurrent(projectContext)) await openWorkspaceFile(relative);
     }
     async pickGuidedPlanEntry(root, entries, stage) {
         const list = uniqueStrings(Array.isArray(entries) ? entries : []);
