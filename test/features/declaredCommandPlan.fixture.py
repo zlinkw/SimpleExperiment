@@ -161,3 +161,28 @@ except ValueError:
     pass
 else:
     raise AssertionError("old job without a declared command was accepted")
+
+# A task preflight uses the saved actual command and does not require a CSV or parse a scientific mode.
+start = agent.index("def preflight_existing_worker_task(")
+end = agent.index("\n\ndef ", start)
+preflight_calls = []
+frozen = {**request, "lifecycleProtocol": 2, "codeSyncProofId": "proof"}
+preflight_scope = {"TASK_LIFECYCLE_PROTOCOL": 2, "task_inventory": lambda root: [frozen],
+    "task_safe_path": lambda root, value: preflight_calls.append(("path", value)),
+    "durable_plan_same_identity": lambda actual, expected: True,
+    "code_sync_proof_document": lambda root: {"proofs": {"proof": {"runtimeGeneration": "current"}}},
+    "verify_code_sync_proof_record": lambda *args, **kwargs: preflight_calls.append(("proof",)),
+    "verified_durable_execution_mode": lambda *args: (_ for _ in ()).throw(AssertionError("old mode parser called")),
+    "task_queue_job": lambda root, worker, row: preflight_calls.append(("queue-check", row["command"])),
+    "task_assert_output_available": lambda root, row: preflight_calls.append(("output-check", row["outputDir"]))}
+exec(compile(agent[start:end], "preflight_existing_worker_task", "exec"), preflight_scope)
+preflight = preflight_scope["preflight_existing_worker_task"]
+result = preflight(str(root), {"targetCommandId": "cmd", "expectedIdentity": frozen}, "w")
+assert result["report"]["command"] == "printf actual" and result["executionStarted"] is False
+assert ("queue-check", "printf actual") in preflight_calls and ("path", None) not in preflight_calls
+try:
+    preflight(str(root), {"targetCommandId": "cmd", "expectedIdentity": {**frozen, "command": "other"}}, "w")
+except ValueError as error:
+    assert "IDENTITY_MISMATCH" in str(error)
+else:
+    raise AssertionError("changed command was accepted by preflight")

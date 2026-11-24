@@ -6085,8 +6085,10 @@ def preflight_existing_worker_task(root, payload, worker_id):
     if native:
         current = next((item for item in task_inventory(root) if item.get("commandId") == target), None)
         row = dict(current or expected)
-        for name in ("planFile", "outputDir", "collectionResultCsv"):
+        for name in ("planFile", "outputDir"):
             task_safe_path(root, row.get(name))
+        if row.get("collectionResultCsv"):
+            task_safe_path(root, row["collectionResultCsv"])
         if not row.get("codeSyncProofId") and not row.get("codeManifest"):
             proof = next((item for item in code_sync_proof_document(root).get("proofs", {}).values()
                 if item.get("projectId") == row.get("projectId") and item.get("codeFingerprint") == row.get("codeFingerprint")), None)
@@ -6103,6 +6105,9 @@ def preflight_existing_worker_task(root, payload, worker_id):
             or not durable_plan_same_identity(row, expected)
             or any(row.get(key) != expected.get(key) for key in
                    ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource", "executionMode", "mode"))):
+        raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH")
+    declared_command = native and isinstance(row.get("command"), str) and bool(row["command"].strip())
+    if declared_command and any(row.get(key) != expected.get(key) for key in ("command", "workingDirectory", "outputs")):
         raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH")
     environment_only = payload.get("environmentOnly") is True
     completed_verify = payload.get("completedOutputVerify") is True
@@ -6127,14 +6132,20 @@ def preflight_existing_worker_task(root, payload, worker_id):
             _code_sync_stat_record(root, relative, digest, verify_content=True)
     else:
         raise ValueError("code-sync proof missing; original source cannot be verified")
-    verified_durable_execution_mode(root, row)
+    if not declared_command:
+        verified_durable_execution_mode(root, row)
     if native and completed_verify:
         observed = task_public_observation(root, row, current)
         if observed.get("status") != "completed":
             raise ValueError("FORMAL_JOB_COMPLETION_CHANGED")
         return {"schemaVersion": 1, "targetCommandId": target, "workerId": worker_id, "executionStarted": False,
                 "queueChanged": False, "sourceContentVerified": True, "proofRenewed": False, "report": {"completed": True, "observation": observed["observation"]}}
-    report = verified_worker_execution_shell(root, row) if environment_only else verified_formal_job_command(root, row)
+    if declared_command and not environment_only:
+        task_queue_job(root, worker_id, row)
+        task_assert_output_available(root, row)
+        report = {"policy": "declared", "outputDir": row["outputDir"], "command": row["command"]}
+    else:
+        report = verified_worker_execution_shell(root, row) if environment_only else verified_formal_job_command(root, row)
     if completed_verify and report.get("completed") is not True:
         raise ValueError("FORMAL_JOB_COMPLETION_CHANGED")
     return {"schemaVersion": 1, "targetCommandId": target, "workerId": worker_id,

@@ -21,37 +21,7 @@
 
 ## P2 进行中
 
-已同步功能片段 `e2b503bb`：PLAN 就绪检查不再以科研输出结构为门槛，实际命令保留静态入口检查；P2 整链尚未完成。
-已同步 `c05bf94a`：声明命令按窗口退出码投影执行状态，结果和日志语义不作为完成门槛；真实远端观察仍未验证。
-已同步 `23766965`：Worker 协议展开并承载声明命令、工作目录和输出路径；调度入口接线、旧接口处理和端到端验证仍未完成。
-
-已同步 `9c390f4a`：队列保存明确命令，旧训练模式与训练恢复测试整体退出现行选择（原文件保留）；失败任务不自动重派的约束由声明命令测试覆盖。`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、8/8；`taskLifecycle.test.js` 退出 0、16/16，noEmit 退出 0。
-
-已同步 `c34cb3b8`：提交入口将校验给出的命令、工作目录与可选输出保存并发往所选 Worker；旧无命令任务暂停，声明输出的活动占用仍阻止提交。本机提取真实 Host 方法及假 Worker 的 `node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'old Worker capability' test/features/formalIdentityContract.test.js` 退出 0、1/1。未连接真实 Worker，P2 其他路径待接通。
-
-已同步 `7844db66`：通用命令的不同输出目录分别保留最新任务，普通声明产物按用户勾选的同步范围求交；`node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js` 退出 0、4/4。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared commands synchronize' test/features/completedJobLatestSync.test.js` 退出 0、1/1，使用假传输，未进行真实传输。
-
-已同步 `75b0914a`：重跑的已确认隔离流程保留旧产物，不再联动后台永久删除或空目录清理；独立删除审核保留。`node --test --test-force-exit --test-timeout 20000 test/features/planRunReplacement.test.js` 两次退出 0、各 17/17；第二次为测试说明整理后的复核。`node node_modules/typescript/bin/tsc -p . --noEmit --incremental false --pretty false` 退出 0。均未执行真实删除。
-
-已同步 `2dd2cd9d`：独立声明输出位于任务目录外且已存在时，Worker 接收及真正执行前均明确拒绝，避免绕过现有只覆盖任务目录的隔离预览。此时需先经独立文件审核处理；将这些外部输出纳入统一重跑审核仍待完成。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 两次退出 0、各 1/1；含私有夹具文件保护及假进程，未操作真实 Worker。noEmit 再次退出 0。
-
-已同步 `b4bb0505`：原生窗口查询携带实际命令和声明，允许按真实窗口重建本代任务而不要求 seed/CSV；无完整声明不重建。`node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js` 退出 0、17/17；源码路径校验调整后 `--test-name-pattern 'live declared commands recover'` 退出 0、1/1；`declaredCommandPlan.test.js` 退出 0、1/1，noEmit 退出 0。均为本机夹具。
-
-已同步 `aacf2f40`：通用任务的明确重试使用当前 PLAN 命令及全 Worker 同步链，不再调用科研源码推断；服务器状态未知时不继续。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a declared command rerun' test/features/planRunRerunIntent.test.js` 两次退出 0、各 1/1；noEmit 退出 0。实际 Worker、停止及隔离未执行。
-
-已同步 `5d5d3735`：PLAN 可用可选 `worker` 和 `environment` 覆盖默认值并参与参数组合；未启用的 Worker 明确拒绝，自动分配保留该选择，所选环境随任务发送。`declaredCommandPlan.test.js` 退出 0、1/1；`distributedPlanSubmissionRouting.test.js` 退出 0、11/11；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared Worker override|live declared commands recover' test/features/taskLifecycle.test.js` 退出 0、2/2；noEmit 退出 0。完整调用链仍待实施。
-
-已同步 `00142285`：PLAN 的可选 `gpu` 随矩阵展开并进入队列分配；指定卡不可用时等待，内存预算也只选择指定卡。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared GPU override|declared Worker override' test/features/taskLifecycle.test.js` 两次退出 0、各 2/2；`node --test --test-force-exit --test-timeout 20000 test/features/distributedPlanSubmissionRouting.test.js` 退出 0、11/11；noEmit 退出 0。均为本机夹具，未操作真实 GPU。
-
-已同步 `55c9fd43`：通用声明输出的人工隔离预览补充外部文件和目录的实际类型/存在性检查；查询未知及包含任务目录的外部父目录阻断，未放宽 Worker 执行前的存在性保护。`node --test --test-force-exit --test-timeout 20000 test/features/declaredOutputCleanup.test.js` 退出 0、2/2；noEmit 退出 0。使用假文件接口，没有执行真实文件操作。完整真实界面和远端链仍未验证。
-
-已同步 `8203311a`：PLAN 预演按声明的 Worker/GPU 选择可用位置，无法匹配的任务保留排队并显示等待原因；`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 修改后两次退出 0、各 1/1。该验证用本机假 Worker 状态，不执行真实调度。
-
-已同步 `8fae34e6`：新声明命令的提交不再把相同输出路径上的旧任务或旧结果误认成本次完成。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a new declared submission' test/features/planRunRerunIntent.test.js` 退出 0、1/1；noEmit 退出 0。使用假 Worker 快照，未连接真实服务器。
-
-已同步 `10045704`：提交预检不再以旧两代日志保留及清理为新任务准入条件；独立清理入口未改。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'warm Host preflight' test/features/planStructuralValidationCache.test.js` 退出 0、1/1，含旧门槛不可调用断言；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'log retention is not' test/features/pluginLogRetention.test.js` 退出 0、1/1；noEmit 退出 0。未执行实际清理。
-
-已同步 `2ec81d64`：用户停止统一记录为主动停止，不再要求选择科研效果或收敛结论，也不把停止标为完成。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandStop.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'Plan stop supplies' test/features/stopRoutingAndResultParseDedup.test.js` 退出 0、1/1；noEmit 退出 0。未向真实 Worker 发送停止。
+已同步通用命令功能片段 `e2b503bb`、`c05bf94a`、`23766965`、`9c390f4a`、`c34cb3b8`、`7844db66`、`75b0914a`、`2dd2cd9d`、`b4bb0505`、`aacf2f40`、`5d5d3735`、`00142285`、`55c9fd43`、`8203311a`、`8fae34e6`、`10045704`、`2ec81d64`：命令、独立输出、可选 Worker/环境/GPU、队列与窗口身份、静态入口及停止状态已按当前范围接线；产物按用户同步范围处理，不自动删除或迁移旧任务。真实 Worker、GPU、传输和完整端到端均未验证。原逐批命令、退出码及证据保留在不可变提交 `4e315229` 的本文件；均不代表真实远端通过。
 
 已同步 `5d385e96`：新声明命令的已确认输出隔离不再要求存在旧队列登记，仍对队列中已有匹配任务保留隔离围栏。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a new declared submission' test/features/planRunRerunIntent.test.js` 退出 0、2/2；noEmit 退出 0。为本机替身检查，未移动真实文件。用户新增全部清理后台隔离要求已纳入计划；当前重跑链等待隔离完成仍须修改，尚未满足该要求。
 
@@ -68,6 +38,8 @@
 已同步 `7fff7f88`：面板创建 PLAN 改为填写名称、实际命令及独立输出目录，生成新格式并保留当前项目选择；取消或路径不安全不写 PLAN，不再触发结果自动解析。`node --test --test-force-exit --test-timeout 20000 test/features/guidedCommandPlan.test.js` 退出 0、2/2，补充项目切换后退出 0、3/3；`test/features/onboardingAutoParse.test.js` 退出 0、1/1；`npx tsc --noEmit --incremental false` 退出 0。现有快速接入目标用例首次退出 1（断言旧单参数连接调用），修正为现有双参数后再次退出 1（断言已退役科研配置门槛），按实际命令静态检查调整后退出 0、1/1：`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'quick project onboarding records local recognition' test/features/projectQuickStartWorkflow.test.js`。为提取实际方法及替身验证，未做真实界面验收。
 
 Worker 启动实际命令前重新检查独立输出目录，目录非空或为文件则拒绝，空目录仍允许；防止提交后的新文件被覆盖。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1，`npx tsc --noEmit --incremental false` 退出 0；只抽取函数并使用假进程，保留本机夹具，无真实 Worker。
+
+原生任务的显式预检使用已保存的实际命令与输出声明，核对命令身份，不再要求指标 CSV 或科研模式解析；保留源码证明和路径准入。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 退出 0、1/1，`npx tsc --noEmit --incremental false` 退出 0；抽取函数与替身验证，未连接 Worker。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
