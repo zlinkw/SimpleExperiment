@@ -45,6 +45,22 @@ test('queue retains the resolved command without research mode or seed', () => {
   assert.equal(queue.stopIdentityMatchesJob(initial.plans[0],bound,{targetCommandId:'cmd',projectId:'p',workerId:'w'}),true);
   assert.equal(queue.stopIdentityMatchesJob(initial.plans[0],bound,{targetCommandId:'cmd',projectId:'other',workerId:'w'}),false);
 });
+test('live declared commands recover from the exact Worker window without seed or CSV', () => {
+  const queue = require('../../src/features/DistributedPlanQueue.ts');
+  const now=Date.now(), observedAt=new Date(now).toISOString();
+  const task={commandId:'cmd',projectId:'p',workerId:'w',workflowId:'flow',globalJobId:'flow:0',planFile:'plan.yaml',
+    planRevision:'r',codeFingerprint:'code',experimentIndex:0,case:'analysis',outputDir:'work/run',
+    command:'python analyze.py',workingDirectory:'.',outputs:[],resultPathPolicy:'declared',planJobCount:1,
+    observation:{lifecycleProtocol:2,executionContract:'declared-command-v1',commandId:'cmd',projectId:'p',workerId:'w',observedAt,
+      tmux:{windowId:'@1',paneId:'%1',dead:false,phase:'running'}}};
+  const snapshot={workerId:'w',generatedAt:observedAt,fetchedAt:observedAt,capabilities:{taskLifecycle:2},tasks:[task]};
+  const recovered=queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(),[snapshot],'p',now);
+  const job=recovered.plans[0].jobs[0];
+  assert.equal(job.command,'python analyze.py');assert.equal(job.seed,undefined);assert.equal(job.status,'running');
+  job.status='completed';job.trustedTerminalStatus='completed';
+  assert.equal(queue.distributedPlanRecoveryMissingCount(recovered.plans[0]),0);
+  assert.equal(queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(),[{...snapshot,tasks:[{...task,outputs:undefined}]}],'p',now).plans.length,0);
+});
 
 test('explicit runtime errors fail an ended job despite exit zero and complete artifacts', () => {
   const runtimeDiagnostics={schemaVersion:1,commandId:'c',runId:'c',state:'anomalous',count:1,scanComplete:true};

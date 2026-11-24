@@ -523,7 +523,8 @@ export function distributedPlanRecoveryMissingCount(plan: QueuedPlan, acceptedIn
     const localPending = job.status === "pending" && !job.workerId && !job.commandId;
     const terminalReceipt = ["completed", "failed", "cancelled"].includes(job.status)
       && (!job.trustedTerminalStatus || job.trustedTerminalStatus === job.status)
-      && Boolean(job.workerId && job.commandId && job.outputDir && job.case) && Number.isInteger(job.seed);
+      && Boolean(job.workerId && job.commandId && job.outputDir && job.case)
+      && (Boolean(job.command) || Number.isInteger(job.seed));
     if (localPending || terminalReceipt || jobIsUnavailable(plan, job)) known.add(job.index);
   }
   return Math.max(0, expected - known.size);
@@ -584,11 +585,15 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (snapshot.error || !Number.isFinite(fresh) || now - fresh > maxAgeMs) continue;
       for (const raw of snapshot.tasks || []) {
         const task = raw as any, index = Number(task.experimentIndex);
+        const declaredCommand = typeof task.command === "string" && task.command.trim();
+        const unsafePath = (value: unknown) => typeof value !== "string" || !value || value.startsWith("/")
+          || /[:\\\x00-\x1f]/.test(value) || value.split("/").some(part => !part || part === "." || part === ".." || part === "attempts");
+        if (declaredCommand && (typeof task.workingDirectory !== "string" || !Array.isArray(task.outputs)
+          || (task.workingDirectory !== "." && unsafePath(task.workingDirectory)) || task.outputs.some(unsafePath))) continue;
         if (!task.observation?.tmux || !observationMatches(task.observation, { commandId: task.commandId, workerId: snapshot.workerId, projectId })
           || !task.workflowId || task.globalJobId !== task.workflowId + ":" + index || !Number.isInteger(index) || index < 0
           || !task.planFile || !task.planRevision || !task.codeFingerprint || task.resultPathPolicy !== "declared"
-          || [task.outputDir, task.collectionResultCsv, task.planFile].some(value => typeof value !== "string" || !value || value.startsWith("/")
-            || /[:\\\x00-\x1f]/.test(value) || value.split("/").some(part => !part || part === "." || part === ".." || part === "attempts"))) continue;
+          || [task.outputDir, ...(declaredCommand ? [] : [task.collectionResultCsv]), task.planFile].some(unsafePath)) continue;
         let plan = queue.plans.find(row => row.id === task.workflowId);
         if (!plan) {
           plan = { id: task.workflowId, projectId, planFile: task.planFile, revision: task.planRevision, codeFingerprint: task.codeFingerprint,
@@ -597,7 +602,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
           queue.plans.push(plan);
         }
         if (plan.projectId !== projectId || plan.jobs.some(job => job.index === index)) continue;
-        plan.jobs.push({ index, case: task.case, seed: Number(task.seed), attempt: 0, commandId: task.commandId, workerId: snapshot.workerId,
+        plan.jobs.push({ index, case: task.case, ...(declaredCommand ? { command: task.command, workingDirectory: task.workingDirectory,
+          outputs: task.outputs } : { seed: Number(task.seed) }), attempt: 0, commandId: task.commandId, workerId: snapshot.workerId,
           runKey: task.commandId, globalJobId: task.globalJobId, outputDir: task.outputDir, collectionResultCsv: task.collectionResultCsv,
           resultPathPolicy: "declared", lifecycleProtocol: 2, status: "unknown", actualExecutionMode: task.mode,
           checkpointSource: task.checkpointSource });

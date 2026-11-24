@@ -85,11 +85,12 @@ start = lifecycle.index("def task_public_observation(")
 end = lifecycle.index("\n\ndef ", start)
 observation_scope = {"now_iso": lambda: "now"}
 exec(compile(lifecycle[start:end], "task_public_observation", "exec"), observation_scope)
-job = {"command": "printf actual", "commandId": "cmd", "projectId": "p", "workerId": "w"}
+job = {"command": "printf actual", "workingDirectory": ".", "outputs": [], "commandId": "cmd", "projectId": "p", "workerId": "w"}
 row = {"tmuxWindowId": "@1", "tmuxPane": "%1", "tmuxSession": "session", "gpuId": "0",
        "dead": True, "exitCode": 0, "phase": "running"}
 observe = observation_scope["task_public_observation"]
-assert observe(str(root), job, row)["status"] == "completed"
+public = observe(str(root), job, row)
+assert public["status"] == "completed" and public["command"] == job["command"] and public["outputs"] == []
 assert observe(str(root), job, {**row, "exitCode": None})["status"] == "unknown"
 assert observe(str(root), job, {**row, "exitCode": 4})["status"] == "failed"
 
