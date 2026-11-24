@@ -59,3 +59,5 @@ planOutputReplacementHost第3case以真实PlanCleanupHost类唯一execute AST取
 总控审parallelPlanStopClear、outputIsolationRecovery、pulledTaskControl三旧direct，仅2/3/4指定依赖条件适用；原并发及正确性等待、fake tmux/Worker、真实Host固定输入、内存和crypto边界保留，不冒新运行、真实文件删除或新dist。只读AST首次将const误判为函数后纠正，合并输出截断后补读，非测试失败。
 
 总控审prequeueRecallBulkSync和planRunRerunIntent两旧direct，各仅7指定依赖条件适用；前者保旧dist与fake Worker、原grace/pending，后者纯内存与crypto，未执行真实recall、rerun、文件写或远端；原3/14结果不冒新run。
+
+总控审resultCollectionProjectContext新C原direct 197：源码VM/真实Host配假端、第三case私有文件及rename/flush/pipe；27依赖按运行前基线与历史工具链条件比对，原dirty输入、4/4事件及日志保留，非完整runtime、新dist或真实Worker。只读闭包初误计28，输出解析先误判list及首content后纠正为第二content；均非测试失败，未重跑。
