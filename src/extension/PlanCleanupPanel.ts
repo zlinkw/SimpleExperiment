@@ -36,6 +36,7 @@ export async function openPlanCleanupPanel(host: PlanCleanupHost, planFile: stri
     }
     if (!concurrent) working = true;
     let response: Record<string, unknown>;
+    let acceptedReplySent: (() => void) | undefined;
     try {
       if (isolatedOperationId) {
         if (!["history", "status", "poll", "deleteIsolated", "confirm", "execute", "cancel", "recheck"].includes(message.type)) cleanupError("ISOLATED_REVIEW_ONLY");
@@ -88,15 +89,27 @@ export async function openPlanCleanupPanel(host: PlanCleanupHost, planFile: stri
         if (isolatedOperationId) await host.isolatedReviewEvent(isolatedOperationId, message.phase === 1 ? "confirmed1" : "confirmed2", operationId);
         response = { type: "confirmed", operation };
       } else if (["execute", "resume"].includes(message.type)) {
-        if (!operationId) cleanupError("CONFIRM_REQUIRED", "请先完成预览并确认精确路径。");
+        if (!operationId || !preview || preview.confirmations !== (preview.action === "delete" ? 2 : 1))
+          cleanupError("CONFIRM_REQUIRED", "请先完成预览并确认精确路径。");
         if (isolatedOperationId) await host.isolatedReviewEvent(isolatedOperationId, "executing", operationId);
-        const operation = await host.execute(operationId);
-        if (isolatedOperationId) {
-          await settleReview(operation);
-          if (operation.state !== "completed") await host.isolatedReviewEvent(isolatedOperationId, operation.state === "paused" ? "cancelled"
-            : /BUSY/.test(operation.error || "") ? "busy" : operation.state === "blocked" ? "failed" : "unknown", operationId, operation.error);
-        }
-        response = { type: "operation", operation };
+        const startedId = operationId;
+        const work = host.start(startedId);
+        const replySent = new Promise<void>(resolve => { acceptedReplySent = resolve; });
+        void work.then(async operation => {
+          await replySent;
+          if (isolatedOperationId) {
+            await settleReview(operation);
+            if (operation.state !== "completed") await host.isolatedReviewEvent(isolatedOperationId, operation.state === "paused" ? "cancelled"
+              : /BUSY/.test(operation.error || "") ? "busy" : operation.state === "blocked" ? "failed" : "unknown", startedId, operation.error);
+          }
+          await panel.webview.postMessage({ type: "background", operationId: startedId, operation });
+        }).catch(async error => {
+          await replySent;
+          const detail = String(error?.message || error);
+          void panel.webview.postMessage({ type: "background", operationId: startedId, error: detail });
+          void vscode.window.showErrorMessage("文件处理未完成：" + detail + "；请查询原请求状态。");
+        });
+        response = { type: "accepted", operationId: startedId };
       } else if (message.type === "cancel") {
         if (!operationId) cleanupError("OPERATION_REQUIRED", "当前没有可暂停的操作。");
         response = { type: "operation", operation: await host.service.cancel(operationId) };
@@ -126,7 +139,7 @@ export async function openPlanCleanupPanel(host: PlanCleanupHost, planFile: stri
     }
     // Release the request gate before replying: receiving history can send the
     // next preview immediately, even before postMessage itself resolves.
-    await reply(response);
+    try { await reply(response); } finally { acceptedReplySent?.(); }
   });
   panel.onDidDispose(async () => {
     subscription.dispose();
@@ -206,12 +219,14 @@ function normalizePoll(m){if(!String(m.requestId||'').startsWith('poll-'))return
 get('action').onchange=get('partial').onchange=()=>send('changeMode');
 window.addEventListener('message',event=>{
 const m=event.data;normalizePoll(m);
+if(m.type==='background'){if(m.operationId!==operationId)return;if(m.operation)showOperation(m.operation);else{executing=false;get('status').textContent='文件处理未完成：'+m.error;controls()}return}
 if(m.type==='progress'){if(!busy&&!executing||(m.operationId?m.operationId!==operationId:m.requestId&&m.requestId!==requestId))return;const targets=Object.values(m.operation?.targets||{});progressText=m.operation?stateName(m.operation.state)+' · 已处理 '+targets.filter(t=>t.state==='completed').length+'/'+targets.length+' 项'+(m.operation.error?' · '+m.operation.error:''):m.message;progressCount=typeof m.total==='number'&&m.total>0?(typeof m.completed==='number'?m.completed+'/'+m.total:'共 '+m.total+' 项'):'';get('status').textContent=progressText;renderProgress();return}
 if(m.requestId&&m.requestId!==requestId)return;busy=false;renderProgress();
 if(m.type==='history'){
 get('history').innerHTML='<option value="">选择清理记录</option>'+m.rows.filter(row=>!(row.action==='delete'&&row.state==='completed')).map(row=>'<option value="'+esc(row.id)+'">'+esc(row.planFile+' · '+actionName(row.action)+(row.action==='isolate'?'待删 ':'')+' · '+stateName(row.state)+' · '+row.updatedAt)+'</option>').join('');controls();
 if(initialOperationId){get('history').value=initialOperationId;send('status',{operationId:initialOperationId})}else send('preview')
 }else if(m.type==='preview'){show(m.preview);get('status').textContent=previewMessage}
+else if(m.type==='accepted'){operationId=m.operationId;executing=true;canConfirm=canExecute=canResume=false;canOperate=true;previewMessage='请求已受理，正在后台处理；实际结果请查看状态。';get('status').textContent=previewMessage;controls()}
 else if(m.type==='confirmed'||m.type==='operation'){showOperation(m.operation)}
 else{executing=false;canExecute=canConfirm=canResume=false;previewMessage=m.message||'审核未完成，请重新审核文件。';get('status').textContent=previewMessage;controls()}
 });send('history');

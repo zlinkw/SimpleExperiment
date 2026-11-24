@@ -38,13 +38,13 @@ function bridge({ immediateBoot = true, service = {}, execute } = {}) {
   const exports = {};
   const source = fs.readFileSync(path.join(__dirname, '../../src/extension/PlanCleanupPanel.ts'), 'utf8');
   const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  vm.runInNewContext(compiled, { exports, require: name => name === 'vscode' ? { ViewColumn: { Active: 1 }, window: { createWebviewPanel: () => panel } } : panelRequire(name) });
+  vm.runInNewContext(compiled, { exports, require: name => name === 'vscode' ? { ViewColumn: { Active: 1 }, window: { createWebviewPanel: () => panel, showErrorMessage() {} } } : panelRequire(name) });
   const host = { service: {
     async list() { calls.push('list'); return []; },
     async preview() { calls.push('preview'); return preview(); },
     async confirm() { calls.push('confirm'); throw new Error('Not authorized in fixture'); },
     ...service,
-  }, async status(id) { return this.service.status(id); },
+  }, async status(id) { return this.service.status(id); }, start(id) { return this.execute(id); },
     async execute(id) { calls.push('execute'); if (execute) return execute(id); throw new Error('Not authorized in fixture'); } };
   return { async open(job, initialId = '') { await exports.openPlanCleanupPanel(host, 'experiments/plans/p.yaml', initialId, job); if (!immediateBoot) boot(); await flush(); },
     html: () => html,
@@ -293,6 +293,8 @@ test('active queries finish the delete page when its execute response is lost, w
   const f = bridge({ service: { async status() { return clone(operation); } }, execute: () => new Promise(() => {}) });
   await f.open(undefined, operation.id);
   f.element('execute').onclick(); await flush();
+  assert.match(f.element('status').textContent, /请求已受理.*后台/);
+  assert.equal(f.element('preview').disabled, false, 'pending deletion must not hold the review controls');
   operation.state = 'running'; operation.targets.row.state = 'executing';
   f.advance(2); await flush();
   assert.match(f.element('status').textContent, /正在处理文件/);

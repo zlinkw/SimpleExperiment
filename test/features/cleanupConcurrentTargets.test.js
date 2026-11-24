@@ -41,6 +41,7 @@ test('independent cleanup targets run concurrently and overlapping requests fail
   const second = host.execute('b');
   await started.b;
   assert.deepEqual(entered, ['a', 'b']);
+  assert.throws(() => host.start('a'), /OPERATION_BUSY/);
   await assert.rejects(host.execute('a'), /OPERATION_BUSY/);
   await assert.rejects(host.execute('overlap'), /CLEANUP_TARGET_BUSY|路径正在处理/);
   assert.equal(host.conflictingPath(['work/a/child'], 'local'), 'local:work/a');

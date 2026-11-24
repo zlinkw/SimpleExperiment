@@ -72,6 +72,10 @@ export class PlanCleanupHost {
     }
     return undefined;
   }
+  start(id: string) {
+    if (this.runningOperations.has(id)) cleanupError("OPERATION_BUSY");
+    return this.execute(id);
+  }
   constructor(private readonly host: any, readonly root: string) {
     // r17-A: operation records live in the CONSUMED project (per projectRoot); legacy globalStorage
     // location is used only by read-with-migration helpers, never written again.
