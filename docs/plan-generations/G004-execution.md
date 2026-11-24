@@ -62,3 +62,5 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 同目标client重建的既有正确性case按原精确pattern运行：call_39dc6240e334487a9f9bcba9251b87e0，1/1、676.9716ms、exit0、无session/skip；原事件及事后提取日志身份见coverage，私有TEMP写/rename/flush/pipe保留，未跑performance full。首次提取按字符串误包含提取脚本自身，写前assert exit1；按真实call ID重取成功，非测试失败。本轮一次pwsh命令引号展开导致ParserError，未执行Git或写入，已改用pwsh直接调用。
 
 共享helper及相关测试变更使旧freshResultHost full26和resultCollectionProjectContext full4当前资格撤回，历史原调用、输入与输出保留；本轮五项只证明实际dirty工作树和所选范围，不冒新dist或当前HEAD生产行为。
+
+两helper准备批 a8dcb9a7036d1e88ec3b1d6e4466a382da37f421 已普通push/fetch，HEAD、origin/master、FETCH_HEAD和上游一致，索引空。四VM夹具仅补当前身份接口，原断言保留；前三full结果的实际源码是上述未提交工作树，overview仍待newdist精确消费者，不能视为当前HEAD生产链已验证。

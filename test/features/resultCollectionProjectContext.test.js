@@ -17,7 +17,7 @@ function providerMethods(names, globals) {
   assert.equal(selected.length, names.length);
   return vm.runInNewContext(ts.transpileModule('class Subject {' + selected.map(n => n.getText(ast)).join('\n') + '}; new Subject()', {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
-  }).outputText, globals);
+  }).outputText, { captureResultConnection: () => 'fixture', resultConnectionIsCurrent: () => true, ...globals });
 }
 
 test('summary refresh keeps old success and failure out of a new project', async () => {

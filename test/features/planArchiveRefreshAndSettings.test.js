@@ -52,6 +52,7 @@ test("offline result refresh remains available in low traffic mode", async () =>
 test("failed result collection reports this attempt's error", async () => {
   const refresh = compile(`({${extract("refreshResultsSummary", true)}}).refreshResultsSummary`, {
     resultCollectionHost: () => ({ update: async () => { throw new Error("read failed"); } }), errorMessage: error => error.message,
+    captureResultConnection: () => 'fixture', resultConnectionIsCurrent: () => true,
   });
   const host = { effectiveConnectionMode: () => "online", captureProjectContext: () => ({}), projectContextIsCurrent: () => true, recordActionError() {}, postState() {} };
   const result = await refresh.call(host);

@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 const ts = require("typescript");
 require('../_helpers/registerTsRequire');
-const {resultCollectionHost}=require('../../src/extension/ResultCollectionHost.ts');
+const {resultCollectionHost,captureResultConnection,resultConnectionIsCurrent}=require('../../src/extension/ResultCollectionHost.ts');
 const {fixture}=require('../_helpers/freshResultHost');
 
 const root = path.resolve(__dirname, "../..");
@@ -40,7 +40,7 @@ function selectedMethods(names, globals = {}) {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const sandbox = {
-    resultCollectionHost,
+    resultCollectionHost, captureResultConnection, resultConnectionIsCurrent,
     workspaceRoot: () => "/project",
     errorMessage: (error) => String(error?.message || error),
     assertRetryRequestCurrent: () => undefined,
