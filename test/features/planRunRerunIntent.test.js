@@ -9,6 +9,24 @@ const statusRow=(status,over={})=>({status,...over});
 const scope=crypto.createHash('sha256').update('scope-fixture').digest('hex');
 const base=selector.rerunWorkflowBaseId(scope);
 
+test('a new declared submission does not inherit an earlier task completion by output path',async()=>{
+ const root='/fixture',node={id:'worker',kind:'remote',root:'/remote'};
+ const observed={lifecycleProtocol:2,executionContract:'declared-command-v1',commandId:'old',projectId:'p',workerId:'worker',
+  observedAt:new Date().toISOString(),tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}};
+ const task={commandId:'old',projectId:'p',experimentIndex:0,outputDir:'work/a',observation:observed};
+ const snapshot={workerId:'worker',queryComplete:true,tasks:[task],declaredResults:[{index:0,outputDir:'work/a',completed:true}]};
+ let question;
+ const host={planCleanupHost:()=>({service:{}}),captureProjectContext:()=>({root}),projectContextIsCurrent:()=>true,
+  workerActionTargets:()=>[node],effectiveConnectionMode:()=> 'fixture',lastCodeSyncState:{fingerprint:'code'},
+  readWorkerTaskSnapshot:async()=>snapshot,askRunConfirmation:async payload=>{question=payload;throw Error('stop fixture');}};
+ const job={index:0,name:'analysis',command:'new command',working_dir:'.',outputs:[],output_dir:'work/a'};
+ const preview={rows:[{node,absolutePath:'/remote/work/a',type:'directory',disposition:'isolate'}],blockers:[]};
+ const body={planFile:'p.yaml',planRevision:'r',runReplacement:{flow:'isolate',previews:[{index:0,preview}]}};
+ await assert.rejects(new PlanRunHost(host,root).replace({},body,{jobs:[job]}),/stop fixture/);
+ assert.equal(question.groups.find(group=>group.value==='rerun_missing').disabled,false);
+ assert.equal(question.groups.find(group=>group.value==='rerun_missing').targets.length,1);
+});
+
 test('a declared command rerun uses the current PLAN command without a scientific source parser',async()=>{
  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
  const tree=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let method;

@@ -45,7 +45,9 @@
 
 已同步 `55c9fd43`：通用声明输出的人工隔离预览补充外部文件和目录的实际类型/存在性检查；查询未知及包含任务目录的外部父目录阻断，未放宽 Worker 执行前的存在性保护。`node --test --test-force-exit --test-timeout 20000 test/features/declaredOutputCleanup.test.js` 退出 0、2/2；noEmit 退出 0。使用假文件接口，没有执行真实文件操作。完整真实界面和远端链仍未验证。
 
-PLAN 预演按声明的 Worker/GPU 选择可用位置，无法匹配的任务保留排队并显示等待原因；`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 修改后两次退出 0、各 1/1。该验证用本机假 Worker 状态，不执行真实调度。
+已同步 `8203311a`：PLAN 预演按声明的 Worker/GPU 选择可用位置，无法匹配的任务保留排队并显示等待原因；`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 修改后两次退出 0、各 1/1。该验证用本机假 Worker 状态，不执行真实调度。
+
+新声明命令的提交不再把相同输出路径上的旧任务或旧结果误认成本次完成。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a new declared submission' test/features/planRunRerunIntent.test.js` 退出 0、1/1；noEmit 退出 0。使用假 Worker 快照，未连接真实服务器。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
