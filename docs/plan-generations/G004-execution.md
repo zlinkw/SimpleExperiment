@@ -64,3 +64,7 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 已完成的221adc、b532及ecaf三批旧direct逐项条件适用、原输入/私有FS/Python/fake边界与只读失败纠正，完整见 ecafddb0:docs/plan-generations/G004-execution.md 和coverage；均非新运行、真实删除或新dist。
 
 总控审planRunSharedSubmission、planIsolatedBatchLedgerDispatch、planIsolatedBatchLedger及manualWorkerRefresh旧direct，分别仅5/5/5/7依赖条件适用。前者5项不验新增隔离文案；两ledger各实际5case、旧legacy 8067为原适用基准，真实私有账本atomic写及损坏fixture保留；manual原私有日志、Python抽函数与os.replace轮转保留，实际fake index早退、无真实Worker。原call/argv/旧输入/未知及旧dist保coverage，不冒新运行。总控首proof误设ledger全部基准为1e91而断言退出，零写、非测试。
+
+总控审taskProgressStability、gpuWorkerSnapshotRecovery、probeConnectionContinuity三旧direct，仅6/2/2依赖条件适用；保原受控Python/假tmux、fake GPU/HTTP/SSE及原timer、旧工具链/旧dist限制。原根或client变化实际分支保留，非新运行、真实Worker或性能证明。
+
+总控审准resultDatasetHierarchy full14、resultCommandPhaseRouting full3、panelWebviewScriptHealth full13仅在最终源码/夹具冻结与真实新编译后按原runner 20秒各一次；当前未运行。原三full因Panel变化撤当前资格、原事件和快照保留；源码render与fake DOM/VM不替代真实build、render脚本、node-c和10890 P0。总控计划首次归并写后16205字触90%门槛断言exit1，继续归并至15875，非写前零写或测试失败。
