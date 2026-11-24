@@ -3,6 +3,34 @@ require('../_helpers/registerTsRequire');
 const { taskLifecycle, observationMatches } = require('../../src/features/TaskLifecycle.ts');
 const base = { lifecycleProtocol:2, commandId:'c', projectId:'p', workerId:'w', observedAt:new Date().toISOString() };
 
+test('declared commands use the actual pane exit, independent of scientific results and log wording', () => {
+  const generic = {...base, executionContract:'declared-command-v1', runtimeDiagnostics:{commandId:'c',state:'anomalous',count:1}};
+  assert.equal(taskLifecycle({...generic,tmux:{dead:true,exitCode:0}}).status,'completed');
+  assert.equal(taskLifecycle({...generic,tmux:{dead:true,exitCode:3}}).status,'failed');
+  assert.equal(taskLifecycle({...generic,tmux:{dead:true,exitCode:null}}).status,'unknown');
+  assert.equal(taskLifecycle({...generic,tmux:{dead:false,phase:'running'}}).status,'running');
+  assert.equal(taskLifecycle({...generic,executionQueryError:'offline',tmux:{dead:true,exitCode:0}}).status,'unknown');
+  const {nextVerifiedCompletion,verifiedCompletionProjection} = require('../../src/features/VerifiedCompletion.ts');
+  const plan={projectId:'p',id:'plan'}, job={index:0,workerId:'w',commandId:'c',outputDir:'out',command:'echo done'};
+  const observation={...generic,tmux:{dead:true,exitCode:0}};
+  job.verifiedCompletion=nextVerifiedCompletion(plan,job,observation,taskLifecycle(observation),Date.now());
+  assert.equal(verifiedCompletionProjection(plan,job).status,'completed');
+  assert.equal(verifiedCompletionProjection(plan,job).resultState,'unverified');
+  assert.equal(verifiedCompletionProjection(plan,job).runtimeDiagnostics,undefined);
+  const {freshTaskObservation} = require('../../src/features/WorkerProgressEvidence.ts');
+  const current = freshTaskObservation({fetchedAt:base.observedAt},{observation:{...observation,resultQueryError:'old',runtimeQueryError:'old'}},observation,Date.parse(base.observedAt),1000);
+  assert.equal(current.resultQueryError,undefined);
+  assert.equal(current.runtimeQueryError,undefined);
+});
+test('declared command progress does not query research result or log semantics', async () => {
+  const {queryWorkerProgress} = require('../../src/features/WorkerProgressQuery.ts');
+  const task={...base,outputDir:'out',observation:{...base,executionContract:'declared-command-v1',tmux:{dead:true,exitCode:0}}};
+  const result=await queryWorkerProgress({getWorkerTasks:()=>{throw Error('unexpected metadata query');}},'w',[task],
+    {workerId:'w',queryComplete:true,capabilities:{taskLifecycle:2},tasks:[task],fetchedAt:base.observedAt});
+  assert.equal(result.resultQueryError,undefined);
+  assert.equal(result.runtimeQueryError,undefined);
+  assert.equal(result.tasks[0].observation.executionContract,'declared-command-v1');
+});
 test('explicit runtime errors fail an ended job despite exit zero and complete artifacts', () => {
   const runtimeDiagnostics={schemaVersion:1,commandId:'c',runId:'c',state:'anomalous',count:1,scanComplete:true};
   const result={runId:'c',status:'completed',present:true,verified:true,artifactsComplete:true,exitCode:0};

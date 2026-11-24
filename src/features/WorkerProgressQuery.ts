@@ -31,6 +31,8 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
   // Low traffic follows live panes until exit; manual rounds retain full details.
   if (options.terminalOnly) for (const task of execution.tasks || [])
     if (task.observation?.tmux?.dead === false) selected.delete(key(task));
+  const genericTasks = new Set<string>((execution.tasks || []).filter((task: any) => task.observation?.executionContract === "declared-command-v1").map(key));
+  for (const id of genericTasks) selected.delete(id);
   const rows = new Map<string, any>((execution.tasks || []).map((task: any) => [key(task), task]));
   for (const [id, query] of selected) if (!rows.has(id)) rows.set(id, { ...query, observation: {
     lifecycleProtocol: 2, commandId: query.commandId, projectId: query.projectId, workerId,
@@ -49,7 +51,7 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
   let index = 0, closed = false, detached = false, controlIncomplete = false, capabilities = execution.capabilities;
   const cancelled = () => !detached && options.signal?.aborted;
   const snapshot = (reason?: string) => {
-    const partial = !entries.length || checked.size !== entries.length || errors.size > 0;
+    const partial = !entries.length && !genericTasks.size || checked.size !== entries.length || errors.size > 0;
     const { executionOnly: _, ...base } = execution;
     return { ...base, workerId, fetchedAt: execution.fetchedAt || new Date().toISOString(), capabilities,
       ...(partial ? { executionOnly: true,

@@ -16,6 +16,11 @@ export function freshTaskObservation(snapshot: any, task: any, fallback: TaskObs
   const fetchedAt = snapshot.fetchedAt;
   if (snapshot.error || !evidenceFresh(times?.execution, fetchedAt, now, maxAgeMs))
     value.executionQueryError = snapshot.error || "状态查询已过期";
+  if (value.executionContract === "declared-command-v1") {
+    delete value.resultQueryError;
+    delete value.runtimeQueryError;
+    return value;
+  }
   if (times && !times.artifacts || (!times?.artifacts && snapshot.error) || !evidenceFresh(times?.artifacts, fetchedAt, now, maxAgeMs)) {
     value.result = undefined;
     value.resultQueryError = snapshot.error || value.resultQueryError || (times && !times.artifacts ? "本轮尚未取得产物观察" : "产物查询已过期");
@@ -40,7 +45,7 @@ export function mergeProgressSnapshot(current: any, incoming: any): any {
     if (!task) return prior;
     next.delete(key(prior));
     const observation = { ...task.observation, evidence: { ...task.observation?.evidence } };
-    for (const [lane, fields] of Object.entries({ execution: ["tmux", "cancelled", "schedulerPhase", "executionQueryError"],
+    for (const [lane, fields] of Object.entries({ execution: ["tmux", "cancelled", "schedulerPhase", "executionQueryError", "executionContract"],
       artifacts: ["result", "resultQueryError", "artifactIssue"], logs: ["runtimeDiagnostics", "runtimeQueryError"] })) {
       const before = prior.observation?.evidence?.[lane], after = task.observation?.evidence?.[lane];
       const order = (timing: ObservationTiming) => Date.parse(String(timing.failed ? timing.requestedAt : timing.networkStartedAt));

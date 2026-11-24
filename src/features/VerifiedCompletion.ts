@@ -13,6 +13,8 @@ export function hasVerifiedCompletion(plan: any, job: any): boolean {
 }
 export function verifiedCompletionProjection(plan: any, job: any) {
   if (!hasVerifiedCompletion(plan, job)) return {};
+  if (job.command) return { status: "completed" as const, executionState: "exited", resultState: "unverified", completionState: "verified" as const,
+    exitCode: 0, statusQueryError: undefined, error: undefined, blockReason: undefined, runtimeDiagnostics: undefined };
   return { status: "completed" as const, executionState: "exited", resultState: "complete", completionState: "verified" as const,
     exitCode: 0, statusQueryError: undefined, error: undefined, blockReason: undefined,
     runtimeDiagnostics: { schemaVersion: 1 as const, commandId: job.commandId, runId: job.commandId,
@@ -34,6 +36,14 @@ export function hasTrustedTerminalProof(plan: any, job: any): boolean {
 export function nextVerifiedCompletion(plan: any, job: any, observation: TaskObservation, state: any, now: number): VerifiedCompletion | undefined {
   const exact = !observation.queryError;
   const confirmed = hasVerifiedCompletion(plan, job);
+  if (job.command && observation.executionContract === "declared-command-v1") {
+    const newer = !confirmed || Date.parse(String(observation.evidence?.execution?.networkStartedAt || "")) > Date.parse(job.verifiedCompletion.verifiedAt);
+    if (exact && newer && !observation.executionQueryError && state.execution === "failed") return undefined;
+    if (confirmed) return job.verifiedCompletion;
+    if (exact && !observation.executionQueryError && observation.tmux?.dead === true && state.status === "completed" && state.exitCode === 0)
+      return { schemaVersion: 1, identity: completionIdentity(plan, job), verifiedAt: new Date(now).toISOString(), exitCode: 0 };
+    return undefined;
+  }
   const newer = (lane: "execution" | "artifacts" | "logs") => !confirmed
     || Date.parse(String(observation.evidence?.[lane]?.networkStartedAt || "")) > Date.parse(job.verifiedCompletion.verifiedAt);
   const artifactIssue = exact && newer("artifacts") && !observation.resultQueryError && (observation.artifactIssue

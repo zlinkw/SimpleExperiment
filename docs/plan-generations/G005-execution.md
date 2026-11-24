@@ -21,6 +21,10 @@
 
 ## P2 进行中
 
+已同步功能片段 `e2b503bb`：PLAN 就绪检查不再以科研输出结构为门槛，实际命令保留静态入口检查；P2 整链尚未完成。
+
+命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
+
 已在源码中开始替换 PLAN 声明、队列及任务窗口命令路径，尚需接通提交前检查、远端观察与受影响调用链，不能视为可运行或已交付。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandPlan.test.js` 两次退出 0，各 1/1；为代码修改后的针对性检查，夹具保留。原始输出在本会话工具记录。
 
 `node node_modules/typescript/bin/tsc -p . --noEmit --incremental false --pretty false` 首次退出 1，发现新队列类型及既有 dirty PlanCleanupHost 的类型错误；修正后一次退出 1（新增结构类型缺字段），补齐后退出 0。该检查不生成 dist，不代表 build 或完整行为通过。

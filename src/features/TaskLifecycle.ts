@@ -5,6 +5,7 @@ export type TaskExecution = "queued" | "starting" | "running" | "exited" | "fail
 export type TaskResult = "complete" | "incomplete" | "unverified" | "conflict";
 export type TaskObservation = {
   commandId: string; projectId: string; workerId: string; lifecycleProtocol: 2;
+  executionContract?: "declared-command-v1";
   observedAt: string; queryError?: string; schedulerPhase?: string;
   resultQueryError?: string;
   executionQueryError?: string; runtimeQueryError?: string; evidence?: EvidenceTimes;
@@ -19,6 +20,18 @@ export function taskLifecycle(value: TaskObservation): { execution: TaskExecutio
   completionState?: CompletionState; runtimeDiagnostics?: RuntimeDiagnostics; exitCode?: number | null; message?: string } {
   let execution: TaskExecution = "missing", result: TaskResult = value.result === null ? "incomplete" : "unverified";
   if (value.queryError) return { execution: "unknown" as TaskExecution, result: "unverified", status: "unknown" as const, message: value.queryError };
+  if (value.executionContract === "declared-command-v1") {
+    const pane = value.executionQueryError ? undefined : value.tmux;
+    const execution: TaskExecution = value.executionQueryError ? "unknown" : !pane ? "missing" : pane.dead
+      ? !Number.isInteger(pane.exitCode) ? "unknown" : pane.exitCode === 0 ? "exited" : "failed"
+      : ["queued", "bound"].includes(pane.phase || "") ? "queued"
+      : ["admitted", "starting"].includes(pane.phase || "") ? "starting" : pane.phase === "running" ? "running" : "unknown";
+    const status = execution === "exited" ? "completed" : execution === "failed" ? "failed"
+      : execution === "queued" || execution === "starting" ? "queued" : execution === "running" ? "running"
+      : value.cancelled && !pane && !value.executionQueryError ? "cancelled" : "unknown";
+    return { execution, result: "unverified", status, exitCode: pane?.exitCode,
+      completionState: status === "completed" ? "verified" : "unverified", message: value.executionQueryError };
+  }
   const pane = value.executionQueryError ? undefined : value.tmux;
   if (value.executionQueryError) execution = "unknown";
   if (pane) {
