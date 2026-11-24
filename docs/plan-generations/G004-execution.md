@@ -64,3 +64,6 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 同批另审projectRootMap、distributedProjectContract、windowsWorkflowContract三旧direct，实际十个方法/函数与4c0/current LF同、其他依赖/Node/log匹配，仅legacy当前适用ca1d→20d；保原私有TEMP inventory/hash与mkdir/stat、旧dist PlanBuilder及fake准备/队列，未执行真实传输、删除或Worker。
 
 六direct两docs批 f2708006e89c21e1259f325ed815888be41fe187 已普通push/fetch、四HEAD一致及索引空。总控审preflightStages、agentPreparationLifecycle、workflowPanelNavigation、debugBundleFeedback四direct，实际提取方法/函数/常量及slice对4c0/current LF同，其他依赖/工具链/日志匹配，仅legacy当前适用ca1d→20d；保原受控Python抽函数、私有fixture、旧dist及fake生命周期/剪贴板/SFTP/复制边界，无新运行或真实Worker。
+
+四direct两docs批 efedbb341850326ab1eeb56dccff173e6e82824b 已普通push/fetch、四HEAD一致及索引空。总控审pluginLogRetention、hostOperationLeaseIntegration、planStructuralValidationCache、planBatchPhysicalPipeline四direct实际slice/方法与4c0/current同，Physical的saveQueue/withQueue与385b同，其他依赖/工具链/log匹配，仅legacy当前适用ca1d→20d；保原私有FS与registry、保留式rename、受控Python抽函数和fake Worker/队列，未真实删除或新运行。
+同批另审mcpPreflightContract、mcpTaskDispatch、schedulerContract、mcpProjectOpsContract四direct，实际方法和slice与4c0/current LF同，其他依赖/Node/log匹配，仅legacy当前适用ca1d→20d；保原fake授权、GPU、队列、POST与私有TEMP、SDK内存transport边界，无真Worker、删除或新dist。
