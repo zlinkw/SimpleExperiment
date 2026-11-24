@@ -59,3 +59,6 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 本次coverage首次候选脚本误假设换行及callId全文件唯一，写前停止；改按实际行尾与direct数组身份定位后成功，未改原事件或测试。
 
 0d7c2721c7e27fbc2040ee831b4cd748b106f528 三docs已普通push/fetch、四HEAD一致及索引空。总控审五UI上下文direct及globalConfig/Availability两direct的实际提取闭包与其他依赖/Node/log，仅legacy当前适用ca1d→20d，原实际输入与假端限制保留，未重跑或构建。首次覆盖候选误按全文件callId唯一、第二次误判数组末行尾，均写前停止；改为direct行与实际尾字符处理后成功。总控先误猜测试路径和slice标记，均已纠正，零写入、非测试失败。
+
+七direct两docs批 e4bfe2a2618c1316e70f8ed2ac7e34eca000c251 已普通push/fetch、四HEAD一致及索引空。总控审mcpAgentContract、hubRuntimeRemoval、setupGuideWithoutBundledDocs三旧direct，实际提取方法与4c0/current LF同、其他依赖/Node/log匹配，仅legacy当前适用ca1d→20d，保原执行、旧dist渲染、Guide私有TEMP写及fake授权/UI/网络/clipboard边界；未新运行、未恢复退役入口或冒真实Panel/Worker。
+同批另审projectRootMap、distributedProjectContract、windowsWorkflowContract三旧direct，实际十个方法/函数与4c0/current LF同、其他依赖/Node/log匹配，仅legacy当前适用ca1d→20d；保原私有TEMP inventory/hash与mkdir/stat、旧dist PlanBuilder及fake准备/队列，未执行真实传输、删除或Worker。
