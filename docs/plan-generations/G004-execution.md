@@ -69,10 +69,10 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 
 已完成extensionUpdates等六条证据、Gate八regex、ResultsSection待冻依赖和只读ENOENT见 082064c9:docs/plan-generations/G004-execution.md。
 
-总控审syncScopeLocalIndex、cleanupIndexInvalidation和syncScopeOperationIndex旧direct，各仅七依赖条件适用；前者实际require图未加载这七项，后两原方法及选中guard分支等效。保privateTEMP、watcher/index原子写/flush、原timer及fake Worker/SFTP/取消，非真实删除或新运行。合并输出截断后按真实方法补读，未据此审ForeignClassify。两次归并草稿分别9906、9536超过自设9500目标，均写前断言exit1；后压缩完成，非测试失败。
+sync/index三旧direct实际范围、两次归并草稿写前断言及修正见 107c948b:docs/plan-generations/G004-execution.md 与coverage。
 
 metricsDownloadEndToEnd原18/18完整历史call与日志保coverage；实际历史单项目send经真实unifiedDomainState可能读取当时APPDATA登记，内容未冻。当前fixture仅将该域明确fake inactive并按真实mapper捕获当前root（空窗undefined），保原18断言；node --check exit0只验语法。当前旧full撤资格，未来仅最终SOURCE/fixture冻结及真实新compile后原runner 20秒full18一次，未运行。真实私有PLAN/结果发布、staging/flush/rename及Windows named pipe关闭保留，Worker/SFTP/远程POST假端；catalog刷新为fake，未证明Worker线程实际启动。源码审误猜Catalog路径ENOENT/合并输出截断后定向补读，非测试失败。总控计划首次写后16248字超90%断言exit1，继续归并至16122，非写前零写。
 
-总控审progressDispatchFreshness、gpuSubmittedJobOwnership、gpuSampleWindowChannel旧direct，仅6/5/5指定依赖条件适用；保原假telemetry/内存ring、受控timer与Python抽函数。sample新增current guard在合法分支真实执行并保持断言、晚回执拒绝；未新运行或证明真实GPU/性能/newdist。合并读取截断后按实际case补读，不批准其他项。
+GPU及自动观察六旧direct逐项条件适用、新guard真实执行、原假timer/Abort及只读截断补核见 ee619145:docs/plan-generations/G004-execution.md 与coverage；未新运行或证明真实GPU。
 
-总控审completedJobAutoRecheckSuppression、autoFallbackWideReadGuard、progressEvidenceFreshness旧direct，仅5/6/5依赖条件适用；新增current guard在所选稳定身份中执行，client替换先清shared、不入aborted重读。原fake未完成promise、unref timer释放、假时间/Abort与历史工具链保留；未新运行或真实查询、性能验证。合并读取截断后按实际case补段。
+总控审distributedQueueStartup、StartupMirrors、StartupRecovery三旧direct，各仅七依赖条件适用；实际六方法同1e91、源码support转译与旧dist区分，保VM/内存队列/fake探针和镜像、原工具链未知，非新运行、真实Worker或新dist。首次归并草稿10060超过自设9800目标，写前断言exit1；再按10200安全界写入，非测试失败。
