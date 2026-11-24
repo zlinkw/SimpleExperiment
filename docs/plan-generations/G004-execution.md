@@ -72,3 +72,5 @@ GPU及自动观察六旧direct逐项条件适用、新guard真实执行、原假
 总控审distributedQueueStartup、StartupMirrors、StartupRecovery三旧direct，各仅七依赖条件适用；实际六方法同1e91、源码support转译与旧dist区分，保VM/内存队列/fake探针和镜像、原工具链未知，非新运行、真实Worker或新dist。首次归并草稿10060超过自设9800目标，写前断言exit1；再按10200安全界写入，非测试失败。
 
 总控审completedJobForeignSourceClassify及planBatchDispatchFirst旧direct，仅5/8依赖条件适用；前者私有空TEMP/读holds与fake inventory，receiver函数未调用；后者私有PLAN/receipt/hold atomic写、真实batch lanes与fake确认/执行/传输，原等待和阈值保留。无真实Worker、删除或新运行，首合并读取截断后按真实case补核。
+
+planRunQueryRegression与planRunRecovery夹具仅补实际project context接口，原断言保留，两次node --check exit0仅语法；旧full6/7撤当前资格、原事件/输入/工具链保留。未来仅最终源码与夹具冻结、真实新编译后各原20秒full一次，均未运行；原私有receipt/受控Python假端边界见计划及coverage。总控计划先写16345后90%断言exit1，再归并至15944并补至16183；首次只读误以fc0 legacy8067为1e91断言失败后纠正，均非测试失败。

@@ -51,7 +51,7 @@ test('the real UI action passes its local submission context into the real distr
   assertSingleProjectWorkspace(){},pluginProjectAdapterRules:()=>({}),operationResultPlanFile:b=>b.planFile,projectOutputGateReason:()=>'',LENIENT_RUN:false,
   stringField:(x,k)=>x[k]||'',stringArrayField:()=>[],uniqueStrings:x=>x,usableSelectionKey:()=>'',preparePlanSafeRetry:async()=>false,makeOpId:()=> 'provenance',
   isUiCommandCancelled:()=>false,errorMessage:e=>e.message,setTimeout};
- const host={context:{globalStorageUri:{fsPath:root}},projectContextGeneration:1,localPlanMetadata:{detectedProject:{}},localOperations:{},
+ const host={context:{globalStorageUri:{fsPath:root}},projectContextGeneration:1,captureProjectContext:()=>({root,generation:1}),localPlanMetadata:{detectedProject:{}},localOperations:{},
   actionBody:()=>body,resolveWorkerEndpointId:()=>'',assertRetryPlanContext(){},refreshLocalPlanMetadataForAction:async()=>{},stampPlanRevision(){},ensureManualStopReason:async()=>{},
   assertPlanTopologyReady(){},assertPlanLocalConfigFiles:async()=>{},localPlanForActionBody:()=>plan,distributedPlanEligible:()=>true,
   selectDistributedPlanPrimary:async()=>{},assertExecutionWorkersReady(){},assertExecutionAgentProjectsReady(){},assertPlanNotAlreadyActive:async()=>{},
