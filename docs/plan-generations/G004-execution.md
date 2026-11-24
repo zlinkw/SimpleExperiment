@@ -57,3 +57,5 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 
 总控审focused6真实direct的静态闭包按运行前adc基线条件适用；21个间接文件及Node/TS非本次逐项冻结，两文件仅LF归一同，原dirty输入与事件保留，不冒完整runtime闭包。另审projectCodeSyncState与planArtifactSyncStatus两direct实际提取片段和14成员、其余依赖/Node/日志匹配，仅legacy当前适用ca1d→20d；总控首只读脚本重名遮蔽导致断言失败，改用独立选择器后成功，非测试失败。
 本次coverage首次候选脚本误假设换行及callId全文件唯一，写前停止；改按实际行尾与direct数组身份定位后成功，未改原事件或测试。
+
+0d7c2721c7e27fbc2040ee831b4cd748b106f528 三docs已普通push/fetch、四HEAD一致及索引空。总控审五UI上下文direct及globalConfig/Availability两direct的实际提取闭包与其他依赖/Node/log，仅legacy当前适用ca1d→20d，原实际输入与假端限制保留，未重跑或构建。首次覆盖候选误按全文件callId唯一、第二次误判数组末行尾，均写前停止；改为direct行与实际尾字符处理后成功。总控先误猜测试路径和slice标记，均已纠正，零写入、非测试失败。
