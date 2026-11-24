@@ -84,3 +84,5 @@ parallelPlanSubmission夹具仅从当前源码AST唯一提取真实samePath并�
 planOutputReplacementHost第3case以真实PlanCleanupHost类唯一execute AST取代已失效旧签名slice，原7case断言保留；node --check exit0仅语法，旧full撤当前资格、原事件/八输入/工具链保留。未来仅最终SOURCE/fixture冻结及真实新编译后原runner 20秒full7一次，尚未运行；注册隔离分支未进入、NETWORK_DISCONNECT为原fake，不冒真实删除。
 
 总控审agentProjectRootReadinessWorkflow及executionCompactOverview旧direct，仅3/2指定依赖条件适用；前者静态/VM根检查，后者实际选中plans分支/假DOM与固定身份guard，保原54项及工具链限制，不冒真实UI/Worker/停止或Panel P0。总控sectionRenderModel初见差异已核仅未选sync分支；原日志尾部读取脚本显示全量未改原证，非测试失败。
+
+Draft清理旧入口已退役：四个manifest域各撤唯一旧测试登记，原jobs身份及call_0a54 direct对象完整移既有历史区；文件与原事件保留，未运行Draft或更改runner。静态清单变化不代表测试通过。
