@@ -547,6 +547,9 @@ test("runner: final profile rejects --only; --max-parallel capped; reuse removed
   const reuse = runRunner(ws, manifest, "fin", ["--reuse-receipt"]);
   assert.notEqual(reuse.status, 0, "result reuse is removed, not gated behind a flag");
   assert.match(reuse.stderr, /removed by r29 #4/);
+  const oldIncremental = runRunner(ws, manifest, "fin", ["--g004-incremental", "--dry-run"]);
+  assert.notEqual(oldIncremental.status, 0);
+  assert.match(oldIncremental.stderr, /G004 evidence/);
   assert.equal(runRunner(ws, manifest, "fin").status, 0, "plain final run executes fresh");
 });
 
@@ -1099,6 +1102,8 @@ test("runner: assemble refuses empty/short receipts item-by-item, accepts fresh 
   });
   assert.match(runRunner(ws, manifest, "asm").stderr, /refused/, "missing credential ⇒ refuse");
   assert.equal(runRunner(ws, manifest, "pkg").status, 0);
+  const oldClosure = path.join(ws, "simple_cluster", "reports", "test-workflow", "closure-state.json");
+  fs.writeFileSync(oldClosure, JSON.stringify({ snapshot: { src: { hash: "old", files: {} } }, attestations: [] }));
   const ok = runRunner(ws, manifest, "asm");
   assert.equal(ok.status, 0, ok.stdout + ok.stderr);
   assert.match(ok.stdout, /credential validated/);
@@ -1115,6 +1120,7 @@ test("runner: assemble refuses empty/short receipts item-by-item, accepts fresh 
     fs.writeFileSync(p, JSON.stringify(bad));
     return ["--receipt", p];
   };
+  assert.match(runRunner(ws, manifest, "asm", craft("g004", r => { r.schemaVersion = 3; r.coverageMode = "g004-incremental"; })).stderr, /G004 historical receipt retired/);
   assert.match(runRunner(ws, manifest, "asm", craft("nojobs", r => { r.jobs = []; })).stderr, /no job evidence/, "empty jobs array must not pass");
   assert.match(runRunner(ws, manifest, "asm", craft("nogates", r => { r.gates = []; })).stderr, /missing-gate/, "gates required by the current plan must be evidenced");
   assert.match(runRunner(ws, manifest, "asm", craft("dropjob", r => { r.jobs[0].identity = "/nowhere/other.js"; })).stderr, /refused|missing-job/, "receipt not covering the current file matrix must fail");
@@ -1133,6 +1139,22 @@ test("runner: assemble refuses empty/short receipts item-by-item, accepts fresh 
   const viaFull = runRunner(ws, manifest, "asm");
   assert.equal(viaFull.status, 0, viaFull.stdout + viaFull.stderr);
   assert.match(viaFull.stdout, /credential validated/, "current check:full credential satisfies assembly");
+});
+
+test("runner: package refuses artifacts changed after tests", async t => {
+  const ws = makeWorkspace(t);
+  fs.mkdirSync(path.join(ws, "dist"));
+  fs.writeFileSync(path.join(ws, "dist", "output.js"), "tested");
+  fs.writeFileSync(path.join(ws, "change.js"), 'require("node:fs").writeFileSync("dist/output.js", "changed")');
+  fs.writeFileSync(path.join(ws, "assemble.js"), 'require("node:fs").writeFileSync("assembled", "yes")');
+  const job = makeJob(ws, "artifact", {});
+  const manifest = writeManifest(ws, baseManifest(ws, {
+    pkg: { phases: { fullCheck: { extraFiles: [{ file: job, argv: [], source: "f" }] }, post: { gates: ["node change.js"] }, assemble: { gates: ["node assemble.js"] } } },
+  }, [job]));
+  const result = runRunner(ws, manifest, "pkg");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /tested artifacts changed before assemble/);
+  assert.equal(fs.existsSync(path.join(ws, "assembled")), false);
 });
 
 /* r27 必修回归：Native 根历史包并存是现存输入。组装阶段 verify-vsix-manifest 门必须显式消费

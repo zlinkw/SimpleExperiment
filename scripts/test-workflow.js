@@ -8,13 +8,13 @@
  * #3 job 身份 = realpath（win32 忽略大小写）+argv 矩阵；同文件矩阵行同组互斥；启动前核验 package.json 实际
  *    hook 图，存在任何 pre/post/保留钩子即阻断（npm 自动钩子无法证明不重复执行）。
  * #4 final profile（package/check:full/build/acceptance/smoke）拒绝 --only；通用 --reuse-receipt 拒绝。
- *    G004 增量核验仅接受该任务逐项审定的证据，不改变默认运行。
+ *    G004 专用历史复用入口已退役，当前构建使用现行测试计划。
  * #5 输入/输出 receipt 分离：run.json 独占 wx；last-*.json 仅指针；assemble 按当前计划逐项对账文件矩阵、必要
  *    gates、真实 0 退出、日志存在、输入/环境/工具链与编译产物 hash；运行中输入漂移 ⇒ invalidated 非零。
  * #6 vsce 经已安装 package.json bin 元数据解析为真实 JS + process.execPath（同 npm-command 模式），不猜 .cmd。
  * #7 先建独占日志再 spawn；taskkill 等待并捕获错误；树退出未知 ⇒ 非通过；统一 finally 结算已启动项与非零 receipt；
  *    cancel 后不再启动任何 gate；锁仅释放自己确认拥有的，未知/坏 owner 永不自动回收（人工确认后手动清理）。
- * #8 compile/fullCheck/package 类入口运行前调用 scripts/test-workflow-preflight.js 确定性闭包检查并记录进 receipt。
+ * #8 编译与组装使用当前输入及产物身份；历史闭包证明不是开发前置。
  * 全部子项独占完整 stdout/stderr、真实 pid/时刻/退出码；聚合与外层真实非零（无 echo/grep 掩码）；
  * 单调时钟分段墙钟 + 文件数 + 并行上限 + 去重计数入 run 凭据与汇总行。
  */
@@ -41,7 +41,7 @@ function fail(message, code = 1) {
 }
 
 function parseArgs(argv) {
-  const out = { entry: null, root: ROOT_DEFAULT, manifest: null, maxParallel: null, domains: [], only: [], dryRun: false, reuseRequested: false, g004Incremental: false, receipt: null, receiptOut: null, logDir: null, cancelStdin: false, includeOndemand: [] };
+  const out = { entry: null, root: ROOT_DEFAULT, manifest: null, maxParallel: null, domains: [], only: [], dryRun: false, reuseRequested: false, receipt: null, receiptOut: null, logDir: null, cancelStdin: false, includeOndemand: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--root") out.root = path.resolve(argv[++i]);
@@ -51,7 +51,7 @@ function parseArgs(argv) {
     else if (a === "--only") out.only.push(argv[++i]);
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--reuse-receipt") out.reuseRequested = true;
-    else if (a === "--g004-incremental") out.g004Incremental = true;
+    else if (a === "--g004-incremental") fail("--g004-incremental retired: run the current test plan instead of reusing G004 evidence.");
     else if (a === "--receipt") out.receipt = path.resolve(argv[++i]);
     else if (a === "--receipt-out") out.receiptOut = path.resolve(argv[++i]);
     else if (a === "--log-dir") out.logDir = path.resolve(argv[++i]);
@@ -1383,20 +1383,6 @@ async function main() {
     return 0;
   }
 
-  if (opts.g004Incremental) {
-    if (!["build", "package"].includes(opts.entry) || path.resolve(opts.root) !== ROOT_DEFAULT || opts.manifest || opts.only.length || opts.domains.length || state.maxParallel !== 1) fail("G004 incremental mode requires this repository's build or package plan and max-parallel 1");
-    const coveragePath = path.join(opts.root, "docs", "windows-entry-coverage.json");
-    const coverage = JSON.parse(fs.readFileSync(coveragePath, "utf8")).g004IncrementalCoverage;
-    state.g004Inherited = planG004Execution(opts.root, plan, coverage);
-    state.g004CoveragePath = coveragePath;
-    state.g004CoverageSha256 = sha256Fresh(coveragePath);
-    state.receipt.schemaVersion = 3;
-    state.receipt.coverageMode = "g004-incremental";
-    state.receipt.coverageSource = { path: coveragePath, sha256: state.g004CoverageSha256 };
-    state.receipt.toolchain = { node: process.version, platform: process.platform, arch: process.arch, executable: process.execPath, executableSha256: sha256Fresh(process.execPath) };
-    for (const row of state.g004Inherited) state.receipt.jobs.push(row.origin === "direct" ? row : { ...row, status: row.original.status, exitCode: row.original.exitCode, treeStatus: row.original.treeStatus, outLog: row.original.outLog, errLog: row.original.errLog });
-  }
-
   const startFingerprint = inputFingerprint(opts.root);
   state.receipt.inputFingerprint = startFingerprint;
   await fsp.mkdir(state.logDir, { recursive: true });
@@ -1481,14 +1467,6 @@ async function main() {
       await fsp.writeFile(pointer, JSON.stringify({ pointer: true, batchId, runReceipt: runPath, entry: plan.entry, overall: state.receipt.overall, totalWallMs: state.receipt.totalWallMs, inputFingerprint: startFingerprint, endedAt: state.receipt.endedAt }, null, 1));
     } catch { /* pointer is best-effort */ }
     await releaseOwnedLock(state);
-    if (state.receipt.overall === "passed" && !state.g004Inherited && (plan.phases.compile || plan.phases.fullCheck)) {
-      try { // 完整 compile+fullCheck+package 通过 = 当前闭包状态的新证明，记录进 closure-state（r29 #8 增量核的完成记录）
-        // 覆盖范围诚实分级：只有完整打包链证明“全部”；check:full/build 只重验源码与测试。
-        const covered = ["package", "acceptance"].includes(plan.entry) ? "all" : "src,test,scripts";
-        const att = spawnSync(process.execPath, [path.join(__dirname, "test-workflow-preflight.js"), "--attest", "--categories", covered, "--refs", runPath, "--root", opts.root], { cwd: opts.root, encoding: "utf8", timeout: 60000 });
-        process.stdout.write(`[test-workflow] closure re-attested: ${(att.stdout || att.stderr || "").trim().split("\n").pop()}\n`);
-      } catch { /* attestation recording never invalidates a passed run */ }
-    }
     process.stdout.write(`[test-workflow] entry=${plan.entry} overall=${state.receipt.overall} files=${state.receipt.jobs.length} maxParallel=${state.maxParallel} maxObservedConcurrent=${state.maxConcurrent || 0} dedupRemoved=${plan.dedup.duplicatesRemoved} logDir=${state.logDir}\n`);
     const sel = plan.selection;
     const jobSummary = state.g004Inherited ? `计划作业=${sel.executedJobCount} 本轮启动=${state.receipt.launchedCount} 旧回执继承=${state.receipt.coverageCounts.inherited} 直接证据=${state.receipt.coverageCounts.direct}` : `实际执行作业=${sel.executedJobCount}`;
@@ -1503,16 +1481,6 @@ async function main() {
   };
 
   try {
-    // r29 #8: deterministic closure preflight before any compile/fullCheck/package work.
-    if (plan.phases.compile || plan.phases.assemble) {
-      const preArgs = [path.join(__dirname, "test-workflow-preflight.js"), "--check", "--root", opts.root];
-      if (plan.phases.compile || plan.phases.fullCheck) preArgs.push("--full-entry"); // 本运行自身即相关变化的增量核，通过后回写证明
-      const pre = spawnSync(process.execPath, preArgs, { cwd: opts.root, encoding: "utf8", timeout: 120000 });
-      state.receipt.closurePreflight = { exit: pre.status, out: (pre.stdout || "").trim().split("\n").slice(-4), err: (pre.stderr || "").trim().split("\n").slice(-4) };
-      if (pre.status !== 0) { state.refused = "closure preflight: " + (pre.stdout || pre.stderr || "").trim().split("\n").slice(-3).join(" | "); process.stderr.write(pre.stdout || ""); process.stderr.write(pre.stderr || ""); return await writeReceiptAndRelease(1); }
-      process.stdout.write(`[test-workflow] closure preflight ok: ${(pre.stdout || "").trim().split("\n").pop()}\n`);
-    }
-
     // r29 #5: assemble validates against the CURRENT plan (package or check:full credential), item-by-item.
     if (plan.requiresReceiptForEntry) {
       const currentFingerprint = inputFingerprint(opts.root);
@@ -1532,7 +1500,7 @@ async function main() {
         if (!sourceEntryName) { verdict = { ok: false, reason: `receipt ${priorPath} entry=${prior.entry} not in [${wanted}]` }; continue; }
         const sourcePlan = planEntry(manifestFile.file, manifest, opts.root, sourceEntryName, { domains: [], only: [], root: opts.root, includeOndemand: opts.includeOndemand }); // 恢复入口必须端到端一致：验收时 --include-ondemand all，组装核对同参重算同一决策
         verdict = prior.schemaVersion === 3 && prior.coverageMode === "g004-incremental"
-          ? validateG004ReceiptForAssemble(priorPath, sourceEntryName, sourcePlan, currentFingerprint, currentArtifact, opts.root)
+          ? { ok: false, reason: "G004 historical receipt retired; use a current validated run" }
           : validateReceiptForAssemble(priorPath, sourceEntryName, sourcePlan, currentFingerprint, currentArtifact);
         verdict.receiptPath = priorPath;
         if (verdict.ok) break;
@@ -1564,6 +1532,7 @@ async function main() {
     }
 
     if (plan.phases.fullCheck) {
+      state.testArtifact = artifactFingerprint(opts.root);
       if (state.g004Inherited) {
         verifyG004CompiledInputs(opts.root, plan, JSON.parse(fs.readFileSync(state.g004CoveragePath, "utf8")).g004IncrementalCoverage, state.g004Inherited);
         state.g004TestArtifact = artifactFingerprint(opts.root);
@@ -1582,6 +1551,10 @@ async function main() {
       const spec = plan.phases[phaseName];
       if (!spec) continue;
       if (state.cancelled) return await writeReceiptAndRelease(1);
+      if (phaseName === "assemble" && plan.phases.fullCheck &&
+          (inputFingerprint(opts.root) !== startFingerprint || artifactFingerprint(opts.root) !== state.testArtifact)) {
+        throw new Error("Source or tested artifacts changed before assemble");
+      }
       if (phaseName === "assemble" && state.g004Inherited) {
         if (inputFingerprint(opts.root) !== startFingerprint || artifactFingerprint(opts.root) !== state.g004TestArtifact) throw new Error("G004 source or tested artifacts changed before assemble");
         const currentPlan = planEntry(manifestFile.file, manifest, opts.root, opts.entry, opts);
