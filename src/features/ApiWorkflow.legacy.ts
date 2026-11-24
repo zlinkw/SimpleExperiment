@@ -395,7 +395,6 @@ export function structuredMissingInventory(options: MissingInventoryOptions): Mi
   const setup = options.setup && typeof options.setup === "object" ? options.setup : {};
   const topology = options.topology && typeof options.topology === "object" ? options.topology : {};
   const simpleSftp = options.simpleSftp && typeof options.simpleSftp === "object" ? options.simpleSftp : {};
-  const project = options.project && typeof options.project === "object" ? options.project : {};
   const plan = options.plan && typeof options.plan === "object" ? options.plan : {};
   const workers = Array.isArray(setup.workerTunnels) ? setup.workerTunnels.filter((worker) => worker && typeof worker === "object" && worker.enabled !== false) : [];
   const requirePlan = options.requirePlan !== false;
@@ -466,17 +465,6 @@ export function structuredMissingInventory(options: MissingInventoryOptions): Mi
         options: ["plans.list", "plans.filter"],
         requiredConfirm: ["confirm"],
       });
-    } else {
-      const diagnosticsRows = Array.isArray(project.outputGateDiagnosticsRows) ? project.outputGateDiagnosticsRows : [];
-      const missingRows = Array.isArray(project.outputGateMissing) ? project.outputGateMissing : diagnosticsRows.filter((row) => row && row.ok === false);
-      if (missingRows.length) {
-        missing.push({
-          step: "validate_plan",
-          reason: `Plan 或项目输出契约未通过：${missingRows.map((row) => String(row.label || row.step || "") || "输出契约").join("、")}。`,
-          options: ["generateOutputAdapter", "config.set"],
-          requiredConfirm: ["confirm"],
-        });
-      }
     }
   }
   return missing;

@@ -687,6 +687,8 @@ export function parsePlanSummary(yaml) {
         return existingCandidates.has(candidate) || existingCandidateKeys.has(normalizeOutputCandidateKey(candidate));
     });
     return {
+        declaredCommand: firstTopLevelPlanScalar(clean, anchors, "command"),
+        workingDirectory: firstTopLevelPlanScalar(clean, anchors, "working_dir") || ".",
         suite: firstTopLevelPlanScalar(clean, anchors, "suite"),
         mode,
         modeRaw,

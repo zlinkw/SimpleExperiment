@@ -3983,7 +3983,6 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         const bindingGeneration = this.projectContextGeneration;
         await this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
-        const __root = workspaceRoot() || "";
         await Promise.all([
             this.refreshLocalPlanMetadataForAction(params).catch((error) => {
                 this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
@@ -3991,27 +3990,6 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         ]);
         WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
         const plan = this.apiResolveSelectedPlan(params);
-        if (__root && await fs.stat(path.join(__root, "experiments", "simple_project.yaml")).then((stat) => stat.isFile()).catch(() => false)) {
-            // 探查默认指令是否可执行，仅失败时提示（附尾部日志，经脱敏与换行固化）
-            try {
-                const rules = await readProjectAdapterRules(__root, "experiments/simple_project.yaml").catch(()=>null);
-                const selectedText = plan?.planFile ? await fs.readFile(path.join(__root, plan.planFile), "utf8") : "";
-                const commands = selectedText ? PlanBuilder_1.parsePlanSummary(selectedText) : {};
-                const templates = uniqueStrings([commands.trainCommand, commands.testCommand].filter(Boolean));
-                if (!templates.length) templates.push(String((rules as any)?.trainCommandTemplate || DEFAULT_TRAIN_TEMPLATE));
-                const probes = await Promise.all(templates.map(template => probeEntrypointTemplate(__root, template)));
-                const probe = probes.find(row => !row.ok) || { ok: true };
-                if (!probe.ok) {
-                    const rawTail = String(probe.tail || "").slice(-800);
-                    const tail = rawTail.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 800).replace(/`/g, "'").replace(/\$\{/g, "{");
-                    const safeError = String(probe.error || "").slice(0, 300).replace(/[\r\n]+/g, " ").trim();
-                    throw new Error(`默认指令执行失败：${safeError}，请在设置中修改 entrypoints.trainCommandTemplate${tail?String.fromCharCode(10)+"尾部日志: "+tail:""}`);
-                }
-            } catch (e:any) {
-                const msg = String(e?.message||"");
-                if (msg.includes("默认指令执行失败")) throw e;
-            }
-        }
         WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
         const topology = this.projectTopologyAssessment();
         const missing = ApiWorkflow_1.structuredMissingInventory({
@@ -4022,19 +4000,6 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             project: this.localPlanMetadata.detectedProject,
             plan,
         });
-        if (plan) {
-            const diagnostics = projectOutputGateDiagnostics(this.localPlanMetadata.detectedProject || {}, plan);
-            for (const row of diagnostics.rows || []) {
-                if (row.ok)
-                    continue;
-                missing.push({
-                    step: row.label === "计划强契约" ? "validate_plan" : "dry_run",
-                    reason: `${row.label}：${row.fix || "当前配置未满足该检查"}`,
-                    options: [String(row.fix || "")].filter(Boolean),
-                    requiredConfirm: ["confirm"],
-                });
-            }
-        }
         const expectedHubRoot = this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir;
         const hubProbe = this.lastProbe
             ? enforceExpectedAgentProjectRoot(this.lastProbe, expectedHubRoot, "Hub")
@@ -4056,12 +4021,12 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         }
         const unique = new Map(missing.map((item) => [`${item.step}:${item.reason}`, item]));
         const rows = [...unique.values()];
-        let validation, timing = {};
+        let validation, entrypoint, timing = {};
         if (!rows.length && plan) {
             const body = { ...params, planFile: plan.planFile || plan.file, options: { ...(params.options || {}) } };
             try {
                 this.stampPlanRevision(body);
-                await this.assertPlanLocalConfigFiles(body);
+                entrypoint = await this.assertPlanLocalConfigFiles(body);
                 await this.ensureWorkerPoolPlanTarget(body, body.planFile);
                 this.assertPlanSchedulerAgentReady("validatePlan", body);
                 WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
@@ -4073,6 +4038,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 validation = planValidationFromResult(result);
                 if (!validation?.ok) throw new Error("远端结构校验未返回成功结果");
             } catch (error) {
+                if (errorMessage(error).startsWith("PLAN 命令静态检查失败：")) entrypoint = { checked: true, ok: false };
                 rows.push({ step: "validate_plan", reason: errorMessage(error), options: ["validatePlan"], requiredConfirm: [] });
             }
         }
@@ -4085,6 +4051,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             validation, timing,
             checks: { structure: rows.some(row => ["validate_plan", "dry_run"].includes(row.step)) ? "failed" : validation ? "passed" : "not_verified",
                 workers: rows.some(row => row.step === "prepare_agents") ? "not_ready" : "ready",
+                entrypoint: entrypoint?.checked ? (entrypoint.ok ? "passed" : "failed") : "not_verified",
                 remoteExecution: "not_started", projectScience: "project_owned_not_executed" },
         };
     }
@@ -7995,7 +7962,7 @@ return this.testTunnel(true);
         if (!action)
             throw new Error(`未知或未放行的动作：${command}`);
         assertSingleProjectWorkspace("远端实验操作");
-        if (["runPlan", "reproducePlan", "parseResults"].includes(command)) {
+        if (command === "parseResults") {
             const root = workspaceRoot();
             const syncContext = this.captureProjectContext();
             const rules = root ? pluginProjectAdapterRules(root) : {};
@@ -8092,14 +8059,6 @@ return this.testTunnel(true);
             assertWorkflowCurrent();
             const plan = this.localPlanForActionBody(body);
             const distributedPlan = ["runPlan", "reproducePlan"].includes(command) && this.distributedPlanEligible(operationResultPlanFile(body) || plan?.planFile || plan?.file);
-            const outputGateReason = projectOutputGateReason(this.localPlanMetadata.detectedProject, plan);
-            if (outputGateReason) {
-                if (LENIENT_RUN) {
-                    recordLenientSoftPass(this, "outputGate", String(outputGateReason));
-                } else {
-                    throw new Error(outputGateReason);
-                }
-            }
             this.reportPlanStage(message, "正在选择调度 Worker…");
             const selectWorkerStarted = Date.now();
             if (distributedPlan) await this.selectDistributedPlanPrimary(body);
@@ -9225,28 +9184,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return;
         const text = await fs.readFile(safeWorkspacePlanPath(root, file, planDirSafe()), "utf8");
         const summary = (0, PlanBuilder_1.parsePlanSummary)(text);
-        const missing = [];
-        const configReferences = planRuntimeConfigReferences(text, summary.mode);
-        const legacyRestoredConfigs = configReferences.filter((relative) => /^simple_cluster\/restored_configs\//i.test(relative));
-        if (legacyRestoredConfigs.length) {
-            throw new Error(`旧恢复 Plan 的配置位于本地状态目录，不会上传到服务器：${legacyRestoredConfigs.join("、")}。请从已归档计划卡再次点击“恢复”，生成可同步的新版本。`);
-        }
-        for (const relative of configReferences) {
-            const stat = await fs.stat(safeWorkspaceChildPath(root, relative)).catch(() => undefined);
-            if (!stat?.isFile())
-                missing.push(relative);
-        }
-        if (missing.length)
-            throw new Error(`当前 Plan 引用的配置文件不存在：${missing.join("、")}。`);
-        const commands = uniqueStrings(planCommandValues(text, summary.mode));
-        const missingEntries = [];
-        for (const relative of uniqueStrings(commands.flatMap(pythonCommandEntryReferences))) {
-            const stat = await fs.stat(safeWorkspaceChildPath(root, relative)).catch(() => undefined);
-            if (!stat?.isFile())
-                missingEntries.push(relative);
-        }
-        if (missingEntries.length)
-            throw new Error(`当前 Plan 的 Python 入口文件不存在：${missingEntries.join("、")}。请修正 runner 命令后再校验或运行。`);
+        const working = String(summary.workingDirectory || ".");
+        if (!summary.declaredCommand || /[${}*?]/.test(working)) return;
+        const cwd = working === "." ? root : safeWorkspaceChildPath(root, working);
+        const probe = await staticEntrypointProbe(cwd, summary.declaredCommand);
+        if (!probe.ok) throw new Error(`PLAN 命令静态检查失败：${probe.error}`);
+        return probe;
     }
     stampPlanRevision(body, plan = this.localPlanForActionBody(body)) {
         const revision = String(plan?.revision || "").trim();
