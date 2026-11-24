@@ -76,3 +76,5 @@ GPU及自动观察六旧direct逐项条件适用、新guard真实执行、原假
 planRunQueryRegression与planRunRecovery夹具仅补实际project context接口，原断言保留，两次node --check exit0仅语法；旧full6/7撤当前资格、原事件/输入/工具链保留。未来仅最终源码与夹具冻结、真实新编译后各原20秒full一次，均未运行；原私有receipt/受控Python假端边界见计划及coverage。总控计划先写16345后90%断言exit1，再归并至15944并补至16183；首次只读误以fc0 legacy8067为1e91断言失败后纠正，均非测试失败。
 
 parallelPlanSubmission夹具仅从当前源码AST唯一提取真实samePath并注入现有globals，原12case/断言与等待不改；node --check exit0仅语法。旧full撤当前资格，未来仅SOURCE/fixture冻结及真实新编译后原20秒full12一次，尚未运行。总控计划先压缩实际落盘15907后自设15800目标assert exit1，正式16200未超，后补至16196再归并；非写前零写、非测试失败。
+
+总控审planRunHoldClearedChain、preflightDispatchRejection、failedJobCleanup旧direct，仅6/5/4指定依赖条件适用；原私有receipt/PLAN/config真实atomic写读、受控Python与fake队列/Worker保留，新增guard合法分支执行、optional callback未调用。未新运行、真实Worker/删除或新dist。
