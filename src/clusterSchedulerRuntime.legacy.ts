@@ -13,6 +13,7 @@ import csv
 import errno
 import hashlib
 import importlib.util
+import itertools
 import json
 import os
 import random
@@ -44,6 +45,7 @@ EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
 TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
 FORMAL_JOB_PREFLIGHT_STAGES_PROTOCOL = 1
 PROJECT_MANAGED_VALIDATION_PROTOCOL = 1
+DECLARED_COMMAND_PROTOCOL = 1
 
 ${RUNTIME_DEPENDENCIES_PYTHON}
 runtime_dependency_prepare()
@@ -2718,72 +2720,80 @@ def print_job_dir_mode(args: argparse.Namespace) -> None:
     raise SystemExit(f"No job selected for index {args.only_index}.")
 
 
+def declared_command_jobs(plan: dict[str, Any], root: Path) -> list[dict[str, Any]]:
+    """Resolve a new PLAN into immutable commands before queue admission."""
+    for key in ("plan_id", "name", "command", "output_dir"):
+        if not isinstance(plan.get(key), str) or not plan[key].strip():
+            raise ValueError("PLAN_FIELD_REQUIRED: " + key)
+    if not re.fullmatch(r"[A-Za-z0-9._-]+", plan["plan_id"].strip()):
+        raise ValueError("PLAN_ID_INVALID")
+    matrix = plan.get("matrix", {})
+    if not isinstance(matrix, dict) or any(not isinstance(k, str) or not k or not isinstance(v, list) or not v for k, v in matrix.items()):
+        raise ValueError("PLAN_MATRIX_INVALID")
+    for values in matrix.values():
+        if any(not isinstance(value, (str, int, float, bool)) for value in values):
+            raise ValueError("PLAN_MATRIX_VALUE_INVALID")
+    keys = list(matrix)
+    combinations = itertools.product(*(matrix[key] for key in keys))
+    outputs = plan.get("outputs", [])
+    if not isinstance(outputs, list) or any(not isinstance(value, str) or not value.strip() for value in outputs):
+        raise ValueError("PLAN_OUTPUTS_INVALID")
+    def render(value, params):
+        for key, item in params.items():
+            value = value.replace("{matrix." + key + "}", str(item))
+        return value
+    jobs = []
+    for index, values in enumerate(combinations):
+        params = dict(zip(keys, values))
+        output = safe_project_relative_path(root, render(plan["output_dir"], params), "output_dir")
+        cwd = safe_project_relative_path(root, render(str(plan.get("working_dir") or "."), params),
+                                         "working_dir", allow_root=True, require_exists=True, require_directory=True)
+        declared = [safe_project_relative_path(root, render(value, params), "outputs") for value in outputs]
+        def overlaps(left, right):
+            return left == right or left.startswith(right + "/") or right.startswith(left + "/")
+        if any(overlaps(left, right) for row in jobs
+               for left in [output, *declared] for right in [row["output_dir"], *row["outputs"]]):
+            raise ValueError("PLAN_OUTPUT_OVERLAP: " + output)
+        jobs.append({"index": index, "name": plan["name"].strip(), "command": render(plan["command"], params),
+                     "working_dir": cwd, "output_dir": output, "outputs": declared, "matrix": params})
+    return jobs
+
+
 def validate_plan_mode(args: argparse.Namespace) -> None:
     global PLAN_VALIDATION_INPUT_FILES
     PLAN_VALIDATION_INPUT_FILES = set()
     project_root = Path.cwd()
-    plan, jobs = build_jobs(load_plan(args.plan), args.default_result_csv_dir)
-    mode = plan_execution_mode(plan, args.mode)
-    if not jobs:
-        raise SystemExit("plan produced no jobs")
-    missing: list[str] = []
-    if mode in {"train", "train_test"} and any(not job.train_command for job in jobs) and not (project_root / "train.py").is_file():
-        missing.append("train.py, runner.train_command 或 simple_project.entrypoints.trainCommandTemplate")
-    if mode in {"test", "train_test"} and any(not job.test_command for job in jobs) and not (project_root / "test.py").is_file():
-        missing.append("test.py, runner.test_command 或 simple_project.entrypoints.testCommandTemplate")
-    if missing:
-        raise SystemExit("缺少必要运行入口：" + ", ".join(missing))
-    path_check = result_path_preflight(project_root, jobs, execution_mode=mode)
-    if not path_check["ok"]:
-        raise SystemExit("；".join(path_check["missing"]))
-    output_interface = output_interface_report(project_root, jobs)
-    if not output_interface["ok"]:
-        raise SystemExit("输出接口预检失败：" + "；".join(output_interface["missing"]))
-    existing = detect_existing_outputs(jobs)
-    payload = {
-        "ok": True,
-        "plan": args.plan,
-        "suite": str(plan.get("suite") or ""),
-        "execution_mode": mode,
-        "result_path_policy": "declared",
-        "job_count": len(jobs),
-        "outputInterface": output_interface,
-        "resultPathPreflight": path_check,
-        "structuralInputPaths": sorted(PLAN_VALIDATION_INPUT_FILES),
-        "existingCount": len(existing),
-        "existing": existing,
-        "jobs": [
-            {
-                "index": job.index,
-                "case": job.case,
-                "seed": job.seed,
-                "output_dir": job.output_dir,
-                "result_csv": job.result_csv,
-                "result_path_policy": "declared",
-                "checkpoint_source": job.config.get("runtime", {}).get("checkpoint_source"),
-                "inputs": list(job.inputs or ()),
-            }
-            for job in jobs
-        ],
-    }
-    print(json.dumps(payload, ensure_ascii=False), flush=True)
+    declared = load_plan(args.plan)
+    jobs = declared_command_jobs(declared, project_root)
+    existing = []
+    for job in jobs:
+        target = project_root / job["output_dir"]
+        if target.exists() and (not target.is_dir() or any(target.iterdir())):
+            existing.append({"index": job["index"], "output_dir": job["output_dir"]})
+    print(json.dumps({"ok": True, "plan": args.plan, "plan_id": declared["plan_id"].strip(),
+                      "name": declared["name"].strip(), "result_path_policy": "declared",
+                      "job_count": len(jobs), "existingCount": len(existing), "existing": existing,
+                      "jobs": jobs}, ensure_ascii=False), flush=True)
+    return
 
 
 def dry_run_plan_mode(args: argparse.Namespace) -> None:
     project_root = Path.cwd()
     plan = load_plan(args.plan)
-    jobs = jobs_for_args(plan, args)
-    mode = plan_execution_mode(plan, args.mode)
-    path_check = result_path_preflight(project_root, jobs, execution_mode=mode)
-    if not path_check["ok"]:
-        raise SystemExit("；".join(path_check["missing"]))
+    jobs = declared_command_jobs(plan, project_root)
+    allowed = set(only_indices_for_args(args))
+    if allowed:
+        missing = allowed.difference(job["index"] for job in jobs)
+        if missing:
+            raise SystemExit("Assigned experiment indices are not present in Plan: " + ",".join(str(index) for index in sorted(missing)))
+        jobs = [job for job in jobs if job["index"] in allowed]
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8")) if args.workers_json else []
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
     refresh_missing_worker_availability(workers, args.availability_path)
     simulated_active: dict[str, dict[str, Any]] = {}
-    queue = deque(job.index for job in jobs)
-    jobs_by_index = {int(job.index): job for job in jobs}
+    queue = deque(job["index"] for job in jobs)
+    jobs_by_index = {int(job["index"]): job for job in jobs}
     assignments: list[dict[str, Any]] = []
     dispatch_probe: list[dict[str, Any]] = []
     for worker in ordered_workers_for_dispatch(workers):
@@ -2798,12 +2808,11 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
             simulated_active[slot_key] = {"worker_id": worker.get("id"), "gpu_id": gpu_id, "experiment_index": experiment_index}
             assignments.append({
                 "experimentIndex": experiment_index,
-                "case": job.case,
-                "seed": job.seed,
+                "case": job["name"],
                 "workerId": str(worker.get("id") or ""),
                 "workerName": str(worker.get("name") or worker.get("id") or ""),
                 "gpuId": str(gpu_id),
-                "outputDir": job.output_dir,
+                "outputDir": job["output_dir"],
                 "reason": "dry_run_slot_available",
             })
     blocked_reasons: list[str] = []
@@ -2817,17 +2826,10 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
                 blocked_reasons.append(f"{probe.get('worker_id') or probe.get('worker_name')}: {','.join(reasons) or 'no_idle_gpu'}")
             else:
                 blocked_reasons.append(f"{probe.get('worker_id') or probe.get('worker_name')}: no_idle_gpu")
-    runner_missing: list[str] = []
-    if mode in {"train", "train_test"} and any(not job.train_command for job in jobs) and not (project_root / "train.py").is_file():
-        runner_missing.append("train.py, runner.train_command 或 simple_project.entrypoints.trainCommandTemplate")
-    if mode in {"test", "train_test"} and any(not job.test_command for job in jobs) and not (project_root / "test.py").is_file():
-        runner_missing.append("test.py, runner.test_command 或 simple_project.entrypoints.testCommandTemplate")
-    output_interface = output_interface_report(project_root, jobs)
     payload = {
         "schemaVersion": 1,
-        "ok": bool(output_interface["ok"]),
+        "ok": True,
         "mode": "dry-run-plan",
-        "executionMode": mode,
         "plan": args.plan,
         "suite": str(plan.get("suite") or ""),
         "totalExperiments": len(jobs),
@@ -2838,10 +2840,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
         "assignments": assignments,
         "queuedExperimentIndexes": list(queue),
         "blockedReasons": blocked_reasons,
-        "runnerWarnings": runner_missing,
-        "outputInterface": output_interface,
-        "resultPathPreflight": path_check,
-        "availabilitySource": "hub_availability_cache",
+        "availabilitySource": "worker_availability_cache",
         "workerStatusTtlSeconds": worker_status_ttl_seconds,
         "dispatchProbe": dispatch_probe,
         "generatedAt": now(),

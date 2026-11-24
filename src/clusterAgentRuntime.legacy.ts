@@ -3068,7 +3068,7 @@ def renew_code_sync_proof_runtime(root, proof, row):
 def resolve_durable_code_sync_proof(root, row):
     if row.get("executionSource"):
         return verify_plan_execution_source(root, row, row["executionSource"])
-    if row.get("lifecycleProtocol") == 2 and row.get("planFile") and row.get("planRevision"):
+    if not row.get("command") and row.get("lifecycleProtocol") == 2 and row.get("planFile") and row.get("planRevision"):
         source = inspect_plan_code_scope(root, row)["executionSource"]
         row["executionSource"] = source
         return verify_plan_execution_source(root, row, source)
@@ -5854,6 +5854,39 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     threading.Thread(target=wait_task, daemon=True, name=f"worker-task-{command_id}").start()
     return result
 
+def execute_declared_command(root, command):
+    command_id = str(command["commandId"])
+    project_dir = os.path.realpath(root)
+    working = command["workingDirectory"]
+    cwd = project_dir if working == "." else task_safe_path(project_dir, working)
+    output = task_safe_path(project_dir, command["outputDir"])
+    resolve_durable_code_sync_proof(project_dir, command)
+    os.makedirs(output, exist_ok=True)
+    log_relative = worker_task_console_log(command_id)
+    log_path = safe_project_path(project_dir, log_relative)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    env = formal_job_command_env(command)
+    env.update(SIMPLE_EXPERIMENT_MANAGED_JOB="1", SIMPLE_EXPERIMENT_JOB_COMMAND_ID=command_id,
+               SIMPLE_EXPERIMENT_JOB_PROJECT_ID=str(command["projectId"]), SIMPLE_EXPERIMENT_TASK_LIFECYCLE="2",
+               SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH=log_relative)
+    conda = str(command.get("condaEnv") or "").strip()
+    env["SIMPLE_EXPERIMENT_CONDA_ENV"] = conda
+    env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1" if conda else "0"
+    if command.get("gpuId"):
+        env["CUDA_VISIBLE_DEVICES"] = str(command["gpuId"])
+    pane = os.environ.get("TMUX_PANE")
+    if not pane:
+        raise RuntimeError("TASK_WINDOW_REQUIRED")
+    task_option(pane, "log", log_relative)
+    shell = env.get("SHELL") or "/bin/bash"
+    args = [shell, "-lc", command["command"]]
+    prefix = job_shell_environment_prefix(env, args)
+    pipeline = "set -o pipefail; " + prefix + " " + shlex.join(simple_conda_wrapped_args(args, env)) + " 2>&1 | tee -a " + shlex.quote(str(log_path)) + "; exit \"\u0024{PIPESTATUS[0]}\""
+    child_env = {key: value for key, value in os.environ.items() if key in (
+        "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "SHELL", "TMUX", "TMUX_PANE", "CONDA_EXE")}
+    result = subprocess.run(["bash", "-c", pipeline], cwd=cwd, env=child_env)
+    return {"commandId": command_id, "status": "completed" if result.returncode == 0 else "failed", "exitCode": result.returncode}
+
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
     if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 and (action == "stop-worker-task"
@@ -5866,7 +5899,7 @@ def execute_worker_command(root, command, worker_id):
             if command.get("_lifecycleRunner") is True:
                 if globals().get("NATIVE_TASK_RUNNER_CONTEXT") != (command.get("commandId"), os.environ.get("TMUX_PANE"), os.path.realpath(root)):
                     raise ValueError("TASK_RUNNER_CONTEXT_REQUIRED: cannot execute a job in the Agent window")
-                return _execute_worker_command_unfenced(root, command, worker_id)
+                return execute_declared_command(root, command)
             # The Host overwrites this top-level transport field from its global
             # setting. Persisted runner jobs and options cannot update that value.
             if command.get("tmuxSessionPrefix") is not None:
@@ -6638,6 +6671,13 @@ def project_managed_validation_capable(root):
     except (OSError, TypeError):
         return False
 
+def declared_command_capable(root):
+    try:
+        with open(cluster_scheduler_path(root), "r", encoding="utf-8") as stream:
+            return project_managed_validation_capable(root) and "DECLARED_COMMAND_PROTOCOL = 1" in stream.read(8192)
+    except (OSError, TypeError):
+        return False
+
 def api_capabilities(root, token_required=False, mode="worker_telemetry"):
     if mode == "worker_telemetry":
         return {
@@ -6659,6 +6699,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "workerAvailability": True,
                 "workerTasks": True,
                 "taskLifecycle": 2,
+                "declaredCommand": 1 if declared_command_capable(root) else 0,
                 "sourceDecouple": 1,
                 "runtimeDiagnostics": 1,
                 "declaredJobPaths": formal_job_path_capable(root),
@@ -11855,8 +11896,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         try:
             validation = scheduler_validate_json(root, scheduler, plan, default_result_csv_dir, options=action_options(payload))
             job_count = int(validation.get("job_count") or len(validation.get("jobs") or []))
-            execution_mode = str(validation.get("execution_mode") or "train_test")
-            return terminal_action(root, action, operation_id, op_id, "completed", f"计划校验通过：模式 {execution_mode}，任务 {job_count}", {"validation": validation, "jobCount": job_count, "executionMode": execution_mode}, request=payload)
+            return terminal_action(root, action, operation_id, op_id, "completed", f"计划校验通过：任务 {job_count}", {"validation": validation, "jobCount": job_count}, request=payload)
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
     if action == "dry-run-plan":

@@ -139,11 +139,13 @@ def task_execution_inventory(root, queries=()):
     recalls_by_worker = {}
     for row in rows:
         public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
-                  "experimentIndex", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
+                  "experimentIndex", "outputDir", "outputs", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
                   "executionMode", "mode", "checkpointTestOnly", "runKey", "case", "seed", "configPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
         observed = {
             "lifecycleProtocol": 2, "commandId": row["commandId"], "projectId": row["projectId"], "workerId": row["workerId"],
             "observedAt": now_iso(), "tmux": None}
+        if isinstance(row.get("command"), str) and row["command"].strip():
+            observed["executionContract"] = "declared-command-v1"
         if row.get("tmuxPane"):
             observed["tmux"] = {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"],
                                 "dead": row["dead"], "exitCode": row["exitCode"], "phase": row["phase"]}
@@ -314,6 +316,24 @@ def task_manifest_observation(root, job):
             "identityMatches": bool(identity_matches), "verified": bool(present and identity_matches), "artifactsComplete": bool(present and identity_matches)}
 
 def task_public_observation(root, job, row=None):
+    if isinstance(job.get("command"), str) and job["command"].strip():
+        execution = "missing"
+        if row:
+            execution = ("unknown" if row["exitCode"] is None else "exited" if row["exitCode"] == 0 else "failed") if row["dead"] else (
+                "queued" if row["phase"] in ("queued", "bound") else "starting" if row["phase"] in ("admitted", "starting") else "running" if row["phase"] == "running" else "unknown")
+        status = "queued" if execution in ("queued", "starting") else "running" if execution == "running" else "completed" if execution == "exited" else "failed" if execution == "failed" else "unknown"
+        observed = {"lifecycleProtocol": 2, "executionContract": "declared-command-v1", "commandId": job["commandId"],
+                    "projectId": job["projectId"], "workerId": job["workerId"], "observedAt": now_iso(), "tmux": None}
+        if row:
+            observed["tmux"] = {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"], "dead": row["dead"],
+                                "exitCode": row["exitCode"], "phase": row["phase"]}
+        public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision",
+            "codeFingerprint", "experimentIndex", "case", "outputDir", "outputs", "resultPathPolicy", "planJobCount", "fullPlanJobCount",
+            "enqueuedAt", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}
+        return {**public, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
+                "status": status, "executionState": execution, "resultState": "not_required", "completionState": "verified" if status == "completed" else "unverified",
+                "successful": status == "completed", "logPath": row.get("logPath") if row else "", "observation": observed,
+                "lifecycleProtocol": 2, "durableAccepted": True}
     result_error = ""
     try:
         result = task_manifest_observation(root, job)
@@ -430,6 +450,11 @@ def task_declared_results(root, declarations, tasks=()):
     results = []
     for declaration in declarations:
         try:
+            if isinstance(declaration.get("command"), str) and declaration["command"].strip():
+                output = declaration["output_dir"]
+                results.append({"index": declaration["index"], "outputDir": output,
+                                "exists": os.path.lexists(task_safe_path(root, output)), "completed": False})
+                continue
             if declaration.get("collect") is True:
                 results.append(task_collection_result(root, declaration))
                 continue
@@ -840,7 +865,7 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
 def task_queue_job(root, worker_id, command):
     allowed = {"action", "commandId", "operationId", "runKey", "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint",
                "globalJobId", "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount",
-               "fullPlanJobCount", "enqueuedAt", "workerId", "gpuId", "requireIdleGpu", "executionMode", "mode", "checkpointSource",
+               "fullPlanJobCount", "enqueuedAt", "workerId", "gpuId", "requireIdleGpu", "command", "workingDirectory", "outputs",
                "checkpointTestOnly", "condaEnv", "distributedResults", "codeSyncProofId", "codeManifest", "manifestDigest", "executionSource", "tmuxSessionPrefix", "maxConcurrentGpus",
                "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol", "dispatchPolicy",
                "gpuMemoryRatioEnabled", "gpuMemoryPerJobGb", "gpuMemoryMaxJobsPerGpu", "gpuMemoryReserveGb", "gpuMemoryTolerancePercent",
@@ -859,11 +884,21 @@ def task_queue_job(root, worker_id, command):
         raise ValueError("MANUAL_GPU_REQUIRED")
     if not re.fullmatch(r"[a-zA-Z0-9._:-]{1,128}", str(job.get("commandId") or "")):
         raise ValueError("TASK_COMMAND_ID_REQUIRED")
-    for key in ("projectId", "workflowId", "planFile", "outputDir", "collectionResultCsv", "planRevision", "codeFingerprint", "globalJobId"):
+    for key in ("projectId", "workflowId", "planFile", "outputDir", "planRevision", "codeFingerprint", "globalJobId", "command"):
         if not job.get(key):
             raise ValueError("TASK_IDENTITY_REQUIRED: " + key)
-    for key in ("planFile", "outputDir", "collectionResultCsv"):
+    if not isinstance(job["command"], str) or not job["command"].strip():
+        raise ValueError("TASK_COMMAND_REQUIRED")
+    if not isinstance(job.get("outputs"), list) or any(not isinstance(item, str) for item in job["outputs"]):
+        raise ValueError("TASK_OUTPUTS_INVALID")
+    for key in ("planFile", "outputDir"):
         task_safe_path(root, job[key])
+    for output in job["outputs"]:
+        task_safe_path(root, output)
+    working = str(job.get("workingDirectory") or ".")
+    if working != ".":
+        task_safe_path(root, working)
+    job["workingDirectory"] = working
     index = job.get("experimentIndex")
     if not isinstance(index, int) or isinstance(index, bool) or index < 0 or job["globalJobId"] != job["workflowId"] + ":" + str(index):
         raise ValueError("TASK_GLOBAL_JOB_ID_MISMATCH")
@@ -874,14 +909,15 @@ def task_queue_job(root, worker_id, command):
     job.update(root=os.path.realpath(root), lifecycleProtocol=2, runKey=job["commandId"], action="start-worker-task")
     overlap = lambda a, b: a == b or a.startswith(b + "/") or b.startswith(a + "/")
     if any(not row["dead"] and row["commandId"] != job["commandId"] and
-           any(overlap(str(row.get(a) or ""), job[b]) for a in ("outputDir", "collectionResultCsv") for b in ("outputDir", "collectionResultCsv"))
+           any(overlap(str(old), new) for old in (row.get("outputDir"), row.get("collectionResultCsv"), *(row.get("outputs") or [])) if old
+               for new in (job["outputDir"], *job["outputs"]))
            for row in task_inventory(root)):
         raise ValueError("TASK_OUTPUT_BUSY: another managed tmux job uses this declared output/result")
     return job
 
 def task_queue_accept(root, worker_id, command, window, prepared=None):
     job = prepared if prepared is not None else task_queue_job(root, worker_id, command)
-    title = pathlib.Path(job["planFile"]).stem + "·" + str(job.get("case") or job.get("experimentIndex")) + "·seed" + str(job.get("seed")) + "·" + job["commandId"][-8:]
+    title = pathlib.Path(job["planFile"]).stem + "·" + str(job.get("case") or job.get("experimentIndex")) + "·" + job["commandId"][-8:]
     title = title.replace(":", "_").replace("\n", "_")[:160]
     runner = [sys.executable, "-B", os.path.abspath(__file__), "task-runner", "--project-dir", root, "--worker-id", worker_id]
     if "agent_dir" in globals():
@@ -1107,7 +1143,7 @@ def task_queue_serve(root, worker_id):
                             # Match admission's top-level-over-options precedence without rerunning
                             # launch/source probes for an already accepted command.
                             identity = {**(payload.get("options") if isinstance(payload.get("options"), dict) else {}), **payload}
-                            if any(found.get(key) != identity.get(key) for key in ("projectId", "workerId", "workflowId", "experimentIndex", "globalJobId", "case", "seed", "outputDir", "collectionResultCsv")):
+                            if any(found.get(key) != identity.get(key) for key in ("projectId", "workerId", "workflowId", "experimentIndex", "globalJobId", "case", "seed", "outputDir", "collectionResultCsv", "command", "workingDirectory", "outputs")):
                                 raise ValueError("TASK_COMMAND_ID_CONFLICT")
                             value = task_public_observation(root, found, found)
                         elif command_id in accepted:
