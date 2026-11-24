@@ -10,7 +10,7 @@
 
 总控兼最终审查《总控·SimpleExperiment G004 集中查修与交付 接续7》01a20b6f-b281-7250-9b61-32bec825e6f9/local，resolved/turn均Sol/high/default、match/continue，完整读必要材料。旧root01a20ae8自然阈值6/300163触发，收到完整回执后明确释放、无在途；工具确认turn completed/idle、coverage无物理引用，已安全归档。原rollout文件名rollout-2026-11-24T08-15-25-01a20ae8-48ee-7ca1-a771-6f137bc5594e.jsonl，迁前sessions/2026/11/24、迁后archived_sessions（均在C:/Users/ZLK/.codex下），22680687字节/SHA256 f7bd5b4ba904b1e593d61270b2c59b338508ae2441ee4692ecd4205f957e1818逐字节一致。旧root5归档原证见5b7f1ce2，更早60c8b277；tier仅记录。
 
-唯一执行01a209da-8e0d-7381-b4e5-e2d6c9c8d768/local，Terra/high/default、resolved/turn match/continue，独占产品/API/MCP/UI/test/execution/coverage及两仓串行Git；已一次通知新报送目的地。root仅plan/README、协调/最终源审，不索ack/重派/加代理/抢测试。旧执行01a208e7已释放无在途，交权见60c8b277；其31544955字节原rollout因8个物理证据引用保持UNARCHIVED。按全局事件规则收事件、推进独立工作，无待办才角色空闲，执行有工作继续；归档须旧turn完成及原证安全，不删聊天。
+唯一执行01a20b7e-db4e-78d1-b31a-979cb5dfc215/local，Terra/high/default、resolved/turn match/continue，完整必要背景及四HEAD核实后已正式接管产品/API/MCP/UI/test/execution/coverage及两仓串行Git。旧执行01a209da自然阈值10/300299接替，明确释放且无在途；26处coverage物理引用其原rollout，40499413字节/SHA256 0f947052e12678fb48ddc94bf2824eb964044cbe7a2b7a2413aae4bd956db734，保持未归档。root仅plan/README、协调/最终源审，不索ack/重派/加代理/抢测试。更早01a208e7已释放无在途（60c8b277），31544955字节原rollout因8个物理引用保持UNARCHIVED。按全局事件规则推进独立工作，无待办才角色空闲；归档须旧turn完成及原证安全，不删聊天。
 
 普通Windows原工作区，非Pi/自制容器。SE D:/GitRepo/MCP/zlk-cluster-orchestrator，master→origin/master，origin=https://github.com/zlinkw/SimpleExperiment.git，接班亲核8ea3d142、最近亲核beb4e462四HEAD一致/index空。SFTP D:/GitRepo/MCP/simple-sftp，origin=https://github.com/zlinkw/SimpleSFTP.git，亲核953fba2a、tracked clean，旧untracked保留。用户持续授权相关SFTP修复、消费者回归及统一试行，不扩全功能审计。
 
@@ -75,7 +75,7 @@ sourceJob旧dirty/toolchain未知只按实际提取闭包条件适用，不改�
 - freshResultHost26、planJobDeleteRequeue11、planJobDeleteRequeueCoverage29、planJobDeleteRequeueProduction9、stopRoutingAndResultParseDedup12、distributedPlanExecutionMode10。
 - selectedPlanBatch14、simpleSftpCapabilityOncePerLaunch13、runtimeLogAnalysisHost20（旧19不冒20）、planSubmissionVisiblePreflight25。
 - planStopClear39、serverQueueDispatch16、serverQuotaPersistence10、staleQueueRoundBehavior10、mcpProject44。
-- resultDatasetHierarchy14、resultCommandPhaseRouting3、panelWebviewScriptHealth13、metricsDownloadEndToEnd18、planRunQueryRegression6、planRunRecovery7、parallelPlanSubmission12、planOutputReplacementHost7。
+- resultDatasetHierarchy14、resultCommandPhaseRouting3、panelWebviewScriptHealth13、metricsDownloadEndToEnd18、metricAliasRebuildWorkflow6、planRunQueryRegression6、planRunRecovery7、parallelPlanSubmission12、planOutputReplacementHost7。
 - 原newdist许可manualDispatchHost11、planOperationNoticeLifecycle原full、resultSyncFailureVisibility原full、jobArtifactStagedSlotIdentity原full、panelMessageDispatch21保持，不提前消费旧dist。
 
 上述逐完整file及负责链已由旧root源审，具体副作用/原fixture及准修法在8ea3d142完整计划、execution/coverage；新diff改变负责链须再核，不据名单批签。必要执行条件集中如下：
@@ -85,6 +85,7 @@ sourceJob旧dirty/toolchain未知只按实际提取闭包条件适用，不改�
 - mcpProject APPDATA/LOCALAPPDATA等私有，unset SIMPLE_EXPERIMENT_API_FILE/SIMPLE_CLI_INSTANCE_ID/SIMPLE_CLI_RESOLVED_EXPERIMENT，保fixture显式pin；真实两loopback及SDK自有stdio子Node、私有lease/registry/staging rename，preferredPort0实际19766起避让。仅管理自身child，signal0仅私有测试父PID；不连产品API或Worker，不重复routine cleanup exact。
 - Selected无ledgerFile、fake停止/指纹；SFTP发现/fs/fetch/RPC/index fake；Runtime仅首case私有TEMP；Visible准备/save/queue/render-VM fake且不进retention release，unset SIMPLE_RETRY_BASELINE。Hierarchy必须冻结新增ResultsSection.ts依赖，三Panel full仅SOURCE render/fake DOM/VM，不顶P0或真实UI。
 - metrics18旧4f6d84fa资格false，38src+helper原39及新test保身份。provider仅补inactive unifiedDomainState/真实URI mapper捕获root（空窗undefined），原18断言保。历史APPDATA登记可能读取且未冻；catalog刷新fake，不冒Worker线程。handoff/scope/lease/POST fake，私有导出/staging/flush/rename/Windows pipe保。
+- metricAliasRebuild6旧1c0b full因ResultCollectionHost与freshhelper新身份路径真实执行而撤当前资格；parser5003/defaultAliases1387 raw同1e91，不能据此继承whole6。完整6case/helper/Python已审，unset SIMPLE_RESULT_BASELINE；真实私有PLAN/CSV/JSON/Markdown、staging/flush/rename/Windows pipe及本机Python保留，Python只抽旧dist两个函数/import和生成writer的normalize函数，-B/-Xutf8/10000/windowsHide/status0。业务Worker/SFTP/catalog fake，无真实网络/删除、性能断言或完整Agent执行；未来同统一freeze/newcompile条件full6一次。
 - Query6仅末case补capture(root,generation1)；Recovery7仅case4补capture及root相等current；Parallel12仅AST唯一samePath真实提取注入。原断言/等待/receipt/Python假端保，旧full分别c842/fc0e/93fb资格false，fc0e legacy8067不是1e91。nodecheck只是语法。
 - ReplacementHost7仅case3旧execute签名slice -1改AST唯一PlanCleanupHost.execute，原7断言/八输入保，旧165f full应false；其余Set/fake清理，无真实删。当前候选未run，仅实际diff已读，不把唯一提取当功能通过。
 
@@ -102,7 +103,11 @@ sourceJob旧dirty/toolchain未知只按实际提取闭包条件适用，不改�
 
 暂存槽恰8代码file同HEAD：legacy、PlanCleanupHost、JobArtifactSyncIdentity、Panel、stagedSlotDeleteReview、ResultSync、JobArtifactStagedSlotIdentity、manifest。新test+manifest不能造缺文件中间HEAD，三docs另批；五隔离静态helper已同步，不冒异常全覆盖。SFTP953fba2a两test已同步，cap0/2/0与无auto-expiry；f4cf单1/1不冒full/新包。SFTP完整原73身份/工具链缺口仍须收敛，不能用120 aggregate顶替。
 
-本root首包beb4e462亲核四HEAD/index：HoldClearedChain8e061/PreflightDispatchRejectionff947/FailedJobCleanup65b0仅6/5/4指定依赖适用；实际cached逆还21叶后全JSON等HEAD，三原call/output及log和其余依赖/外部工具匹配，fake callbacks及新增guard分支范围承接完整源审，不冒新run。其后Replacementf87e/Formal2a44两docs候选仅各3指定依赖及prior/basis，逆置全JSON等beb4、其余输入/log匹配，未批准新测试。Readiness5剩余静态regex已核匹配、五函数raw同1e91；Compact54全文现已分段补读、只剩实际变更闭包审定，不据截断或摘要批签。
+本root亲核beb4/9da四HEAD/index：前三旧证8e061/ff947/65b0仅6/5/4依赖、后两f87e/2a44仅各3依赖适用；cached逆还全JSON精确，原事件/log/其它输入匹配，不冒新run。ReplacementHost三file候选只唯一AST取法，test SHA09c1e40c21e7f839fe0b7465ea75ae0799d2815a547379b1bf030a8d3a5dd2b5，165f仅false/reason、逆置全JSON等9da，已准普通同步，未full。
+
+Readiness5与Compact54完整源审及实际cached已审定，仅3/2指定依赖条件适用，逆置整JSON等91845、当前摘要匹配，准连同root两docs普通同步。Readiness五函数raw同1e91、剩余regex/次序匹配；Compact实际提取段差异仅slot双确认tooltip、abortWorker属性/中止文案、日志尾部tooltip，原断言不核被换文案；sectionRenderModel新增两report字段只sync分支，此case走plans。legacy投影/首exact-stop与payload同旧，retry新增guard在固定fixture为真，signal缺省；只SOURCE/fake DOM/VM，不冒P0/新属性回归/真实停止。
+
+新增下一退役修正批：draftCleanupConfirmation旧call0a54仍eligible且四entry build/check:full/package/smoke.fullCheck.extraFiles[28]仍选中，runner退休过滤未排它；首段明确要求cleanupDraftsFromUi/apiDraftCleanup与旧清理按钮可执行。按已定whole Draft退役，仅撤该四列表项并将完整旧证移既有历史区/当前jobs标退役，文件/事件保留、不修复或运行旧业务、不改generic runner；actualdiff及结构逆变后才同步。静态身份导航随真实清单变，不改计数求绿。
 
 ### 交付终点
 
