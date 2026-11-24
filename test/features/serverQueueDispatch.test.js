@@ -40,7 +40,8 @@ function fixture(count=14){
 
 test('server queue rejects changed declared commands after review',async()=>{
  const old=ManualDispatchHost.prototype.review;
- try{for(const change of [job=>{job.command='other';},job=>{job.workingDirectory='other';},job=>{job.outputs=['other'];}]){
+ try{for(const change of [job=>{job.command='other';},job=>{job.workingDirectory='other';},job=>{job.outputs=['other'];},
+  job=>{job.environment='other';},job=>{job.requestedGpuId='1';},job=>{job.automaticWorkerId='other';}]){
   const f=fixture(1);let ticks=0;f.h.tickDistributedQueue=async()=>{ticks++;};
   ManualDispatchHost.prototype.review=async()=>{const queue=f.queue;change(queue.plans[0].jobs[0]);f.queue=queue;return true;};
   await assert.rejects(f.host.dispatch({planId:'p'},true),/排队批次已变化/);

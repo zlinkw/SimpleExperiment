@@ -16,7 +16,8 @@ function fixture(change) {
 
 test('manual placement refuses a changed command, working directory or output declaration', async () => {
   for (const change of [job => { job.command = 'python different.py'; },
-    job => { job.workingDirectory = 'other'; }, job => { job.outputs = ['report.txt']; }]) {
+    job => { job.workingDirectory = 'other'; }, job => { job.outputs = ['report.txt']; },
+    job => { job.environment = 'other'; }, job => { job.requestedGpuId = '1'; }, job => { job.automaticWorkerId = 'other'; }]) {
     const f = fixture(change);
     await assert.rejects(dispatchManualJobs(f.ports, { workflowId: 'p', indices: [0], workerId: 'w', gpuId: '0' }), /身份或声明已变化/);
     assert.equal(f.ticks(), 0);

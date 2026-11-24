@@ -21,7 +21,7 @@ export class ServerQueueHost {
     if(h.manualDispatchInFlight.size||h.manualDispatchReviewKeys?.size)throw Error("已有手动派发或产物审核正在处理，请等待本批结果。");
     const inFlight=h.manualDispatchInFlight;inFlight.add(key);
     const batchId=randomUUID();let reservedOnDisk=false;
-    const identity=(plan:any,job:any)=>JSON.stringify([plan.id,plan.projectId,plan.revision,plan.codeFingerprint,job.index,job.outputDir,job.collectionResultCsv,job.command,job.workingDirectory,job.outputs]);
+    const identity=(plan:any,job:any)=>JSON.stringify([plan.id,plan.projectId,plan.revision,plan.codeFingerprint,job.index,job.outputDir,job.collectionResultCsv,job.command,job.workingDirectory,job.outputs,job.environment,job.requestedGpuId,job.automaticWorkerId]);
     const reservationMatches=(plan:any,job:any,item:any)=>plan&&job&&job.status==="pending"&&!job.commandId
       &&identity(plan,job)===item.identity
       &&job.manualDispatch?.stage==="preparing"&&job.manualDispatch?.batchId===batchId;
