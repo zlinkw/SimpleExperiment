@@ -2556,9 +2556,9 @@ export class RealtimeTunnelPanelProvider {
             "plans.cleanup.recheck": params => this.planCleanupHost().service.recheckNode(String(params.nodeId || "")),
             "plans.cleanup.list": () => this.planCleanupHost().service.list(),
             "plans.cleanup.confirm": params => this.planCleanupHost().service.confirm(params),
-            "plans.cleanup.execute": params => this.planCleanupHost().execute(String(params.operationId || "")),
+            "plans.cleanup.execute": params => this.planCleanupHost().startBackground(String(params.operationId || "")),
             "plans.cleanup.status": params => this.planCleanupHost().status(String(params.operationId || "")),
-            "plans.cleanup.resume": params => this.planCleanupHost().execute(String(params.operationId || "")),
+            "plans.cleanup.resume": params => this.planCleanupHost().startBackground(String(params.operationId || "")),
             "plans.cleanup.cancel": params => this.planCleanupHost().service.cancel(String(params.operationId || "")),
             "plans.cleanup.restore": params => this.planCleanupHost().service.restorePreview(String(params.operationId || "")),
             status: async () => ({

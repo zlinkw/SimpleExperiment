@@ -76,6 +76,19 @@ export class PlanCleanupHost {
     if (this.runningOperations.has(id)) cleanupError("OPERATION_BUSY");
     return this.execute(id);
   }
+  async startBackground(id: string) {
+    await this.ensureOperationRecordsMigrated();
+    this.assertWorkspace();
+    const operation = await this.service.confirmedOperation(id);
+    this.assertWorkspace();
+    if (operation.state === "completed") return operation;
+    const work = this.start(id);
+    void work.catch((error: any) => {
+      this.host.recordActionError({ command: "planCleanup", message: id + "：" + String(error.message || error) });
+      this.host.postState();
+    });
+    return { id, state: "accepted", message: "请求已受理，实际结果请查询清理状态。" };
+  }
   constructor(private readonly host: any, readonly root: string) {
     // r17-A: operation records live in the CONSUMED project (per projectRoot); legacy globalStorage
     // location is used only by read-with-migration helpers, never written again.

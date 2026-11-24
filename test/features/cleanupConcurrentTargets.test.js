@@ -55,3 +55,33 @@ test('independent cleanup targets run concurrently and overlapping requests fail
   assert.equal((await second).state, 'completed');
   assert.equal(host.conflictingPath(['work/b'], 'local'), undefined);
 });
+
+test('API background acceptance keeps confirmation and failure visible', async () => {
+  const errors = [], host = new PlanCleanupHost({ context: { globalStorageUri: { fsPath: 'store' } },
+    recordActionError: row => errors.push(row), postState() {} }, root);
+  host.ensureOperationRecordsMigrated = async () => {};
+  let rejectWork, confirmed = false;
+  host.service = { confirmedOperation: async id => {
+    if (!confirmed) throw Error('CONFIRM_REQUIRED');
+    return { id, state: 'ready' };
+  } };
+  host.execute = () => new Promise((resolve, reject) => { rejectWork = reject; });
+  await assert.rejects(host.startBackground('request'), /CONFIRM_REQUIRED/);
+  confirmed = true;
+  assert.deepEqual(await host.startBackground('request'), { id: 'request', state: 'accepted', message: '请求已受理，实际结果请查询清理状态。' });
+  rejectWork(Error('cleanup failed'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(errors[0].message, /request.*cleanup failed/);
+});
+
+test('background admission reads the existing human confirmations', async () => {
+  const host = new PlanCleanupHost({ context: { globalStorageUri: { fsPath: 'store' } } }, root);
+  const fileSystem = require('node:fs/promises'), readFile = fileSystem.readFile, id = 'a'.repeat(48);
+  let confirmations = 1;
+  try {
+    fileSystem.readFile = async () => JSON.stringify({ id, state: 'ready', preview: { action: 'delete', confirmations } });
+    await assert.rejects(host.service.confirmedOperation(id), /CONFIRM_REQUIRED/);
+    confirmations = 2;
+    assert.equal((await host.service.confirmedOperation(id)).id, id);
+  } finally { fileSystem.readFile = readFile; }
+});

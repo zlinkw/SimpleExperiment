@@ -225,6 +225,15 @@ export class PlanCleanup {
   private observing = new Map<string, { promise: Promise<CleanupOperation>; guarded: boolean }>();
   constructor(private readonly ports: CleanupPorts) {}
   private file(id: string) { if (!/^[a-f0-9]{48}$/.test(id)) cleanupError("INVALID_OPERATION_ID"); return path.join(this.ports.storageRoot, id + ".json"); }
+  async confirmedOperation(id: string): Promise<CleanupOperation> {
+    let operation: CleanupOperation;
+    try { operation = JSON.parse(await fs.readFile(this.file(id), "utf8")); }
+    catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
+    if (operation.id !== id) cleanupError("INVALID_OPERATION_ID");
+    if (operation.continuedBy || operation.restoredBy) cleanupError("OPERATION_SUPERSEDED");
+    if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
+    return operation;
+  }
   async registeredIsolationSource(id: string): Promise<string | undefined> {
     const record = JSON.parse(await fs.readFile(this.file(id), "utf8"));
     const source = record?.preview?.registeredIsolationOperationId;
