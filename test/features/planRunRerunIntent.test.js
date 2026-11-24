@@ -27,6 +27,25 @@ test('a new declared submission does not inherit an earlier task completion by o
  assert.equal(question.groups.find(group=>group.value==='rerun_missing').targets.length,1);
 });
 
+test('a new declared submission can isolate a confirmed path without an old queue record',async()=>{
+ const root='/fixture',node={id:'worker',kind:'remote',root:'/remote'},events=[];
+ const preview={token:'token',digest:'digest',rows:[{node,absolutePath:'/remote/work/a',type:'directory',disposition:'isolate'}],blockers:[]};
+ const cleanup={service:{confirm:async()=>events.push('confirm'),preflightConfirmed:async()=>events.push('check'),
+  assertIsolatedSourcesAbsent:async()=>events.push('verify')},execute:async()=>({state:'completed'})};
+ const host={planCleanupHost:()=>cleanup,captureProjectContext:()=>({root}),projectContextIsCurrent:()=>true,
+  workerActionTargets:()=>[node],effectiveConnectionMode:()=> 'fixture',lastCodeSyncState:{fingerprint:'code'},
+  readWorkerTaskSnapshot:async()=>({workerId:'worker',queryComplete:true,tasks:[],declaredResults:[{index:0,outputDir:'work/a'}]}),
+  askRunConfirmation:async payload=>payload.phase===1?'rerun_all':'isolate_and_run',
+  refreshLocalPlanMetadataForAction:async()=>{},stampPlanRevision:body=>{body.planRevision='r';},
+  localDistributedCodeFingerprint:async()=> 'code',assertPlanSubmissionWorkers:async()=>{},
+  saveDistributedQueue:async(_root,_value,options)=>{const queue=options.mutateLatest({plans:[],clearedJobs:[]});assert.deepEqual(queue.plans,[]);events.push('hold');}};
+ const job={index:0,name:'analysis',command:'echo new',working_dir:'.',outputs:[],output_dir:'work/a'};
+ const body={planFile:'p.yaml',planRevision:'r',runReplacement:{flow:'isolate',previews:[{index:0,preview}]}};
+ await new PlanRunHost(host,root).replace({},body,{jobs:[job]});
+ assert.deepEqual(body.assignedExperimentIndices,[0]);
+ assert.deepEqual(events,['confirm','check','verify','hold']);
+});
+
 test('a declared command rerun uses the current PLAN command without a scientific source parser',async()=>{
  const ts=require('typescript'),source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
  const tree=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let method;

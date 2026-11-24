@@ -225,7 +225,11 @@ export class PlanRunHost {
         const isCurrent = () => { try { assertCurrent(); return true; } catch { return false; } };
         await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, projectContextCurrent: isCurrent, recallAssertCurrent: assertCurrent, mutateLatest: (queue: any) => {
           const next = PlanRunHost.normalizeHoldTargets(selected, queue, body.planFile, canonicalProjectId(this.root));
-          if (next.missing.length) throw Error("HOLD_TARGET_NOT_FOUND：已确认的产物路径未在当前队列声明中找到（" + next.missing.length
+          // A newly declared command can protect an existing path before it has any queue record.
+          const newTargets = new Set(selected.filter((row: any) => row.command)
+            .map((row: any) => PlanRunHost.holdOutputKey(row.output_dir, row.result_csv)));
+          const missing = next.missing.filter(key => !newTargets.has(key));
+          if (missing.length) throw Error("HOLD_TARGET_NOT_FOUND：已确认的产物路径未在当前队列声明中找到（" + missing.length
             + " 项），队列未改动；请刷新后重新确认范围。");
           return next.queue;
         } });

@@ -51,7 +51,9 @@
 
 已同步 `10045704`：提交预检不再以旧两代日志保留及清理为新任务准入条件；独立清理入口未改。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'warm Host preflight' test/features/planStructuralValidationCache.test.js` 退出 0、1/1，含旧门槛不可调用断言；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'log retention is not' test/features/pluginLogRetention.test.js` 退出 0、1/1；noEmit 退出 0。未执行实际清理。
 
-用户停止统一记录为主动停止，不再要求选择科研效果或收敛结论，也不把停止标为完成。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandStop.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'Plan stop supplies' test/features/stopRoutingAndResultParseDedup.test.js` 退出 0、1/1；noEmit 退出 0。未向真实 Worker 发送停止。
+已同步 `2ec81d64`：用户停止统一记录为主动停止，不再要求选择科研效果或收敛结论，也不把停止标为完成。`node --test --test-force-exit --test-timeout 20000 test/features/declaredCommandStop.test.js` 退出 0、1/1；`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'Plan stop supplies' test/features/stopRoutingAndResultParseDedup.test.js` 退出 0、1/1；noEmit 退出 0。未向真实 Worker 发送停止。
+
+新声明命令的已确认输出隔离不再要求存在旧队列登记，仍对队列中已有匹配任务保留隔离围栏。`node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'a new declared submission' test/features/planRunRerunIntent.test.js` 退出 0、2/2；noEmit 退出 0。为本机替身检查，未移动真实文件。用户新增全部清理后台隔离要求已纳入计划；当前重跑链等待隔离完成仍须修改，尚未满足该要求。
 
 命令状态片段的目标检查 `node --test --test-force-exit --test-timeout 20000 --test-name-pattern 'declared command' test/features/taskLifecycle.test.js` 退出 0、2/2；它只验证本机状态投影与假查询，不代表 Worker 执行。
 
