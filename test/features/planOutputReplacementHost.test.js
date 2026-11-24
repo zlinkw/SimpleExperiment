@@ -36,8 +36,13 @@ test('rerun selection uses pulled lifecycle evidence rather than cached Worker s
 });
 test('replacement fence persists before deletion and prevents re-mirroring after partial failure', async () => {
   const text = fs.readFileSync(path.join(__dirname, '../../src/extension/PlanCleanupHost.ts'), 'utf8');
-  const method = text.slice(text.indexOf('  async execute(id: string)'), text.indexOf('  open(file: string'));
   const ts = require('typescript');
+  const ast = ts.createSourceFile('PlanCleanupHost.ts', text, ts.ScriptTarget.Latest, true);
+  const classes = ast.statements.filter(node => ts.isClassDeclaration(node) && node.name?.text === 'PlanCleanupHost');
+  assert.equal(classes.length, 1);
+  const methods = classes[0].members.filter(node => ts.isMethodDeclaration(node) && node.name.getText(ast) === 'execute');
+  assert.equal(methods.length, 1);
+  const method = methods[0].getText(ast);
   const compiled = ts.transpileModule('class Host {' + method + '}; Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
   const Host = vm.runInNewContext(compiled, { replacementLifecycleJob, cleanupError: code => { throw Error(code); } });
   const queue = { plans: [{ id: 'run', jobs: [{ index: 0, commandId: 'c', status: 'completed' }, { index: 1, commandId: 'other', status: 'completed' }] }] };

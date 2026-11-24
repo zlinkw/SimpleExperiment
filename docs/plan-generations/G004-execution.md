@@ -80,3 +80,5 @@ parallelPlanSubmission夹具仅从当前源码AST唯一提取真实samePath并�
 总控审planRunHoldClearedChain、preflightDispatchRejection、failedJobCleanup旧direct，仅6/5/4指定依赖条件适用；原私有receipt/PLAN/config真实atomic写读、受控Python与fake队列/Worker保留，新增guard合法分支执行、optional callback未调用。未新运行、真实Worker/删除或新dist。
 
 总控审planRunReplacement及formalJobRejectedRecovery旧direct，各仅三依赖条件适用；原fake双确认、empty-parent、Worker/SFTP和内存队列保留，新增guard在固定输入执行，所选Panel局部slice不证明真实P0。未新运行、真实删除或新dist。接续7只读宽JSON截断后改结构比较、safe-delete别名路径不存在后按catalog正文读取，非测试失败。
+
+planOutputReplacementHost第3case以真实PlanCleanupHost类唯一execute AST取代已失效旧签名slice，原7case断言保留；node --check exit0仅语法，旧full撤当前资格、原事件/八输入/工具链保留。未来仅最终SOURCE/fixture冻结及真实新编译后原runner 20秒full7一次，尚未运行；注册隔离分支未进入、NETWORK_DISCONNECT为原fake，不冒真实删除。
