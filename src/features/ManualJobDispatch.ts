@@ -49,7 +49,8 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
     return { status: "submitted", fallbackToAutomatic: true, indices };
   }
   const identities = new Map(selected.map(job => [job.index, job.commandId || ""]));
-  const binding=(job:QueuedJob)=>JSON.stringify([job.index,job.commandId,job.workerId,job.case,job.seed,job.outputDir,job.collectionResultCsv]);
+  const binding=(job:QueuedJob)=>JSON.stringify([job.index,job.commandId,job.workerId,job.case,job.seed,job.outputDir,job.collectionResultCsv,
+    job.command,job.workingDirectory,job.outputs]);
   const bindings=new Map(selected.map(job=>[job.index,binding(job)]));
   const currentSelection=(latest:DistributedQueue, reservationId?:string)=>{
     ports.assertCurrent();
