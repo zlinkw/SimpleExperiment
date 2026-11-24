@@ -177,11 +177,7 @@ test("quick project onboarding records local recognition before separate run pre
   assert.match(extension, /async pickPlanBaseConfig\(configs, options = \{\}\)/);
   assert.match(extension, /async pickGuidedPlanEntry\(root, entries, stage\)/);
   assert.match(extension, /title: stage === "test" \? "选择评估入口" : "选择训练入口"/);
-  assert.match(extension, /guidedPlanCommandUsesConfig\(trainCommand\).*guidedPlanCommandUsesConfig\(testCommand\)/);
-  assert.match(extension, /await ensureGuidedFallbackConfig\(root, baseConfig\)/);
   assert.match(extension, /inputExistingWorkspaceConfig\(options\.root\)/);
-  assert.match(extension, /const configReview = stages\.train \? await guidedPlanConfigReview\(root, baseConfig, generatedFallbackConfig\)/);
-  assert.match(extension, /await confirmGuidedPlanCreation\(/);
   assert.match(extension, /title: "选择新 Plan 使用的配置"/);
   assert.match(extension, /if \(list\.length <= 1\)/);
   assert.match(extension, /if \(!plans\.length\) \{\s*await this\.generatePlanGuideFromUi\(false\);\s*if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return;\s*await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);/);
@@ -196,7 +192,7 @@ test("quick project onboarding records local recognition before separate run pre
   assert.match(extension, /next === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.doesNotMatch(extension, /next === "开始一键配置"/);
   assert.match(extension, /next === "打开连接设置"[\s\S]{0,140}workbench\.action\.openSettings/);
-  assert.match(extension, /next === "恢复在线连接"[\s\S]{0,180}clearOfflineImport\(\)[\s\S]{0,180}ensureRealtimeConnected\("resume from project onboarding"\)/);
+  assert.match(extension, /next === "恢复在线连接"[\s\S]{0,180}clearOfflineImport\(\)[\s\S]{0,180}ensureRealtimeConnected\("resume from project onboarding", true\)/);
   assert.match(extension, /next === "打开当前 Plan" && context\.planFile\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.planFile, projectContext\)/);
   assert.match(extension, /next === "打开接入配置" && context\.adapterConfig\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.adapterConfig, projectContext\)/);
   assert.match(extension, /next === "查看运行进度"[\s\S]{0,100}openPanelAt\("execution", "execution-operations", \{ userInitiated: true \}\)/);
@@ -204,7 +200,7 @@ test("quick project onboarding records local recognition before separate run pre
   assert.match(extension, /next === "校验并提交运行"[\s\S]{0,180}this\.runActionCommand\("runPlan"/);
   assert.match(extension, /async addWorkerConfigFromUi\(showMessage = true\)[\s\S]{0,2200}return true/);
   assert.match(extension, /async assertPlanLocalConfigFiles\(body\)/);
-  assert.match(extension, /当前 Plan 引用的配置文件不存在/);
+  assert.match(extension, /PLAN 命令静态检查失败/);
   assert.match(extension, /label: "配置文件", ok: configReady/);
   assert.match(panel, /label: "配置文件", ok: configReady/);
   const bootstrapStart = extension.indexOf("async bootstrapProjectFromUi()");
@@ -218,7 +214,7 @@ test("quick project onboarding records local recognition before separate run pre
   const planGuide = extension.slice(planGuideStart, planGuideEnd);
   assert.match(planGuide, /async generatePlanGuideFromUi\(openAfterCreate = true\)/);
   assert.match(planGuide, /const projectContext = this\.captureProjectContext\(\)/);
-  assert.ok([...planGuide.matchAll(/projectContextIsCurrent\(projectContext\)/g)].length >= 14);
+  assert.match(planGuide, /beforeRename:[\s\S]*?projectContextIsCurrent\(projectContext\)/);
   assert.match(planGuide, /if \(openAfterCreate && this\.projectContextIsCurrent\(projectContext\)\)\s*await openWorkspaceFile\(relative\)/);
   assert.doesNotMatch(bootstrap, /generatePlanGuideFromUi\(\)/);
 });

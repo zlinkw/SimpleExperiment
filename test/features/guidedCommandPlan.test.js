@@ -49,3 +49,11 @@ test('cancelled command or unsafe output creates no PLAN', async () => {
   await assert.rejects(unsafe.fn.call(unsafe.host), /UNSAFE_PATH/);
   assert.equal(unsafe.writes.length, 0);
 });
+
+test('changing projects during the command prompt does not write to the original project', async () => {
+  const f = guide(['A', 'python run.py', 'work_dirs/run-a']);
+  let checks = 0;
+  f.host.projectContextIsCurrent = () => ++checks < 4;
+  await f.fn.call(f.host);
+  assert.equal(f.writes.length, 0);
+});
