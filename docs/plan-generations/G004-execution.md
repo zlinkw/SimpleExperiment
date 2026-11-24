@@ -78,3 +78,5 @@ planRunQueryRegression与planRunRecovery夹具仅补实际project context接口�
 parallelPlanSubmission夹具仅从当前源码AST唯一提取真实samePath并注入现有globals，原12case/断言与等待不改；node --check exit0仅语法。旧full撤当前资格，未来仅SOURCE/fixture冻结及真实新编译后原20秒full12一次，尚未运行。总控计划先压缩实际落盘15907后自设15800目标assert exit1，正式16200未超，后补至16196再归并；非写前零写、非测试失败。
 
 总控审planRunHoldClearedChain、preflightDispatchRejection、failedJobCleanup旧direct，仅6/5/4指定依赖条件适用；原私有receipt/PLAN/config真实atomic写读、受控Python与fake队列/Worker保留，新增guard合法分支执行、optional callback未调用。未新运行、真实Worker/删除或新dist。
+
+总控审planRunReplacement及formalJobRejectedRecovery旧direct，各仅三依赖条件适用；原fake双确认、empty-parent、Worker/SFTP和内存队列保留，新增guard在固定输入执行，所选Panel局部slice不证明真实P0。未新运行、真实删除或新dist。接续7只读宽JSON截断后改结构比较、safe-delete别名路径不存在后按catalog正文读取，非测试失败。
