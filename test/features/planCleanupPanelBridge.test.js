@@ -44,7 +44,8 @@ function bridge({ immediateBoot = true, service = {}, execute } = {}) {
     async preview() { calls.push('preview'); return preview(); },
     async confirm() { calls.push('confirm'); throw new Error('Not authorized in fixture'); },
     ...service,
-  }, async execute(id) { calls.push('execute'); if (execute) return execute(id); throw new Error('Not authorized in fixture'); } };
+  }, async status(id) { return this.service.status(id); },
+    async execute(id) { calls.push('execute'); if (execute) return execute(id); throw new Error('Not authorized in fixture'); } };
   return { async open(job, initialId = '') { await exports.openPlanCleanupPanel(host, 'experiments/plans/p.yaml', initialId, job); if (!immediateBoot) boot(); await flush(); },
     html: () => html,
     element, requests, responses, calls, hostMessage: message => hostListener(message),

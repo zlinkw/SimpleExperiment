@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { PlanCleanup, cleanupDigest, cleanupError, cleanupRelative, type CleanupOperation, type CleanupPreview, type CleanupRemovedMetadata, type CleanupProgressSink, type CleanupJobSelection } from "../features/PlanCleanup";
+import { PlanCleanup, cleanupDigest, cleanupError, cleanupRelative, type CleanupNode, type CleanupOperation, type CleanupPreview, type CleanupRemovedMetadata, type CleanupProgressSink, type CleanupJobSelection } from "../features/PlanCleanup";
 import { collectPlanCleanupEvidence } from "../features/PlanCleanupEvidence";
 import { distributedQueuePath, legacyDistributedQueuePath, emptyDistributedQueue, canonicalProjectId, type DistributedQueue } from "../features/DistributedPlanQueue";
 import { cleanupTaskEvidence, replacementEvidenceQueue, replacementJobGroups, replacementLifecycleJob } from "../features/PlanOutputReplacement";
@@ -20,6 +20,11 @@ import { assertIsolatedReviewBinding, recordIsolatedReviewEventFor, verifyIsolat
 import { verifyDeclaredTargetsOnNodes } from "./PlanCleanupTargetVerification";
 import { reviewEmptyIsolationParents } from "./PlanCleanupEmptyParents";
 
+type IsolatedDeleteGroup = { token: string; state: "unsent" | "admitted" | "ended"; operationId?: string };
+type IsolatedDeleteTarget = Pick<CleanupPreview["rows"][number], "node" | "backendToken" | "backendDigest" | "rootIdentity"> & { path: string };
+type PendingIsolatedDelete = { originalId: string; settled: boolean; open: boolean; uncertain: boolean;
+  kind?: string; groups: IsolatedDeleteGroup[]; targets: IsolatedDeleteTarget[] };
+
 async function json(file: string, fallback: any): Promise<any> {
   const text = await fs.readFile(file, "utf8").catch((error: any) => { if (error.code === "ENOENT") return ""; throw error; });
   return text ? JSON.parse(text) : fallback;
@@ -36,9 +41,37 @@ async function jsonWithMigration(projectRoot: string, legacyFile: string, target
 /** Host adapter deliberately reads original ledgers, without refreshing/migrating project files. */
 export class PlanCleanupHost {
   readonly service: PlanCleanup;
-  executing = false;
-  private independentExecuting = false;
-  get blocksTaskScheduling() { return this.executing && !this.independentExecuting; }
+  private readonly runningOperations = new Set<string>();
+  private readonly activePaths = new Map<string, Array<{ node: CleanupNode; path: string }>>();
+  private retainUnfinishedPaths(id: string, operation: CleanupOperation) {
+    if (!this.activePaths.has(id) || !operation.preview?.rows || !operation.targets) return;
+    this.activePaths.set(id, operation.preview.rows
+      .filter(row => ["delete", "move", "isolate", "restore"].includes(row.disposition) && operation.targets[row.id]?.state !== "completed")
+      .flatMap(row => [row.relativePath, row.destination].filter(Boolean).map(path => ({ node: row.node, path }))));
+  }
+  async status(id: string) {
+    const operation = await this.service.status(id);
+    if (!this.runningOperations.has(id) && (operation.state === "completed" || !operation.executionRequestedAt
+      && !Object.values(operation.targets).some(target => target.state === "executing"))) this.activePaths.delete(id);
+    else if (!this.runningOperations.has(id)) this.retainUnfinishedPaths(id, operation);
+    return operation;
+  }
+  conflictingPath(paths: string[], nodeId?: string): string | undefined {
+    const node = nodeId ? this.currentNode(nodeId) : undefined;
+    const identity = (item: CleanupNode) => JSON.stringify([item.kind, item.host || "", item.port || 0, item.user || "", item.root]);
+    const normal = (value: string, local: boolean) => {
+      const result = value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "") || ".";
+      return local && process.platform === "win32" ? result.toLowerCase() : result;
+    };
+    for (const targets of this.activePaths.values()) for (const target of targets) {
+      if (node && identity(node) !== identity(target.node)) continue;
+      const local = target.node.kind === "local", existing = normal(target.path, local);
+      for (const path of paths.filter(Boolean).map(path => normal(path, local)))
+        if (path === "." || existing === "." || path === existing || path.startsWith(existing + "/") || existing.startsWith(path + "/"))
+          return target.node.id + ":" + target.path;
+    }
+    return undefined;
+  }
   constructor(private readonly host: any, readonly root: string) {
     // r17-A: operation records live in the CONSUMED project (per projectRoot); legacy globalStorage
     // location is used only by read-with-migration helpers, never written again.
@@ -400,16 +433,30 @@ export class PlanCleanupHost {
   }
   async execute(id: string, assertCurrent?: () => void) {
     assertCurrent?.();
-    if (this.executing) cleanupError("OPERATION_BUSY");
-    this.executing = true;
+    if (this.runningOperations.has(id)) cleanupError("OPERATION_BUSY");
+    this.runningOperations.add(id);
+    let issued = false, uncertain = false;
+    const recordResult = (result: CleanupOperation) => {
+      uncertain = result.state === "running" || Object.values(result.targets || {}).some(target => target.state === "executing")
+        || Boolean(result.executionRequestedAt && result.state !== "completed");
+      if (uncertain) this.retainUnfinishedPaths(id, result);
+      return result;
+    };
     try {
       await this.ensureOperationRecordsMigrated();
       assertCurrent?.();
       const registered = await this.service.registeredIsolationSource(id);
       assertCurrent?.();
-      this.independentExecuting = Boolean(registered);
       const initial = await this.service.status(id, undefined, assertCurrent);
       assertCurrent?.();
+      const paths = initial.preview.rows.filter(row => ["delete", "move", "isolate", "restore"].includes(row.disposition))
+        .flatMap(row => [row.relativePath, row.destination].filter(Boolean).map(path => ({ node: row.node, path })));
+      for (const target of paths) {
+        const conflict = this.conflictingPath([target.path], target.node.id);
+        if (conflict) cleanupError("CLEANUP_TARGET_BUSY", "路径正在处理：" + conflict);
+      }
+      this.activePaths.set(id, paths);
+      this.host.assertArtifactSyncPathsIdle?.(this.root, paths.map(target => target.path));
       const independent = initial.preview.registeredIsolationOperationId;
       if (independent !== registered) cleanupError("ISOLATED_OPERATION_IDENTITY_CHANGED");
       if (independent) {
@@ -424,7 +471,7 @@ export class PlanCleanupHost {
           targets: initial.preview.rows.filter(row => row.disposition === "delete").map(row => ({ node: row.node, path: row.relativePath, type: row.type,
             backendToken: row.backendToken, backendDigest: row.backendDigest, rootIdentity: row.rootIdentity })),
           groups: [...new Set(initial.preview.rows.filter(row => row.disposition === "delete").map(row => row.backendToken))].map(token => ({ token, state: "unsent" })) };
-        await this.host.isolatedDeleteState(this.root, "reserve", entry, prior => prior ? undefined : this.service.assertNoPriorUnsettledIsolation(independent, id));
+        await this.host.isolatedDeleteState(this.root, "reserve", entry, (prior: PendingIsolatedDelete | undefined) => prior ? undefined : this.service.assertNoPriorUnsettledIsolation(independent, id));
         let checkedDispatch = false, unboundRunning = false;
         const admit = async (token: string, snapshot: any, existing = false) => {
           checkedDispatch = true;
@@ -450,42 +497,42 @@ export class PlanCleanupHost {
           }
         };
         try {
-          let result = await this.service.execute(id, { before: admit, alreadyRunning: async (token, snapshot) => {
+          issued = true;
+          let result = recordResult(await this.service.execute(id, { before: admit, alreadyRunning: async (token, snapshot) => {
               unboundRunning = true; await admit(token, snapshot, true); unboundRunning = false;
             },
             acknowledged: async (token, snapshot, response) => {
               const receipt = response?.receipt;
               if (receipt?.operationId === snapshot.operationId && receipt.action === "delete-fast" && receipt.phase === "completed")
                 await this.host.isolatedDeleteState(this.root, "ack", { ...entry, token, operationId: snapshot.operationId });
-            } });
+            } }));
           await this.host.isolatedDeleteState(this.root, "close", { ...entry, uncertain: unboundRunning || !checkedDispatch && Boolean(result.executionRequestedAt) });
-          const current = await this.host.isolatedDeleteState(this.root, "get", entry);
+          const current: PendingIsolatedDelete = await this.host.isolatedDeleteState(this.root, "get", entry);
           if (!current.uncertain && !current.groups.some(group => group.state === "admitted")) { await this.host.isolatedDeleteState(this.root, "settle", entry); result = await this.service.status(id); }
           if (result.state === "completed") await this.verifyIsolatedAbsence(independent);
           await this.isolatedReviewEvent(independent, result.state === "completed" ? "completed" : result.state === "paused" ? "cancelled"
             : /BUSY/.test(result.error || "") ? "busy" : result.state === "blocked" ? "failed" : "unknown", id, result.error);
           return result;
         } catch (error: any) {
-          let current = await this.host.isolatedDeleteState(this.root, "get", entry);
+          let current: PendingIsolatedDelete | undefined = await this.host.isolatedDeleteState(this.root, "get", entry);
           if (current && !current.settled) {
             await this.host.isolatedDeleteState(this.root, "close", { ...entry, uncertain: unboundRunning || !checkedDispatch && Boolean(initial.executionRequestedAt) });
             current = await this.host.isolatedDeleteState(this.root, "get", entry);
-            if (!current.uncertain && !current.groups.some(group => group.state === "admitted")) await this.host.isolatedDeleteState(this.root, "settle", entry);
+            if (!current!.uncertain && !current!.groups.some(group => group.state === "admitted")) await this.host.isolatedDeleteState(this.root, "settle", entry);
           }
           await this.isolatedReviewEvent(independent, /BUSY/.test(String(error?.apiData?.code || error.message)) ? "busy" : "failed", id,
             String(error.message || error)).catch(() => undefined);
           throw error;
         }
       }
-      const pending = this.host.distributedQueueTickPromise;
-      if (pending) await pending;
       assertCurrent?.();
       const operation = await this.service.status(id, undefined, assertCurrent);
       assertCurrent?.();
       if (operation.state === "completed") return operation;
-      this.host.assertArtifactSyncPathsIdle?.(this.root, operation.preview.rows
-        .filter(row => ["delete", "move", "isolate"].includes(row.disposition)).map(row => row.relativePath));
-      if (operation.preview.scope.observationMode === "managed_tmux") return await this.service.execute(id, undefined, assertCurrent);
+      if (operation.preview.scope.observationMode === "managed_tmux") {
+        issued = true;
+        return recordResult(await this.service.execute(id, undefined, assertCurrent));
+      }
       if (operation.preview.scope.job?.purpose === "replace_outputs") {
         await this.service.preflightConfirmed(id, assertCurrent);
         const selection = operation.preview.scope.job;
@@ -502,11 +549,17 @@ export class PlanCleanupHost {
         await this.host.saveDistributedQueue(this.root, queue, assertCurrent ? { recallAssertCurrent: assertCurrent, projectContextCurrent: isCurrent } : undefined);
         assertCurrent?.();
       }
-      const result = await this.host.withHostOperationLease("cleanupPlan", "清除 PLAN 及关联产物", () => { assertCurrent?.(); return this.service.execute(id, undefined, assertCurrent); },
-        { resources: [{ server: "local", project: this.root, target: this.root }] });
+      issued = true;
+      const result = recordResult(await this.service.execute(id, undefined, assertCurrent));
       if (operation.preview.action === "delete") return await this.service.status(id);
       return result;
-    } finally { this.executing = false; this.independentExecuting = false; }
+    } catch (error: any) {
+      if (issued && error?.sftpNotStarted !== true) uncertain = true;
+      throw error;
+    } finally {
+      if (!uncertain) this.activePaths.delete(id);
+      this.runningOperations.delete(id);
+    }
   }
   private isolatedReviewContext(): IsolatedReviewContext {
     return { host: this.host, vscode, root: this.root, service: this.service,
@@ -515,7 +568,7 @@ export class PlanCleanupHost {
   async assertIsolatedReview(id: string) { return assertIsolatedReviewBinding(this.isolatedReviewContext(), id); }
   async recheckIsolatedDelete(originalId: string) {
     this.assertWorkspace();
-    const pending = await this.host.isolatedDeleteState(this.root, "get", { originalId });
+    const pending: PendingIsolatedDelete | undefined = await this.host.isolatedDeleteState(this.root, "get", { originalId });
     if (!pending || pending.settled) return;
     if (pending.open || pending.uncertain) cleanupError("ISOLATED_DELETE_QUERY_REQUIRED", "原请求发起者尚未确认结束，请稍后重新核实。");
     for (const group of pending.groups.filter(group => group.state === "admitted")) {

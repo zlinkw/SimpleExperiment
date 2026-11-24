@@ -2557,7 +2557,7 @@ export class RealtimeTunnelPanelProvider {
             "plans.cleanup.list": () => this.planCleanupHost().service.list(),
             "plans.cleanup.confirm": params => this.planCleanupHost().service.confirm(params),
             "plans.cleanup.execute": params => this.planCleanupHost().execute(String(params.operationId || "")),
-            "plans.cleanup.status": params => this.planCleanupHost().service.status(String(params.operationId || "")),
+            "plans.cleanup.status": params => this.planCleanupHost().status(String(params.operationId || "")),
             "plans.cleanup.resume": params => this.planCleanupHost().execute(String(params.operationId || "")),
             "plans.cleanup.cancel": params => this.planCleanupHost().service.cancel(String(params.operationId || "")),
             "plans.cleanup.restore": params => this.planCleanupHost().service.restorePreview(String(params.operationId || "")),
@@ -11128,8 +11128,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const artifactCopy = Boolean(options.completedJob && relative === "." && selectedPaths.length && !selectedPaths.includes("."));
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || !artifactCopy && this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试。");
-        if (artifactCopy && this.planCleanupHosts?.get(root)?.executing)
-            throw new Error("产物路径正在清理，稍后重新核实并同步。");
+        const cleanupConflict = artifactCopy && this.planCleanupHosts?.get(root)?.conflictingPath(selectedPaths);
+        if (cleanupConflict) throw new Error("产物路径正在清理：" + cleanupConflict);
         if (targets.length < 2) throw new Error("至少需要两台已启用 Worker。");
         if (relative !== ".") safeSyncPath(relative);
         // A clicked directory is an explicit manual scope, independent of automatic mirror settings.
@@ -15106,8 +15106,7 @@ this.assertPlanTopologyReady("Plan 调度");
     }
     scheduleDistributedPostprocess(root, rerunIfBusy = false) {
         if (root !== workspaceRoot() || this.panelDisposed || !this.isRealtimeMode()
-            || this.taskLifecycleProtocol !== 2 && this.projectTopologyAssessment().mode !== "worker_pool" || this.distributedPlanStopEpoch
-            || this.planCleanupHosts?.get(root)?.executing) return;
+            || this.taskLifecycleProtocol !== 2 && this.projectTopologyAssessment().mode !== "worker_pool" || this.distributedPlanStopEpoch) return;
         if (this.distributedPostprocessPromise) {
             this.completedPlanMirrorRescan ||= rerunIfBusy;
             return;
@@ -15183,7 +15182,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const selected = selectedPaths();
         const current = () => workspaceRoot() === root && this.client === client && this.projectContextGeneration === generation
             && this.distributedPlanStopEpoch === stopEpoch && JSON.stringify(this.workerCodeSyncTargets()) === targets
-            && JSON.stringify(selectedPaths()) === JSON.stringify(selected) && !this.planCleanupHosts?.get(root)?.executing;
+            && JSON.stringify(selectedPaths()) === JSON.stringify(selected);
         const report = await new CompletedJobSyncHost(this, root, current).run(selected, { force: true, verifyOnly, jobs });
         this.queuePlanArtifactSyncStatusCheck?.(true);
         this.postState();
@@ -15368,7 +15367,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const targetsKey = () => JSON.stringify(this.workerCodeSyncTargets().map(row => [row.id, row.host, row.port, row.user, row.remotePath]));
         const expectedTargets = targetsKey();
         const current = () => this.projectContextIsCurrent(context) && !this.panelDisposed && !this.distributedPlanStopEpoch
-            && !this.planCleanupHosts?.get(root)?.executing && expectedTargets === targetsKey();
+            && expectedTargets === targetsKey();
         if (!current()) return;
         if (this.taskLifecycleProtocol === 2) {
             const scopes = normalizeMirrorScopePaths(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get<string[]>("serverSync.paths", ["."]));
@@ -15874,8 +15873,6 @@ this.assertPlanTopologyReady("Plan 调度");
     async tickDistributedQueue() {
         if (this.manualDispatchInFlight?.size) return;
         if (require("../updates/Bootstrap").getUpdater()?.blocked) return;
-        const cleanup = this.planCleanupHosts.get(workspaceRoot());
-        if (cleanup?.blocksTaskScheduling ?? cleanup?.executing) return;
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch) return;
         this.queueOutputIsolationRecoveryLocal?.(workspaceRoot());
@@ -16015,6 +16012,10 @@ this.assertPlanTopologyReady("Plan 调度");
             if (!this.projectContextIsCurrent(projectContext) || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         };
+        const assertCleanupAvailable = () => {
+            const conflict = this.planCleanupHosts?.get(root)?.conflictingPath([job.outputDir, ...(job.outputs || [])], workerId);
+            if (conflict) throw new Error("输出路径正在清理：" + conflict + "；任务未发送。");
+        };
         let transmissionStarted = false;
         // 非 tick 通道的交接所有权在本函数内回收；tick 已登记的所有权仍由 tick 在回执提交后结束。
         let channelHandoffRoot = "";
@@ -16135,6 +16136,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             // 交接 gate：最后围栏前重查写入意图；新登记意图按「明确未发送」安全退回，不留无主准入意图。
             this.assertDispatchHandoffSendAllowedLocal?.(root, workerId);
+            assertCleanupAvailable();
             transmissionStarted = true;
             this.markDispatchHandoffTransmissionLocal?.(root, commandId);
             return client.postWorkerAction(workerId, "start-worker-task", request);
@@ -16150,6 +16152,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             // 协议 2 直接发送口同样先重查 gate，再标记真实传输边界；这里之后没有任何 await，围栏与发送同拍。
             this.assertDispatchHandoffSendAllowedLocal?.(root, workerId);
+            assertCleanupAvailable();
             transmissionStarted = true;
             this.markDispatchHandoffTransmissionLocal?.(root, commandId);
             // 协议 2 也是“发起即返回”：底层 POST 未落定前，交接登记必须保留为“传输在途”。

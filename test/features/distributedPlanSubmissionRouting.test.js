@@ -80,7 +80,7 @@ test("dispatch sends the saved command with the selected Worker context", async 
     { schedulingMode: value => value });
   const endpoints = { declaredCommand: 1, declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1,
     projectManagedValidation: 1, gpuQuotaScheduling: 1, gpuMemoryBudgetScheduling: 1 };
-  let sent;
+  let sent, conflict;
   const host = {
     captureProjectContext: () => ({ root }), projectContextIsCurrent: () => true, distributedQueueGeneration: 1,
     client: { postWorkerAction: async (_worker, _action, request) => { sent = request; } },
@@ -90,6 +90,7 @@ test("dispatch sends the saved command with the selected Worker context", async 
     lastCodeSyncState: { workerVersions: { worker: { codeSyncProofId: "proof" } } },
     workerActionTargets: () => [{ id: "worker", condaEnv: "research" }], enabledWorkerConfigs: () => [{ id: "worker" }],
     schedulerSettings: () => ({}), lastWorkerTaskSnapshots: new Map([[`${root}\u0000worker`, { capabilities: { taskLifecycle: 2 } }]]),
+    planCleanupHosts: new Map([[root, { conflictingPath: () => conflict }]]),
   };
   const job = { index: 0, case: "analysis", command: "python analyze.py --size 8", workingDirectory: ".", outputs: [], environment: "/env/analysis",
     outputDir: "work/run", lifecycleProtocol: 2, globalJobId: "flow:0" };
@@ -102,6 +103,10 @@ test("dispatch sends the saved command with the selected Worker context", async 
   assert.equal(sent.condaEnv, "/env/analysis");
   assert.equal(sent.gpuId, "0");
   assert.equal(sent.executionMode, undefined);
+  conflict = 'worker:work/run'; sent = undefined;
+  await assert.rejects(method.call(host, { id: "flow", projectId: "p", planFile: "plans/a.yaml", revision: "rev",
+    codeFingerprint: "code", resultPathPolicy: "declared", jobs: [job] }, job, "worker", "0", "cmd"), /输出路径正在清理/);
+  assert.equal(sent, undefined);
 });
 test("submission detects active operations on optional declared outputs", () => {
   const { assertLaunchObservations } = require("../../src/features/WorkerTaskQuery.ts");

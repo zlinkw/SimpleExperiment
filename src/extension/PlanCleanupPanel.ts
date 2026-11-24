@@ -43,7 +43,7 @@ export async function openPlanCleanupPanel(host: PlanCleanupHost, planFile: stri
         if (["deleteIsolated", "confirm", "execute"].includes(message.type)) await host.assertIsolatedReview(isolatedOperationId);
       }
       if (message.type === "poll") {
-        const operation = await host.service.status(String(message.operationId || ""));
+        const operation = await host.status(String(message.operationId || ""));
         assertScope(operation);
         await settleReview(operation);
         const states = Object.values(operation.targets);
@@ -55,7 +55,7 @@ export async function openPlanCleanupPanel(host: PlanCleanupHost, planFile: stri
           : selection ? rows.filter(row => row.planFile === planFile && cleanupJobKey(row.job) === cleanupJobKey(selection)) : rows };
       } else if (message.type === "status") {
         if (!message.operationId) cleanupError("OPERATION_REQUIRED", "请先选择清理记录，或点击审核文件。");
-        const operation = await host.service.status(String(message.operationId));
+        const operation = await host.status(String(message.operationId));
         assertScope(operation);
         operationId = operation.id; preview = operation.preview;
         await settleReview(operation);
@@ -75,9 +75,9 @@ export async function openPlanCleanupPanel(host: PlanCleanupHost, planFile: stri
       } else if (message.type === "recheck") {
         if (!operationId) cleanupError("OPERATION_REQUIRED", "请先选择历史清理操作。");
         if (isolatedOperationId) await host.recheckIsolatedDelete(isolatedOperationId);
-        const operation = await host.service.status(operationId);
+        const operation = await host.status(operationId);
         if (!isolatedOperationId) for (const node of operation.preview.scope.nodes.filter(node => node.kind === "remote")) await host.service.recheckNode(node.id);
-        const refreshed = await host.service.status(operationId); await settleReview(refreshed);
+        const refreshed = await host.status(operationId); await settleReview(refreshed);
         response = { type: "operation", operation: refreshed };
       } else if (message.type === "confirm") {
         if (!preview) cleanupError("CONFIRM_REQUIRED", "请先完成预览并确认精确路径。");
