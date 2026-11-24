@@ -32,19 +32,15 @@ Hub执行拓扑退役，旧字段仅格式兼容、明确拒绝及GitHub名称�
 
 ## 不可变历史与520交付证据
 
-520已交R519原20/U04原39单项目，02/05/06/07跨项目延期；完整功能/失败/特批/514坏包及MCP/预检/同步/job0/停止确认原证取6117fd49、0ee444be/0ff5b277/97d723e1，不冒新build。SFTP120仅内存5/5，owner/J01未知及两次process-owner许可用尽保；禁sanitize/globalGit/重启稿件/绕限，optionalApi仅-32601可空。
+520已交单项目范围/跨项目延期、514坏包、全部首失败/特批/未知与SFTP120有限效果，完整保5b7f1ce2本计划及6117fd49/8b6cd237/0d7c2721引用；两次process-owner许可用尽，不绕限制或扩真temp删除。用户仅准本任务逐identity/argv复用有效原证＋补验；原事件/日志/输入/工具链/selection/gates保，unknown逐项条件适用，未来20秒不因旧特例延长。
 
-用户准本任务逐identity/argv复用有效旧证＋补验，非通用cache。schema3原receipt/direct/fresh、事件/日志SHA、退出、输入/工具链/依赖/selection/artifact/gates不变；unknown仅逐项条件适用。旧skip/退休/未知/继承、超20秒特例219/284及误重复/OOM/ENOBUFS/引号/规划/日志覆盖/首失败完整保8b6cd237与0d7c2721原计划/execution，未来20秒不变，不加覆盖。
-
-520不可改绑receipt simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json，build f66d36946ade4b911a75636d6f2fc1f28c65111b；361active=125历史+235direct+fresh289，6按需未跑，13gates/treeconfirmed/exit0/input=end/max1/锁释放。289/补验/特批/无效20.389s及包首失败取c8d1d2ac/6117fd49/execution；额外真temp删除acceptance未授权未跑。
-
-520包2919747字节/SHA256 aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba，simple-local.simple-experiment/^1.100.0/universal；ZIP/闭包/秘密/README/Panel模块+3脚本VM/10890通过。20生成物同步、首add ignore失败/部分暂存原证6117fd49，六dirty保护不变。
+520不可改绑receipt simple_cluster/reports/test-workflow/2026-11-23T02-45-43-277Z-10816-package/run.json、build f66d36946ade4b911a75636d6f2fc1f28c65111b。原361active/13gates/exit0/input=end/max1/锁释放及6按需未跑、包首失败完整保c8d1d2ac/6117fd49。VSIX2919747字节、SHA256 aaf19107996beae86674b16b6c25f110551e74fb70a6bd545c88d334c9b2cdba，universal；ZIP/闭包/秘密/README/Panel模块+3脚本/10890旧验证不冒新包，六dirty保护不变。
 
 试行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.520 绑定7bf49ba84802df56821b098b440b289d3d3eb61e，prerelease=true/draft=false/latest=false，资产/digest/隔离下载一致。首本地tag unknown revision后真实refs核；ReleaseClient证482→483、520/SFTP120不降级。权威Latest483=0fd89fa8be6778daad8398d911cd028d713241e4、SFTP118=23cbf92918c7b63cf4674a4159c3f06120037e5d。520安装一次exit0/DEP0169，磁盘/code/MCP闭包一致；未来patch实查空版、仅试行，不覆盖历史资产、提升Latest或部署Agent。
 
 ## 专用520实机与新UI验收边界
 
-专用UI根C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f。520原PID45080/instance45080:2026-11-23T05:41:49.812Z、SE19769/SFTP19767仅历史，重用重新发现；默认API曾属稿件窗禁碰。原真SDK两次137tools/action167握手与安全本地只读通过，敏感TEMP/g004-520-live-mcp*.json仅本机。配置/yaml/两结果行/onboarding=true保，原图/越窗/失败/stalled/布局/通知见6117fd49/execution，不删截图/重授重配。四RESOURCE_CONFLICT只证lease活跃，不凭operations空清锁重放；after-ui-recognition只证520/ready-visible/sectionFailures空，renderprobe unknown，任务/GPU/tmux/输出未核。wide误选long判断已撤回修复；新UI遵两技能/专用根，不借旧UI证明新版本。
+专用UI根C:/Users/ZLK/AppData/Local/Temp/simpleex-normal-ui-g003-20261116-a7c39e2f。原PID45080/SE19769/SFTP19767仅历史，重用重新发现；默认API属稿件窗禁碰。520真SDK握手/安全本地只读、图/越窗/失败/stalled/误判及敏感本机TEMP证据保5b7f1ce2计划与6117fd49/execution；配置/两结果行保，不删图/重授重配。RESOURCE_CONFLICT不清锁重放；旧ready不证renderprobe、任务/GPU/tmux/输出。新UI遵两技能/专用根，不借旧版证明新版。
 
 ## 当前修复状态与完整包审查
 
@@ -70,7 +66,7 @@ SFTP953fba2a两test同步/clean已亲核，cap0/2/0、无auto-expiry；f4cf3b仅
 
 最终稳定HEAD/输入后，planning289原精确pattern唯一fresh一次，新runner仅锚定 ^runner: G004 staged slot fixed wrapper evidence$ finalfresh。新dist后resultSyncFailureVisibility及jobArtifactStagedSlotIdentity原20秒各单文件一次；五旧隔离消费者仅指定case不整world。F的mcpProject仅锚定 ^routine cleanup queries need no extra Codex prompt$ 新dist后20秒一次：私有mkdtemp保留/假端/配置生成读新目录，无网络删除；适配断言随F提交不冒当前已验。Panel须真build＋模块/真实渲染脚本VM/node-c、10890零命中，未经门禁不提交。其余动态先审效果。
 
-接续5报告/日志/TensorBoard/结果/本地/恢复/静检/拆表、UI五法/准备/开表负责链与原证取4c0cd04e三文档及0d7c2721本计划完整段。保每await/出站/rename身份、已发/已写事实、stat仅ENOENT缺省；4605148c只五AST桥，不冒whole当前；准备46/14/4与静态消费者不冒newdist。开表e467只单case条件适用，原Node/fullSHA/外exit未知及私有FS/pipe限制保。
+接续5报告至拆表、UI五法/准备/开表原链与证据取4c0cd04e三文档/0d7c2721计划。保每await/出站/rename身份及已发/已写事实，stat仅ENOENT缺省；五AST/准备静态不冒whole或newdist；e467只单case、工具链/外exit未知与私有FS/pipe限制保。
 
 列表7file候选保完整责任链：error贯通reset/buildState/Panel sync三层依赖，非ENOENT保cache/原错、ENOENT清错，generation/root拒迟到，latest文案纠正；78d5 literal4/4、1252.6868ms，原legacy4bff/testf446/Panel8af7及314d/ee8b/logc740保。仅方法/render-key-model源码VM＋fake/Host静态锚点，不证明外层模板/真实tracker；factory缺握手回落legacy，不扩SyncSection，真build/render VM/node-c/10890前不提交。
 
@@ -107,3 +103,5 @@ metricsDownloadEndToEnd准最终SOURCE/fixture冻结且新compile后原runner fu
 planRunQueryRegression准最终SOURCE/fixture冻结且新compile后原runner full6一次20s，当前不跑。实际runAction的runPlan先capture再检查空adapter规则，末case假宿主缺接口，准仅补captureProjectContext返回本case root/generation1，原6断言保；旧c842852f full资格false保原事件/九依赖。静态发现非实测失败。Python仅task_query/task_declared_results抽函数、fake inventory/tmux/manifest，-B/10000ms/windowsHide/status0；真实私有receipt及原LOCALAPPDATA仅缺省隔离行为保，历史环境不冒完整冻结。无真Worker/网络/删除。
 
 同类planRunRecovery准freeze/newcompile后full7原20s一次，当前不跑。真实resume新增capture/load后current围栏，case4假宿主缺两接口，准仅补本case root捕获及root相等current；原7断言保，旧fc0e7449资格false保legacy8067原值/原事件/私有receipt/历史工具链未知。仅源码发现，非已运行失败。与query两fixture＋三docs独立静态准备，不夹旧证适用或产品。
+
+parallelPlanSubmission准freeze/newcompile后full12原20s一次，当前不跑。真实provenance新增samePath调用，fixture globals缺该函数；仅由现AST提取/转译实际唯一samePath并注入，原12断言/1500ms barrier/250ms等待保。旧93fbb047资格false保原事件/五依赖；实际context稳定，Selected无isolatedMap不入变更文案。私有PLAN/provenance文件和fake准备/派发保，无真Worker/删除。独立fixture＋三docs静态批。

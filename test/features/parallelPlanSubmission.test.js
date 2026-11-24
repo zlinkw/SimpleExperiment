@@ -6,6 +6,9 @@ const Queue=require('../../src/features/DistributedPlanQueue.ts');
 const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('extension.ts',source,ts.ScriptTarget.Latest,true),methods=new Map();
 function visit(node){if(ts.isMethodDeclaration(node))methods.set(node.name.getText(ast),node);ts.forEachChild(node,visit)}visit(ast);
 function method(name,globals){const code=ts.transpileModule('class Host{'+methods.get(name).getText(ast)+'}',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;return new Function(...Object.keys(globals),code+';return Host.prototype.'+name)(...Object.values(globals));}
+const samePathDeclarations=ast.statements.filter(node=>ts.isFunctionDeclaration(node)&&node.name?.text==='samePath');
+assert.equal(samePathDeclarations.length,1);
+const samePath=new Function('path',ts.transpileModule(samePathDeclarations[0].getText(ast),{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText+';return samePath')(path);
 const turn=()=>new Promise(resolve=>setImmediate(resolve));
 async function bounded(promise){let timer;try{return await Promise.race([promise,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('concurrent preflight barrier timed out')),1500)})]);}finally{clearTimeout(timer)}}
 function fixture(count=8){
@@ -47,7 +50,7 @@ function fixture(count=8){
   assertSingleProjectWorkspace(){},pluginProjectAdapterRules:()=>({entry:'train.py'}),operationResultPlanFile:body=>body.planFile,
   projectOutputGateReason:()=>'',LENIENT_RUN:false,stringField:(value,key)=>value[key]||'',stringArrayField:()=>[],uniqueStrings:value=>value,usableSelectionKey:()=>'',
   preparePlanSafeRetry:async()=>false,makeOpId:()=>crypto.randomUUID(),isUiCommandCancelled:()=>false,errorMessage:error=>error.message,setTimeout,
-  DistributedPlanQueue:Queue,fs:fsp,path,crypto,atomicWriteText:async(file,text)=>{await fsp.mkdir(path.dirname(file),{recursive:true});await fsp.writeFile(file,text,'utf8')}};
+  DistributedPlanQueue:Queue,fs:fsp,path,crypto,samePath,atomicWriteText:async(file,text)=>{await fsp.mkdir(path.dirname(file),{recursive:true});await fsp.writeFile(file,text,'utf8')}};
  h.recordRunGitProvenance=method('recordRunGitProvenance',globals);
  h.finishDistributedPlanSubmission=method('finishDistributedPlanSubmission',globals);
  const core=method('runActionCommandCore',globals);
