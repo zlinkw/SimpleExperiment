@@ -62,3 +62,5 @@ rerun仅准`^permanent deletion only ever targets registered clean-batch paths; 
 
 七direct两docs批 e4bfe2a2618c1316e70f8ed2ac7e34eca000c251 已普通push/fetch、四HEAD一致及索引空。总控审mcpAgentContract、hubRuntimeRemoval、setupGuideWithoutBundledDocs三旧direct，实际提取方法与4c0/current LF同、其他依赖/Node/log匹配，仅legacy当前适用ca1d→20d，保原执行、旧dist渲染、Guide私有TEMP写及fake授权/UI/网络/clipboard边界；未新运行、未恢复退役入口或冒真实Panel/Worker。
 同批另审projectRootMap、distributedProjectContract、windowsWorkflowContract三旧direct，实际十个方法/函数与4c0/current LF同、其他依赖/Node/log匹配，仅legacy当前适用ca1d→20d；保原私有TEMP inventory/hash与mkdir/stat、旧dist PlanBuilder及fake准备/队列，未执行真实传输、删除或Worker。
+
+六direct两docs批 f2708006e89c21e1259f325ed815888be41fe187 已普通push/fetch、四HEAD一致及索引空。总控审preflightStages、agentPreparationLifecycle、workflowPanelNavigation、debugBundleFeedback四direct，实际提取方法/函数/常量及slice对4c0/current LF同，其他依赖/工具链/日志匹配，仅legacy当前适用ca1d→20d；保原受控Python抽函数、私有fixture、旧dist及fake生命周期/剪贴板/SFTP/复制边界，无新运行或真实Worker。
