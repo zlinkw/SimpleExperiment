@@ -59,6 +59,7 @@ for mode in ("train", "test", "train_test"):
         with contextlib.ExitStack() as scope:
             replacements = {
                 "verified_formal_job_command": lambda *a, **kw: {"identity":{"workflowId":"run","commandId":"launch"}},
+                "recalled_worker_command": lambda *args: None,
                 "agent_install_dir": lambda _: "virtual",
                 "simple_runtime_python": lambda _: "virtual-python",
                 "gpu_admission_probe_bound": lambda root, worker, request: ([], "", {"commandId":request["commandId"]}),
@@ -95,6 +96,7 @@ for mode in ("train", "test", "train_test"):
             }
             for key, replacement in replacements.items(): scope.enter_context(patch.object(agent, key, replacement))
             scope.enter_context(patch.dict(agent.DISTRIBUTED_GPU_RESERVATIONS, {}, clear=True))
+            scope.enter_context(patch.object(agent.os.path, "lexists", lambda _: False))
             agent.drain_durable_plan_queue_once("virtual", "worker", lambda: ([{"index": "0"}], ""),
                 lambda _, item, worker: dispatched.append(item) or {"status": "running"})
             assert len(dispatched) == 1 and dispatched[0]["mode"] == mode and dispatched[0]["options"]["mode"] == mode
