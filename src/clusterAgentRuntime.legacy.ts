@@ -5887,6 +5887,12 @@ def execute_declared_command(root, command):
     child_env = {key: value for key, value in os.environ.items() if key in (
         "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "SHELL", "TMUX", "TMUX_PANE", "CONDA_EXE")}
     result = subprocess.run(["bash", "-c", pipeline], cwd=cwd, env=child_env)
+    if result.returncode == 0:
+        try:
+            task_write_declared_manifest(project_dir, command)
+        except Exception as exc:
+            print("[declared-output] manifest unavailable: " + str(exc), file=sys.stderr, flush=True)
+
     return {"commandId": command_id, "status": "completed" if result.returncode == 0 else "failed", "exitCode": result.returncode}
 
 def execute_worker_command(root, command, worker_id):

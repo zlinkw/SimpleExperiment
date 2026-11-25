@@ -76,6 +76,48 @@ def task_safe_path(root, relative):
         raise ValueError("UNSAFE_TASK_PATH")
     return full
 
+def task_declared_output_snapshot(root, job):
+    """Observe exactly the declared output trees without following links."""
+    import stat as statmod
+    roots = [job["outputDir"], *job["outputs"], *([job["collectionResultCsv"]] if job.get("collectionResultCsv") else [])]
+    manifest = job["outputDir"] + "/artifact_manifest.json"
+    entries = {}
+    def visit(relative):
+        if relative == manifest:
+            return
+        full = task_safe_path(root, relative)
+        info = os.lstat(full)
+        if statmod.S_ISREG(info.st_mode):
+            entries[relative] = {"type": "file", "size": info.st_size, "mtimeNs": info.st_mtime_ns}
+        elif statmod.S_ISDIR(info.st_mode):
+            entries[relative] = {"type": "directory"}
+            with os.scandir(full) as listing:
+                children = sorted(item.name for item in listing)
+            for child in children:
+                visit(relative + "/" + child)
+            after = os.lstat(full)
+            if (info.st_dev, info.st_ino, info.st_mtime_ns) != (after.st_dev, after.st_ino, after.st_mtime_ns):
+                raise RuntimeError("TASK_OUTPUT_CHANGED_DURING_OBSERVATION")
+        else:
+            raise ValueError("TASK_OUTPUT_TYPE_UNSUPPORTED: " + relative)
+    if not os.path.isdir(task_safe_path(root, job["outputDir"])):
+        raise ValueError("TASK_OUTPUT_DIRECTORY_MISSING")
+    for relative in roots:
+        if relative == manifest:
+            raise ValueError("TASK_MANIFEST_RESERVED_OUTPUT")
+        if relative not in entries:
+            visit(relative)
+    return entries
+
+def task_write_declared_manifest(root, job):
+    target = task_safe_path(root, job["outputDir"] + "/artifact_manifest.json")
+    if os.path.lexists(target):
+        raise FileExistsError("TASK_MANIFEST_ALREADY_EXISTS")
+    entries = task_declared_output_snapshot(root, job)
+    identity = {key: job.get(key) for key in ("commandId", "projectId", "workerId", "workflowId", "experimentIndex", "outputDir", "outputs", "collectionResultCsv")}
+    with open(target, "x", encoding="utf-8") as handle:
+        json.dump({"simpleExperiment": {"schemaVersion": 3, "identity": identity, "files": entries}}, handle, ensure_ascii=False, sort_keys=True)
+
 def task_inventory(root, execution_only=False, _settle_exit=True):
     fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}\t#{@se_log}\t#{@se_gpu_budget}"
     rows = []
@@ -481,9 +523,11 @@ def task_declared_results(root, declarations, tasks=()):
 
 def task_result_query(root, queries, diagnostics_only=False, compact=False):
     """Filesystem/log evidence only. Execution is queried separately, once per round."""
+    import stat as statmod
     if not isinstance(queries, list) or not queries or len(queries) > 500:
         raise ValueError("TASK_QUERY_SELECTION_INVALID")
     tasks = []
+    generic_rows = task_inventory(root, _settle_exit=False) if any(isinstance(job, dict) and job.get("command") for job in queries) and not diagnostics_only else []
     for job in queries:
         if not isinstance(job, dict) or not all(isinstance(job.get(key), str) and job[key].strip() for key in ("commandId", "projectId", "workerId", "outputDir")):
             raise ValueError("TASK_QUERY_IDENTITY_REQUIRED")
@@ -493,6 +537,51 @@ def task_result_query(root, queries, diagnostics_only=False, compact=False):
             "executionMode", "mode", "runKey", "gpuId") if key in job}
         observed = {"lifecycleProtocol": 2, "commandId": job["commandId"], "projectId": job["projectId"], "workerId": job["workerId"], "observedAt": now_iso()}
         try:
+            if job.get("command") and not diagnostics_only:
+                if not isinstance(job.get("workflowId"), str) or not job["workflowId"] or not isinstance(job.get("experimentIndex"), int) or isinstance(job["experimentIndex"], bool):
+                    raise ValueError("TASK_OUTPUT_IDENTITY_UNVERIFIED")
+                matches = [row for row in generic_rows if all(row.get(key) == job.get(key) for key in ("commandId", "projectId", "workerId", "workflowId", "experimentIndex", "outputDir", "command", "outputs", "collectionResultCsv"))]
+                if len(matches) != 1 or not matches[0].get("dead") or matches[0].get("exitCode") != 0:
+                    raise ValueError("TASK_OUTPUT_IDENTITY_UNVERIFIED")
+                output_dir = task_safe_path(root, job["outputDir"])
+                declared = job.get("outputs")
+                if not isinstance(declared, list) or any(not isinstance(item, str) or not item for item in declared):
+                    raise ValueError("TASK_OUTPUT_DECLARATION_INVALID")
+                def declared_path_present(full, directory=False):
+                    try:
+                        mode = os.stat(full, follow_symlinks=False).st_mode
+                    except FileNotFoundError:
+                        return False
+                    return statmod.S_ISDIR(mode) if directory else statmod.S_ISDIR(mode) or statmod.S_ISREG(mode)
+                declared_paths = declared + ([job["collectionResultCsv"]] if job.get("collectionResultCsv") else [])
+                present = declared_path_present(output_dir, True) and all(declared_path_present(task_safe_path(root, item)) for item in declared_paths)
+                observed["executionContract"] = "declared-command-v1"
+                if present:
+                    manifest_path = task_safe_path(root, job["outputDir"] + "/artifact_manifest.json")
+                    try:
+                        with open(manifest_path, encoding="utf-8") as handle:
+                            report = json.load(handle).get("simpleExperiment")
+                    except FileNotFoundError:
+                        report = None
+                        observed["artifactIssue"] = "declared_manifest_missing"
+                    except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+                        report = None
+                        observed["artifactIssue"] = "declared_manifest_invalid"
+                    identity = {key: job.get(key) for key in ("commandId", "projectId", "workerId", "workflowId", "experimentIndex", "outputDir", "outputs", "collectionResultCsv")}
+                    if not isinstance(report, dict) or report.get("schemaVersion") != 3:
+                        if "artifactIssue" not in observed:
+                            observed["resultQueryError"] = "DECLARED_OUTPUT_MANIFEST_UNVERIFIED"
+                    elif report.get("identity") != identity:
+                        observed["artifactIssue"] = "declared_output_identity_conflict"
+                    elif report.get("files") != task_declared_output_snapshot(root, job):
+                        observed["artifactIssue"] = "declared_output_changed"
+                    else:
+                        observed["result"] = {"runId": job["commandId"], "status": "completed", "present": True,
+                            "verified": True, "identityMatches": True, "artifactsComplete": True}
+                else:
+                    observed["artifactIssue"] = "declared_output_missing"
+                tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
+                continue
             result = task_manifest_observation(root, job)
             observed["result"] = result
             if not diagnostics_only:
@@ -522,7 +611,7 @@ def task_result_query(root, queries, diagnostics_only=False, compact=False):
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
     return {"schemaVersion": 1, "generatedAt": now_iso(), "queryComplete": True, "resultsOnly": True,
             "diagnosticsOnly" if diagnostics_only else "metadataOnly": True,
-            "capabilities": {"taskLifecycle": 2, "runtimeDiagnostics": 1}, "tasks": tasks}
+            "capabilities": {"taskLifecycle": 2, "runtimeDiagnostics": 1, "declaredOutputObservation": 1}, "tasks": tasks}
 
 
 def task_declaration_query(root, declarations):
