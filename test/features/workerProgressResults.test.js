@@ -101,30 +101,28 @@ test('43 current jobs use at most 11 bounded result requests, rather than one ro
  assert.equal(reads,11);assert.equal(result.tasks.filter(t=>t.status==='completed').length,43);
 });
 
-test('blocked log analysis cannot erase already verified artifacts from any job',async()=>{
- const tasks=Array.from({length:6},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{dead:true,exitCode:0,phase:'running'}}}));
+test('ordinary progress never requests log analysis after artifact verification',async()=>{
+ const tasks=Array.from({length:6},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0,phase:'running'}}}));
  const controller=new AbortController(),requests=[],published=[];let release;
  const slow=new Promise(resolve=>{release=resolve;});
  const client={getWorkerTasks:async(_,options)=>{requests.push(options);if(options.diagnosticsOnly)return slow;return {metadataOnly:true,resultsOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:options.queries.map(t=>({...t,observation:{lifecycleProtocol:2,commandId:t.commandId,projectId:'p',workerId:'w',result:{runId:t.commandId,status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true}}}))};}};
  const pending=queryWorkerProgress(client,'w',tasks,{queryComplete:true,capabilities:{taskLifecycle:2},tasks},{signal:controller.signal,onSnapshot:s=>published.push(s)});
- await new Promise(setImmediate);
- assert.ok(requests.some(o=>o.diagnosticsOnly),'logs must use a distinct request phase');
- assert.equal(published.at(-1).tasks.filter(t=>t.resultState==='complete').length,6);
- controller.abort(Object.assign(Error('log wait expired'),{code:'TASK_QUERY_TIMEOUT'}));
  const result=await pending;
+ assert.ok(!requests.some(o=>o.diagnosticsOnly));
+ assert.equal(published.at(-1).tasks.filter(t=>t.resultState==='complete').length,6);
  assert.equal(result.tasks.filter(t=>t.status==='completed'&&t.resultState==='complete').length,6);
- assert.ok(result.tasks.every(t=>t.completionState==='unverified'));
- assert.equal(result.executionOnly,undefined);assert.match(result.runtimeQueryError,/log/);
+ assert.ok(result.tasks.every(t=>t.completionState==='verified'));
+ assert.equal(result.executionOnly,undefined);
  const count=published.length;release({queryComplete:true,tasks:[]});await new Promise(setImmediate);assert.equal(published.length,count);
 });
 
-test('separate log reads preserve per-job errors, explicit nonzero exits and anomaly review',async()=>{
- const tasks=Array.from({length:4},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{dead:true,exitCode:i===3?7:0,phase:'running'}}}));
- const client={getWorkerTasks:async(_,o)=>({queryComplete:true,resultsOnly:true,metadataOnly:!o.diagnosticsOnly,capabilities:{taskLifecycle:2},tasks:o.queries.map(t=>({...t,observation:o.diagnosticsOnly?(t.commandId==='c1'?{runtimeQueryError:'one log offline'}:{runtimeDiagnostics:{schemaVersion:1,commandId:t.commandId,runId:t.commandId,scanComplete:true,state:t.commandId==='c2'?'anomalous':'clear',count:t.commandId==='c2'?1:0}}):{lifecycleProtocol:2,commandId:t.commandId,projectId:'p',workerId:'w',result:{runId:t.commandId,status:'completed',present:true,verified:true,artifactsComplete:true}}}))})};
+test('progress preserves a nonzero exit independently of log diagnostics',async()=>{
+ const tasks=Array.from({length:4},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:i===3?7:0,phase:'running'}}}));
+ const client={getWorkerTasks:async(_,o)=>({queryComplete:true,resultsOnly:true,metadataOnly:!o.diagnosticsOnly,capabilities:{taskLifecycle:2},tasks:o.queries.map(t=>({...t,observation:o.diagnosticsOnly?(t.commandId==='c1'?{runtimeQueryError:'one log offline'}:{runtimeDiagnostics:{schemaVersion:1,commandId:t.commandId,runId:t.commandId,scanComplete:true,state:t.commandId==='c2'?'anomalous':'clear',count:t.commandId==='c2'?1:0}}):{lifecycleProtocol:2,commandId:t.commandId,projectId:'p',workerId:'w',result:{runId:t.commandId,status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true}}}))})};
  const result=await queryWorkerProgress(client,'w',tasks,{queryComplete:true,tasks,capabilities:{taskLifecycle:2}});
  assert.ok(result.tasks.every(t=>t.resultState==='complete'));
- assert.deepEqual(result.tasks.map(t=>t.completionState),['verified','unverified','review_required','verified']);
+ assert.deepEqual(result.tasks.map(t=>t.completionState),['verified','verified','verified','unverified']);
  assert.deepEqual(result.tasks.map(t=>t.status),['completed','completed','completed','failed']);
- assert.equal(result.tasks[3].exitCode,7);assert.match(result.tasks[1].runtimeDiagnostics.reason,/offline/);
- assert.equal(result.tasks[0].successful,true);assert.equal(result.tasks[2].successful,false);
+ assert.equal(result.tasks[3].exitCode,7);
+ assert.equal(result.tasks[0].successful,true);assert.equal(result.tasks[2].successful,true);
 });

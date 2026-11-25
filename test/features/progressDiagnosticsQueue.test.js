@@ -10,25 +10,17 @@ const result = q => ({ ...q, observation: { ...observation(q), result: { runId: 
 const log = (q, offset, complete) => ({ ...q, observation: { runtimeDiagnostics: { schemaVersion: 1, commandId: q.commandId,
   runId: q.commandId, state: complete ? 'clear' : 'scanning', count: 0, bytesRead: offset, totalBytes: 786432, scanComplete: complete } } });
 
-test('logs finish and publish even when another metadata batch consumes the round deadline', async () => {
-  const queries = Array.from({ length: 8 }, (_, i) => query('c' + i)), controller = new AbortController(), snapshots = [];
-  let metadataCalls = 0, logCalls = 0, release;
-  const blocked = new Promise(r => { release = r; });
+test('ordinary progress queries do not automatically inspect scientific logs', async () => {
+  const queries = [query('c0')], requests = [];
   const client = { getWorkerTasks: async (_, o) => {
-    if (o.diagnosticsOnly) { logCalls++; return { queryComplete: true, tasks: o.queries.map(q => log(q, 786432, true)) }; }
-    if (++metadataCalls > 1) return blocked;
+    requests.push(o);
     return { queryComplete: true, resultsOnly: true, metadataOnly: true, capabilities: { taskLifecycle: 2 }, tasks: o.queries.map(result) };
   } };
   const execution = { fetchedAt: new Date().toISOString(), queryComplete: true, capabilities: { taskLifecycle: 2 },
     tasks: queries.map(q => ({ ...q, observation: observation(q) })) };
-  const pending = W.queryWorkerProgress(client, 'w', queries, execution, { signal: controller.signal,
-    deferDiagnostics: true, onSnapshot: s => snapshots.push(s) });
-  try {
-    await waitFor(() => logCalls > 0);
-    controller.abort(Object.assign(Error('metadata round deadline'), { code: 'TASK_QUERY_TIMEOUT' }));
-    await pending;
-    assert.ok(snapshots.some(s => s.tasks.some(t => t.commandId === 'c0' && t.completionState === 'verified')));
-  } finally { release({ queryComplete: true, tasks: [] }); await pending; }
+  await W.queryWorkerProgress(client, 'w', queries, execution, { deferDiagnostics: true });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].diagnosticsOnly, undefined);
 });
 
 test('incremental scans autonomously reach EOF and share one request with continuous refreshes', async () => {

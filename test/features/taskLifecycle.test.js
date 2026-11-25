@@ -38,14 +38,42 @@ test('declared command exit and confirmed output remain separate and ignore scie
   assert.match(missingArtifactLane.resultQueryError,/尚未取得产物观察/);
   assert.equal(taskLifecycle(missingArtifactLane).completionState,'unverified');
 });
-test('declared command progress does not query research result or log semantics', async () => {
+test('declared command progress queries declared output only and refuses an old Agent', async () => {
   const {queryWorkerProgress} = require('../../src/features/WorkerProgressQuery.ts');
-  const task={...base,outputDir:'out',observation:{...base,executionContract:'declared-command-v1',tmux:{dead:true,exitCode:0}}};
-  const result=await queryWorkerProgress({getWorkerTasks:()=>{throw Error('unexpected metadata query');}},'w',[task],
-    {workerId:'w',queryComplete:true,capabilities:{taskLifecycle:2},tasks:[task],fetchedAt:base.observedAt});
-  assert.equal(result.resultQueryError,undefined);
-  assert.equal(result.runtimeQueryError,undefined);
-  assert.equal(result.tasks[0].observation.executionContract,'declared-command-v1');
+  const task={...base,workflowId:'flow',experimentIndex:0,outputDir:'out',command:'echo ok',outputs:['out/a'],observation:{...base,executionContract:'declared-command-v1',tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}};
+  const execution={workerId:'w',queryComplete:true,capabilities:{taskLifecycle:2},tasks:[task],fetchedAt:base.observedAt};
+  const seen=[];let supported=true;
+  const client={getWorkerTasks:async (_worker, request) => {seen.push(request); return {queryComplete:true,resultsOnly:true,metadataOnly:true,
+    capabilities:{taskLifecycle:2,...(supported?{declaredOutputObservation:1}:{})},tasks:[{...base,observation:{...base,
+      result:{runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true}}}]};}};
+  const result=await queryWorkerProgress(client,'w',[task],execution);
+  assert.equal(result.tasks[0].completionState,'verified');
+  assert.equal(result.controlIncomplete,true);
+  assert.equal(seen.length,1);assert.deepEqual(seen[0].queries[0].outputs,['out/a']);
+  supported=false;const old=await queryWorkerProgress(client,'w',[task],execution);
+  assert.match(old.tasks[0].observation.resultQueryError,/未提供声明产物核实能力/);
+  const live={...task,observation:{...task.observation,tmux:{windowId:'@1',paneId:'%1',dead:false,phase:'running'}}};
+  const only=await queryWorkerProgress(client,'w',[live],{...execution,executionOnly:true,tasks:[live]});
+  assert.equal(only.controlIncomplete,true);
+  const full=await queryWorkerProgress(client,'w',[live],{...execution,tasks:[live],cleanupExecutors:[{id:'cleanup'}]});
+  assert.equal(full.controlIncomplete,undefined);assert.equal(full.cleanupExecutors.length,1);
+});
+test('a slow declared output observation does not block another job', async () => {
+  const {queryWorkerProgress}=require('../../src/features/WorkerProgressQuery.ts');
+  const make=id=>({...base,commandId:id,workflowId:'flow',experimentIndex:id==='a'?0:1,outputDir:'out/'+id,command:'echo',outputs:[],
+    observation:{...base,commandId:id,executionContract:'declared-command-v1',tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}});
+  const tasks=[make('a'),make('b')], published=[];let release;
+  const blocked=new Promise(resolve=>{release=resolve;});
+  const client={getWorkerTasks:async(_worker,options)=>{const q=options.queries[0];if(q.commandId==='a')return blocked;
+    return {resultsOnly:true,metadataOnly:true,queryComplete:true,capabilities:{taskLifecycle:2,declaredOutputObservation:1},
+      tasks:[{...q,observation:{...base,commandId:'b',result:{runId:'b',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true}}}]};}};
+  const controller=new AbortController();
+  const pending=queryWorkerProgress(client,'w',tasks,{queryComplete:true,capabilities:{taskLifecycle:2},tasks},{signal:controller.signal,onSnapshot:s=>published.push(s)});
+  await new Promise(setImmediate);
+  assert.ok(published.some(s=>s.tasks.find(t=>t.commandId==='b')?.completionState==='verified'));
+  controller.abort(Object.assign(Error('test deadline'),{code:'TASK_QUERY_TIMEOUT'}));
+  const result=await pending;release({queryComplete:true,tasks:[]});
+  assert.equal(result.tasks.find(t=>t.commandId==='b').completionState,'verified');
 });
 test('queue retains the resolved command without research mode or seed', () => {
   const queue = require('../../src/features/DistributedPlanQueue.ts');
