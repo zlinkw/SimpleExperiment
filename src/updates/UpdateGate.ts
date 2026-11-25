@@ -197,6 +197,10 @@ export class UpdateGate {
           const leaseWindowPid = windowIdPid(lease.windowId);
           if (leaseWindowPid !== undefined && rootPid !== undefined && leaseWindowPid !== rootPid) throw new Error("本地传输租约身份字段矛盾，已阻止安装。");
         }
+        // A durable cleanup range protects paths after a response or restart;
+        // it is not itself an active local transfer that an update must drain.
+        if (typeof record.pendingCleanupKey === "string" && record.pendingCleanupKey && record.choosing === false
+          && record.ticket === 0 && record.admissionExpiresAt === 0 && record.leases.every(lease => lease.pendingCleanup === true)) continue;
         const heldFlags = Boolean(record.leases.length || record.choosing || record.ticket);
         // R52/R61 (plan r17 exact expression): a released explicit-idle registry never blocks ONLY under the strict
         // value/type check — null/odd-typed choosing/ticket/admission never take the idle fast path.

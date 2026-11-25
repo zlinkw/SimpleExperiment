@@ -6,8 +6,8 @@ import { constants } from "fs";
 import { AsyncLocalStorage } from "async_hooks";
 import { atomicWriteText } from "../state/StateStore";
 
-export type ResourceTarget = { server: string; project: string; target?: string };
-type Registry = { schemaVersion: 2; windowId: string; processId?: number; ticket: number; choosing: boolean; admissionExpiresAt: number; leases: any[] };
+export type ResourceTarget = { server: string; project: string; target?: string; access?: "read" };
+type Registry = { schemaVersion: 2; windowId: string; processId?: number; pendingCleanupKey?: string; ticket: number; choosing: boolean; admissionExpiresAt: number; leases: any[] };
 const poolKey = Symbol.for("simple-local.resource-leases.v2");
 const contextKey = Symbol.for("simple-local.resource-lease-context.v2");
 const globals = globalThis as any;
@@ -55,10 +55,10 @@ export function normalizeResourceTarget(value: ResourceTarget): ResourceTarget {
   const server = String(value.server || "local").trim().toLowerCase();
   const project = normalizedPath(value.project), target = normalizedPath(value.target || value.project);
   if (!within(project, target)) throw new Error("资源锁目标不在对应项目内。");
-  return { server, project, target };
+  return { server, project, target, ...(value.access === "read" ? { access: "read" as const } : {}) };
 }
 export function resourceTargetsConflict(a: ResourceTarget[], b: ResourceTarget[]): boolean {
-  return a.some(x => b.some(y => x.server === y.server && (within(x.target!, y.target!) || within(y.target!, x.target!))));
+  return a.some(x => b.some(y => !(x.access === "read" && y.access === "read") && x.server === y.server && (within(x.target!, y.target!) || within(y.target!, x.target!))));
 }
 async function canonicalResourceTarget(value: ResourceTarget): Promise<ResourceTarget> {
   const normalized = normalizeResourceTarget(value);
@@ -75,7 +75,7 @@ async function canonicalResourceTarget(value: ResourceTarget): Promise<ResourceT
       }
     }
   }
-  return normalizeResourceTarget({ server: "local", project: await physical(normalized.project), target: await physical(normalized.target!) });
+  return normalizeResourceTarget({ server: "local", project: await physical(normalized.project), target: await physical(normalized.target!), access: normalized.access });
 }
 
 /** Shared secure reader (plan r13 §2 / r14): exact delegation of the manager's private readRegistry.
@@ -170,7 +170,7 @@ export class ResourceOperationLeaseManager {
         const row = await this.readRegistry(source);
         const oldPid = row.processId ?? Number(row.windowId.split(":")[1]);
         // Released registries only. Unknown or live owners and recovery records stay protected.
-        if (!Number.isInteger(oldPid) || oldPid <= 0 || oldPid === this.processId || row.leases.length || row.choosing || row.ticket ||
+        if (row.pendingCleanupKey || !Number.isInteger(oldPid) || oldPid <= 0 || oldPid === this.processId || row.leases.length || row.choosing || row.ticket ||
           row.admissionExpiresAt > this.now() || this.ownerAlive({ processId: oldPid })) continue;
         // Atomic rename claims one idle slot: two new owners cannot both consume the source.
         await fs.rename(source, this.file);
@@ -256,7 +256,7 @@ export class ResourceOperationLeaseManager {
     const targets = await Promise.all((input.resources?.length ? input.resources : [{ server: "local", project: input.hostProjectPath }]).map(canonicalResourceTarget));
     for (const field of ["pluginId", "workspaceUri", "hostProjectPath", "actionType"]) if (!String(input[field] || "").trim()) throw new Error(`资源锁缺少 ${field}。`);
     const parents = contexts.getStore() || [];
-    const parent = parents.find(row => row.windowId === this.windowId && row.resourceFile === this.file && targets.every((target: ResourceTarget) => row.resources.some((held: ResourceTarget) => held.server === target.server && within(held.target!, target.target!))));
+    const parent = parents.find(row => row.windowId === this.windowId && row.resourceFile === this.file && targets.every((target: ResourceTarget) => row.resources.some((held: ResourceTarget) => held.server === target.server && (held.access !== "read" || target.access === "read") && within(held.target!, target.target!))));
     if (parent) return { record: parent, assertHeld: () => this.assertOwned(parent), release: async () => undefined };
     const time = this.now();
     const record = { ...input, schemaVersion: 1, leaseId: crypto.randomUUID(), windowId: this.windowId, processId: this.processId, resourceFile: this.file,
@@ -265,8 +265,9 @@ export class ResourceOperationLeaseManager {
     for (;;) { try { await this.admission(async rows => {
       input.signal?.throwIfAborted();
       for (const row of rows) for (const lease of row.leases) {
-        if (Date.parse(lease.expiresAt) > this.now() && this.ownerAlive(lease) && resourceTargetsConflict(targets, lease.resources)) {
+        if ((lease.pendingCleanup === true || lease.pendingTransfer === true || Date.parse(lease.expiresAt) > this.now() && this.ownerAlive(lease)) && resourceTargetsConflict(targets, lease.resources)) {
           const conflict = this.options.conflictError?.(lease) || new Error(`目标正在由 ${lease.windowId} 的“${lease.actionLabel}”修改，请等待该操作完成后重试。`);
+          if (lease.pendingCleanup === true || lease.pendingTransfer === true) conflict.message = `目标与未结算操作冲突：${lease.resources.map((resource: ResourceTarget) => resource.target).join("、")}；请求 ${lease.leaseId}。请查询该操作的实际状态后重试。`;
           conflict.code = "RESOURCE_CONFLICT"; throw conflict;
         }
       }
@@ -306,6 +307,6 @@ export class ResourceOperationLeaseManager {
   async inspect(options: { excludeCurrent?: boolean } = {}): Promise<any> {
     const own = new Set(options.excludeCurrent ? (contexts.getStore() || []).map(row => row.leaseId) : []);
     return { records: (await this.rows()).flatMap(row => row.leases)
-      .filter(row => Date.parse(row.expiresAt) > this.now() && this.ownerAlive(row) && !own.has(row.leaseId)) };
+      .filter(row => (row.pendingCleanup === true || row.pendingTransfer === true || Date.parse(row.expiresAt) > this.now() && this.ownerAlive(row)) && !own.has(row.leaseId)) };
   }
 }

@@ -77,3 +77,5 @@ Worker 命令协议的本机函数夹具通过；`node scripts/test-workflow.js 
 一次只读搜索使用 Windows 不接受的路径通配符、另一次指定了不存在的工作目录；均未修改项目，已定向读取。
 
 空目录审核贯穿项目上下文：工作树首测退出1、7/9（旧夹具缺运行集合/结算方法，Temp/g005-empty-context-69c783ef6d6449d5b07cc7141c409a96/stdout.log），修后9/9（Temp/g005-empty-context-fix-2495d6c679df4f4a8ede1ec981dea1a6/stdout.log）。基线候选首测退出1、8/9（夹具缺运行集合），修后9/9、noEmit 0（Temp/g005-context-batch-8ab7b27ea8b042cd9576c7ec593e8b13/stdout.log、stdout-fixed.log）。真实清理链未验。
+
+SFTP 路径租约基础批 ef6c9c1466c60510d9a2c364d7698fa35d5e6bda 已推送并核同步；基线假13/13（Temp/g005-lease-batch-j2xeq1zb/stdout.log）、J0。SE 对未结算范围的恢复保护基线假2/2（Temp/g005-se-lease-batch-vhap0gie/stdout.log）、noEmit 0；真实清理链/跨插件恢复未验。曾在非 Git 的候选目录误查 Git，失败且未修改，随后在真实仓核对。
