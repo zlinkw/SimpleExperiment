@@ -4,6 +4,29 @@ import { SyncHolds, chosenSyncHash, isSyncHeld } from "./SyncResolution";
 export type Inventory = Record<string, { sha256: string; size: number }>;
 export type MirrorCopy = { sourceWorkerId: string; destinationWorkerId: string; path: string };
 export type MirrorPlan = { copies: MirrorCopy[]; conflicts: Array<{ path: string; workers: string[] }>; protectedPaths: string[]; protectedDifferences: string[]; fileCount: number };
+export type MirrorScope = { paths: string[]; excluded: string[] };
+
+export function normalizeMirrorScope(paths: string[], excluded: string[] = []): MirrorScope {
+  const normalized = normalizeMirrorScopePaths(paths);
+  if (!Array.isArray(excluded)) throw new Error("服务器间排除范围必须是路径数组。");
+  const omit = [...new Set(excluded.map(raw => String(raw || "").replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "")))].sort();
+  for (const relative of omit)
+    if (!relative || relative === "." || relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some(part => !part || part === "." || part === ".."))
+      throw new Error(`服务器间排除路径不安全：${relative}`);
+  return { paths: normalized, excluded: omit };
+}
+
+export function mirrorScopeIncludes(relative: string, scope: MirrorScope): boolean {
+  return scope.paths.some(path => path === "." || relative === path || relative.startsWith(path + "/"))
+    && !scope.excluded.some(path => relative === path || relative.startsWith(path + "/"));
+}
+
+export function configuredMirrorScope(config: { get<T>(key: string, fallback?: T): T }): MirrorScope {
+  const saved = config.get<MirrorScope | null | undefined>("serverSync.scope");
+  if (saved == null) return normalizeMirrorScope(config.get<string[]>("serverSync.paths", ["."]));
+  if (!saved || !Array.isArray(saved.paths) || !Array.isArray(saved.excluded)) throw new Error("服务器间同步范围配置无效，请重新保存。");
+  return normalizeMirrorScope(saved.paths, saved.excluded);
+}
 
 export function normalizeMirrorScopePaths(paths: string[]): string[] {
   if (!Array.isArray(paths)) throw new Error("服务器间同步范围必须是路径数组。");
@@ -23,10 +46,10 @@ export function normalizeMirrorScopePaths(paths: string[]): string[] {
   return selected.includes(".") ? ["."] : selected.sort();
 }
 
-export function filterInventoryByScope<T>(inventory: Record<string, T>, paths: string[]): Record<string, T> {
-  const selected = normalizeMirrorScopePaths(paths);
-  if (selected.includes(".")) return inventory;
-  return Object.fromEntries(Object.entries(inventory).filter(([relative]) => selected.some((scope) => relative === scope || relative.startsWith(`${scope}/`))));
+export function filterInventoryByScope<T>(inventory: Record<string, T>, paths: string[], excluded: string[] = []): Record<string, T> {
+  const scope = normalizeMirrorScope(paths, excluded);
+  if (scope.paths.includes(".") && !scope.excluded.length) return inventory;
+  return Object.fromEntries(Object.entries(inventory).filter(([relative]) => mirrorScopeIncludes(relative, scope)));
 }
 
 function planOwned(path: string, ledger: PlanSyncLedger): boolean {
