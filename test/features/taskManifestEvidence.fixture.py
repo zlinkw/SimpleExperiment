@@ -8,7 +8,7 @@ ns=dict(os=os,json=json,re=re,now_iso=lambda:"2026-10-15T00:00:00Z")
 exec(compile(ast.Module(body=nodes,type_ignores=[]),"manifest-query","exec"),ns)
 root=pathlib.Path(tempfile.mkdtemp(prefix="se-final-artifacts-"));cases=[]
 
-def check(name, mode="train_test", change=None, dead=True, exit_code=None, phase="running", expected=("exited","complete","completed")):
+def check(name, mode="train_test", change=None, dead=True, exit_code=0, phase="running", expected=("exited","complete","completed")):
     output="work/"+name;directory=root/output;directory.mkdir(parents=True)
     weights=[output+"/model.pth"] if mode!="test" else []
     csv="tmp/"+name+".csv"
@@ -33,21 +33,22 @@ check("checkpoint-test-only",change=lambda j,r,d:(j.update(checkpointTestOnly=Tr
 check("running",dead=False,expected=("running","complete","running"))
 check("unknown-phase",dead=False,phase="other",expected=("unknown","complete","unknown"))
 check("explicit-failure",exit_code=7,expected=("failed","complete","failed"))
-check("absent",change=lambda *args:False,expected=("exited","incomplete","unknown"))
-check("empty-weight",change=lambda j,r,d:(root/r["weights"][0]).write_bytes(b""),expected=("exited","incomplete","unknown"))
-check("empty-result",change=lambda j,r,d:(root/r["resultCsv"]).write_bytes(b""),expected=("exited","incomplete","unknown"))
-check("missing-result-declaration",change=lambda j,r,d:r.update(resultCsv=None),expected=("exited","incomplete","unknown"))
-check("missing-weights",change=lambda j,r,d:r.update(weights=[]),expected=("exited","incomplete","unknown"))
-check("directory-weight",change=lambda j,r,d:(r.update(weights=[j["outputDir"]+"/directory"]),(d/"directory").mkdir()),expected=("exited","incomplete","unknown"))
-check("old-run",change=lambda j,r,d:r.update(runId="old"),expected=("exited","conflict","unknown"))
-check("missing-run",change=lambda j,r,d:r.update(runId=""),expected=("exited","conflict","unknown"))
-check("other-job",change=lambda j,r,d:r["job"].update(seed=99),expected=("exited","conflict","unknown"))
-check("mode-mismatch",change=lambda j,r,d:r.update(mode="train"),expected=("exited","conflict","unknown"))
-check("foreign-weight",change=lambda j,r,d:r.update(weights=["work/train/model.pth"]),expected=("exited","unverified","unknown"))
+check("absent",change=lambda *args:False,expected=("exited","incomplete","completed"))
+check("empty-weight",change=lambda j,r,d:(root/r["weights"][0]).write_bytes(b""),expected=("exited","incomplete","completed"))
+check("empty-result",change=lambda j,r,d:(root/r["resultCsv"]).write_bytes(b""),expected=("exited","incomplete","completed"))
+check("missing-result-declaration",change=lambda j,r,d:r.update(resultCsv=None),expected=("exited","incomplete","completed"))
+check("missing-weights",change=lambda j,r,d:r.update(weights=[]),expected=("exited","incomplete","completed"))
+check("directory-weight",change=lambda j,r,d:(r.update(weights=[j["outputDir"]+"/directory"]),(d/"directory").mkdir()),expected=("exited","incomplete","completed"))
+check("old-run",change=lambda j,r,d:r.update(runId="old"),expected=("exited","conflict","completed"))
+check("missing-run",change=lambda j,r,d:r.update(runId=""),expected=("exited","conflict","completed"))
+check("other-job",change=lambda j,r,d:r["job"].update(seed=99),expected=("exited","conflict","completed"))
+check("mode-mismatch",change=lambda j,r,d:r.update(mode="train"),expected=("exited","conflict","completed"))
+check("foreign-weight",change=lambda j,r,d:r.update(weights=["work/train/model.pth"]),expected=("exited","unverified","completed"))
 def changed_stat(job,report,directory):
     report["fileStats"]={report["weights"][0]:{"size":999}}
-check("changed-stat",change=changed_stat,expected=("exited","incomplete","unknown"))
+check("changed-stat",change=changed_stat,expected=("exited","incomplete","completed"))
 def unreadable(job,report,directory):
     (directory/"artifact_manifest.json").write_text("{",encoding="utf-8");return False
-check("unreadable",change=unreadable,expected=("exited","unverified","unknown"))
+check("unreadable",change=unreadable,expected=("exited","unverified","completed"))
+check("manifest-exit-only",change=lambda j,r,d:r.update(exitCode=0),exit_code=None,expected=("exited","complete","unknown"))
 print(json.dumps(cases))

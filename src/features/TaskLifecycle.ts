@@ -1,4 +1,4 @@
-import { completionState, runtimeEvidence, type RuntimeDiagnostics, type CompletionState } from "./RuntimeDiagnostics";
+import { runtimeEvidence, type RuntimeDiagnostics, type CompletionState } from "./RuntimeDiagnostics";
 import type { EvidenceTimes } from "./WorkerProgressEvidence";
 /** Runtime truth comes from a bounded pull, never an event or a stored status. */
 export type TaskExecution = "queued" | "starting" | "running" | "exited" | "failed" | "missing" | "unknown";
@@ -12,9 +12,12 @@ export type TaskObservation = {
   artifactIssue?: string;
   runtimeDiagnostics?: RuntimeDiagnostics;
   cancelled?: boolean;
-  tmux?: { windowId: string; paneId: string; dead: boolean; exitCode?: number | null; phase?: string } | null;
+  tmux?: { windowId: string; paneId: string; dead: boolean; exitCode?: number | null; phase?: string; admissionError?: string } | null;
   result?: { runId: string; status: string; present: boolean; verified: boolean; identityMatches?: boolean; artifactsComplete?: boolean; exitCode?: number | null } | null;
 };
+export function exactExitedPane(pane: TaskObservation["tmux"]): boolean {
+  return pane?.dead === true && /^@\d+$/.test(pane.windowId || "") && /^%\d+$/.test(pane.paneId || "") && Number.isInteger(pane.exitCode);
+}
 export function taskLifecycle(value: TaskObservation): { execution: TaskExecution; result: TaskResult;
   status: "unknown" | "queued" | "running" | "failed" | "completed" | "cancelled";
   completionState?: CompletionState; runtimeDiagnostics?: RuntimeDiagnostics; exitCode?: number | null; message?: string } {
@@ -23,14 +26,20 @@ export function taskLifecycle(value: TaskObservation): { execution: TaskExecutio
   if (value.executionContract === "declared-command-v1") {
     const pane = value.executionQueryError ? undefined : value.tmux;
     const execution: TaskExecution = value.executionQueryError ? "unknown" : !pane ? "missing" : pane.dead
-      ? !Number.isInteger(pane.exitCode) ? "unknown" : pane.exitCode === 0 ? "exited" : "failed"
+      ? !exactExitedPane(pane) ? "unknown" : pane.exitCode === 0 ? "exited" : "failed"
       : ["queued", "bound"].includes(pane.phase || "") ? "queued"
       : ["admitted", "starting"].includes(pane.phase || "") ? "starting" : pane.phase === "running" ? "running" : "unknown";
     const status = execution === "exited" ? "completed" : execution === "failed" ? "failed"
       : execution === "queued" || execution === "starting" ? "queued" : execution === "running" ? "running"
       : value.cancelled && !pane && !value.executionQueryError ? "cancelled" : "unknown";
-    return { execution, result: "unverified", status, exitCode: pane?.exitCode,
-      completionState: status === "completed" ? "verified" : "unverified", message: value.executionQueryError };
+    const result = value.resultQueryError ? "unverified" : value.artifactIssue ? "incomplete" : value.result
+      ? value.result.runId !== value.commandId || value.result.identityMatches === false ? "conflict"
+        : value.result.status === "completed" && value.result.present && value.result.verified && value.result.identityMatches === true && value.result.artifactsComplete === true ? "complete" : "incomplete"
+      : "unverified";
+    return { execution, result, status, exitCode: pane?.exitCode,
+      completionState: status === "completed" && result === "complete" ? "verified" : "unverified",
+      message: value.executionQueryError || value.resultQueryError || (value.artifactIssue ? "产物核实失败：" + value.artifactIssue : undefined)
+        || (execution === "queued" ? pane?.admissionError : undefined) };
   }
   const pane = value.executionQueryError ? undefined : value.tmux;
   if (value.executionQueryError) execution = "unknown";
@@ -45,24 +54,24 @@ export function taskLifecycle(value: TaskObservation): { execution: TaskExecutio
   }
   if (value.result) {
     result = value.result.runId !== value.commandId || value.result.identityMatches === false ? "conflict"
-      : (value.result.artifactsComplete === true || value.result.status === "completed") && value.result.present && value.result.verified ? "complete" : "incomplete";
+      : value.artifactIssue || !value.result.present || !value.result.verified || value.result.artifactsComplete === false ? "incomplete"
+      : value.result.identityMatches === true && value.result.artifactsComplete === true ? "complete" : "unverified";
   }
+  else if (value.artifactIssue) result = "incomplete";
   if (value.resultQueryError) result = "unverified";
   const exitCode = pane?.exitCode ?? (value.result?.runId === value.commandId && value.result.identityMatches !== false ? value.result?.exitCode : undefined) ?? pane?.exitCode;
   if ((!pane || pane.dead) && Number.isInteger(exitCode) && !value.resultQueryError && !value.executionQueryError) execution = exitCode !== 0 ? "failed" : "exited";
   let status: "unknown" | "queued" | "running" | "failed" | "completed" | "cancelled" = ["queued", "starting"].includes(execution) ? "queued" : execution === "running" ? "running"
-    : execution === "failed" ? "failed" : execution === "unknown" ? "unknown" : result === "complete" ? "completed" : value.cancelled && !pane ? "cancelled"
+    : execution === "failed" ? "failed" : execution === "unknown" ? "unknown" : exactExitedPane(pane) && pane?.exitCode === 0 ? "completed" : value.cancelled && !pane ? "cancelled"
     : execution === "missing" ? "unknown" : "unknown";
-  const message = value.executionQueryError || (value.resultQueryError ? "产物核实失败：" + value.resultQueryError : execution === "starting" ? "任务窗口已建立，正在启动命令"
+  const message = value.executionQueryError || (execution === "queued" && pane?.admissionError) || (value.resultQueryError ? "产物核实失败：" + value.resultQueryError : execution === "starting" ? "任务窗口已建立，正在启动命令"
     : execution === "unknown" ? "窗口执行阶段尚未核实" : execution === "missing" && result !== "complete" ? "远端未发现该任务；未自动重新派发"
     : result === "conflict" ? "产物清单与本次任务不符"
     : execution === "exited" && result === "incomplete" ? "执行已结束，结果不完整"
     : execution === "exited" && result !== "complete" ? "执行已结束，产物尚未确认" : undefined);
   const evidence = runtimeEvidence(value.runtimeDiagnostics, value.commandId);
-  let completion = completionState(evidence, value.commandId);
-  if (completion === "verified" && exitCode == null && value.result?.status === "failed") completion = "unverified";
-  if (completion === "review_required" && (execution === "exited" || execution === "failed"
-    || execution === "missing" && result === "complete")) status = "failed";
+  const completion: CompletionState = status === "completed" && result === "complete" && exactExitedPane(pane) && pane?.exitCode === 0
+    && value.result?.status === "completed" ? "verified" : "unverified";
   return { execution, result, status, message, exitCode,
     runtimeDiagnostics: evidence, completionState: completion };
 }

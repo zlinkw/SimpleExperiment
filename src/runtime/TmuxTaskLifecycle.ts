@@ -373,8 +373,8 @@ def task_public_observation(root, job, row=None):
             "codeFingerprint", "experimentIndex", "case", "outputDir", "command", "workingDirectory", "outputs", "resultPathPolicy", "planJobCount", "fullPlanJobCount",
             "enqueuedAt", "lifecycleProtocol", "runKey", "dispatchPolicy", "condaEnv") if key in job}
         return {**public, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
-                "status": status, "executionState": execution, "resultState": "not_required", "completionState": "verified" if status == "completed" else "unverified",
-                "successful": status == "completed", "logPath": row.get("logPath") if row else "", "observation": observed,
+                "status": status, "executionState": execution, "resultState": "unverified", "completionState": "unverified",
+                "successful": False, "logPath": row.get("logPath") if row else "", "observation": observed,
                 "lifecycleProtocol": 2, "durableAccepted": True}
     result_error = ""
     try:
@@ -400,24 +400,15 @@ def task_public_observation(root, job, row=None):
         known_exit = result.get("exitCode")
     if (not row or row["dead"]) and isinstance(known_exit, int):
         execution = "failed" if known_exit != 0 else "exited"
-        if row:
-            observed["tmux"]["exitCode"] = known_exit
-    binding = result.get("runtimeDiagnostics") if result and result.get("runId") == job["commandId"] else None
-    diagnostics = task_log_diagnostics(root, job, row, not row or row["dead"], binding) if "task_log_diagnostics" in globals() else None
-    observed["runtimeDiagnostics"] = diagnostics
-    completion = "review_required" if diagnostics and diagnostics.get("count", 0) else "verified" if diagnostics and diagnostics.get("state") == "clear" and diagnostics.get("scanComplete") else "unverified"
-    if completion == "verified" and known_exit is None and result and result.get("status") == "failed":
-        completion = "unverified"
+    completion = "verified" if row and row["dead"] and row.get("exitCode") == 0 and result_state == "complete" and result.get("status") == "completed" else "unverified"
     status = "queued" if execution in ("queued", "starting") else "running" if execution == "running" else (
-        "failed" if execution == "failed" else "unknown" if execution == "unknown" else "completed" if result_state == "complete" else "unknown")
-    if completion == "review_required" and (execution in ("exited", "failed") or execution == "missing" and result_state == "complete"):
-        status = "failed"
+        "failed" if execution == "failed" else "completed" if row and row["dead"] and row.get("exitCode") == 0 else "unknown")
     public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
         "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
         "executionMode", "mode", "checkpointSource", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}
     actual_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
     return {**public, "gpuMemoryProfile": task_budget_public(row) if row and row.get("_gpuBudget") else None, "actualExecutionMode": actual_mode, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
-            "status": status, "executionState": execution, "resultState": result_state, "runtimeDiagnostics": diagnostics, "completionState": completion,
+            "status": status, "executionState": execution, "resultState": result_state, "completionState": completion,
             "exitCode": known_exit,
             "successful": status == "completed" and completion == "verified",
             "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}

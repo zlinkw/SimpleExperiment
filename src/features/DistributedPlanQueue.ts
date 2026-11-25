@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { PlanExecutionMode } from "./PlanExecutionMode";
-import { observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecycle";
+import { exactExitedPane, observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecycle";
 import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 import { freshTaskObservation } from "./WorkerProgressEvidence";
 import { hasVerifiedCompletion, hasTrustedTerminalProof, nextVerifiedCompletion, verifiedCompletionProjection, trustedTerminalProofFor, type TrustedTerminalProof, type VerifiedCompletion } from "./VerifiedCompletion";
@@ -267,7 +267,18 @@ function clearNativeProjection(job: QueuedJob, plan: QueuedPlan) {
   // outputIsolationBlocked 或它的解释；重载后必须仍能回答"为何未启动、下一步做什么"。
   if (job.outputIsolationBlocked) job.blockReason = outputIsolationNotice(job);
   if (hasVerifiedCompletion(plan, job)) Object.assign(job, verifiedCompletionProjection(plan, job));
-  else delete job.verifiedCompletion;
+  else {
+    delete job.verifiedCompletion;
+    if (!job.unavailable && !job.retainExistingOutputs && hasTrustedTerminalProof(plan, job)
+      && job.trustedTerminalProof?.outcome === "completed") {
+      job.status = "completed"; job.executionState = "exited"; job.exitCode = 0;
+      job.resultState = "unverified"; job.completionState = "unverified";
+    } else if (!job.unavailable && !job.retainExistingOutputs && hasTrustedTerminalProof(plan, job)
+      && job.trustedTerminalProof?.outcome === "failed") {
+      job.status = "failed"; job.executionState = "failed"; job.resultState = "unverified";
+      job.completionState = "unverified"; job.error = "任务已确认失败";
+    }
+  }
   restoreRetainedTaskStop(plan, job);
 }
 
@@ -316,9 +327,20 @@ export function updateVerifiedCompletions(queue: DistributedQueue, snapshot: any
   const next = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
     if (plan.projectId !== projectId || job.workerId !== snapshot.workerId || job.lifecycleProtocol !== 2) return job;
     const observed = projected.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index && row.commandId === job.commandId);
-    if (!observed || JSON.stringify(observed.verifiedCompletion) === JSON.stringify(job.verifiedCompletion)) return job;
+    if (!observed) return job;
+    const oldTerminal = job.trustedTerminalProof, newTerminal = observed.trustedTerminalProof;
+    const terminal = oldTerminal && newTerminal && oldTerminal.identity === newTerminal.identity && oldTerminal.outcome === newTerminal.outcome
+      ? oldTerminal : newTerminal;
+    if (JSON.stringify(observed.verifiedCompletion) === JSON.stringify(job.verifiedCompletion)
+      && JSON.stringify(terminal) === JSON.stringify(oldTerminal)) return job;
     changed = true;
-    return { ...job, verifiedCompletion: observed.verifiedCompletion, ...verifiedCompletionProjection(plan, observed) };
+    const nextJob = { ...job, verifiedCompletion: observed.verifiedCompletion, trustedTerminalProof: terminal,
+      ...verifiedCompletionProjection(plan, observed) };
+    if (job.verifiedCompletion && !observed.verifiedCompletion) {
+      clearNativeProjection(nextJob, plan);
+      if (observed.executionState === "failed" && Number.isInteger(observed.exitCode)) nextJob.exitCode = observed.exitCode;
+    }
+    return nextJob;
   }) })) };
   return changed ? next : undefined;
 }
@@ -622,6 +644,14 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     if (pulled.some(row => row.workerId === job.workerId) && !pending) return job;
     if (hasVerifiedCompletion(plan, job)) return { ...job, ...verifiedCompletionProjection(plan, job),
       verificationQueryError: snapshot?.error || (pending ? "Worker 查询进行中，本轮尚未取得有效观察" : "本轮未取得此 Worker 的有效主动查询") };
+    if (!job.unavailable && !job.retainExistingOutputs && hasTrustedTerminalProof(plan, job) && job.trustedTerminalProof?.outcome === "completed")
+      return { ...job, status: "completed" as const, executionState: "exited" as const, exitCode: 0,
+        resultState: "unverified" as const, completionState: "unverified" as const,
+        statusQueryError: snapshot?.error || "本轮未取得此 Worker 的有效主动查询" };
+    if (!job.unavailable && !job.retainExistingOutputs && hasTrustedTerminalProof(plan, job) && job.trustedTerminalProof?.outcome === "failed")
+      return { ...job, status: "failed" as const, executionState: "failed" as const, resultState: "unverified" as const,
+        completionState: "unverified" as const, error: job.error || "任务已确认失败",
+        statusQueryError: snapshot?.error || "本轮未取得此 Worker 的有效主动查询" };
     if (pending) return job;
     return { ...job, status: "unknown" as const, executionState: "unknown" as const, resultState: "unverified" as const,
       error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" };
@@ -640,6 +670,9 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (task && ["outputDir", "collectionResultCsv"].some(field => typeof (task as any)[field] === "string"
         && typeof (job as any)[field] === "string" && (task as any)[field] !== (job as any)[field]))
         observation.queryError = "任务产物路径与当前任务不符；请刷新核实";
+      if (task && job.command && (typeof (task as any).command === "string" && (task as any).command !== job.command
+        || Array.isArray((task as any).outputs) && JSON.stringify((task as any).outputs) !== JSON.stringify(job.outputs)))
+        observation.queryError = "任务命令或声明产物与当前任务不符；请刷新核实";
       // Narrow stop/read queries may omit historical metadata. When the Worker
       // does return a binding, a contradictory declaration must never borrow
       // this command's live pane or final result for another case/seed/PLAN.
@@ -661,10 +694,12 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const nativeWindowSeen = observation.tmux?.dead === false && ["starting", "running"].includes(state.execution);
       const verifiedCompletion = nextVerifiedCompletion(plan, job, observation, state, now);
       const fixed = verifiedCompletionProjection(plan, { ...job, verifiedCompletion });
-      // P0-R：四类查询全净且身份核对通过的终态＝远端证实的物理退出/确证停止；持久化紧凑证明，
-      // 使确证释放跨 clearNativeProjection 落盘/重读仍存在（未知或任一查询错误不产生证明）。
-      const terminalProof = cleanNativeErrors.length === 0 && ["completed", "failed", "cancelled"].includes(state.status)
-        ? trustedTerminalProofFor(plan, job, state.status as "completed" | "failed" | "cancelled", now) : undefined;
+      // Execution proof is independent of artifact and log queries.
+      const terminalOutcome = exactExitedPane(observation.tmux) && observation.tmux?.exitCode === 0 ? "completed"
+        : exactExitedPane(observation.tmux) ? "failed"
+        : state.status === "cancelled" ? "cancelled" : undefined;
+      const terminalProof = !observation.queryError && !observation.executionQueryError && terminalOutcome
+        ? trustedTerminalProofFor(plan, job, terminalOutcome, now) : undefined;
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
         runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
         startIntent: !observation.queryError && !observation.executionQueryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,

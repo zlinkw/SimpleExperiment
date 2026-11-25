@@ -98,3 +98,5 @@ SE 2d39821e 首次 push 退出1，GitHub 5xx，2026-11-25T01:00:04Z，Request ID
 
 产物同步准入及在途重核绑定精确完成证明，队列写入时拒过期身份；HEAD+本批假端3/3、T0（Temp/g005-sync-proof-3w5916xy/stdout-final.log），不表示真实 Worker 同步完成。
 暂存新测试初次 update-index 缺 --add 退出128，随后用 git add 成功；无测试重跑绕过。
+
+完成事实区分精确 tmux 执行退出和声明产物确认，未知保留既有证明，新反证撤销；禁止清单退出码伪装为窗口退出。前置计数、重跑选择及同步准入批已同步。HEAD+本批隔离假生命周期20/20、证明11/11（Temp/g005-proof-projection-sa7xkzxr/lifecycle-after-count.log、verified-after-count.log），已审定重跑消费者正向1/1（replacement-guard.log）、同步消费者3/3（sync-consumer.log）、T0（compile-prereqs.log）；首败及测试边界见本登记前文。实际 Worker、Agent、选中范围及 UI 全链仍未验。

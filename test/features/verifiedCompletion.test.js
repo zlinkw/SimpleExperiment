@@ -9,7 +9,7 @@ function fixture() {
  const queue = { schemaVersion: 1, plans: [{ id: 'plan', projectId: 'p', planFile: 'p.yaml', resultPathPolicy: 'declared', jobs: [job] }] };
  const timing = { networkStartedAt: iso(now), receivedAt: iso(now) };
  const observation = { lifecycleProtocol: 2, commandId: 'c', projectId: 'p', workerId: 'w', observedAt: iso(now),
-  evidence: { execution: timing, artifacts: timing, logs: timing }, tmux: { dead: true, exitCode: 0, phase: 'running' },
+  evidence: { execution: timing, artifacts: timing, logs: timing }, tmux: { windowId: '@1', paneId: '%1', dead: true, exitCode: 0, phase: 'running' },
   result: { runId: 'c', identityMatches: true, status: 'completed', present: true, verified: true, artifactsComplete: true },
   runtimeDiagnostics: { schemaVersion: 1, commandId: 'c', runId: 'c', state: 'clear', count: 0, scanComplete: true } };
  const snapshot = { workerId: 'w', fetchedAt: iso(now), queryComplete: true, capabilities: { taskLifecycle: 2 },
@@ -17,6 +17,35 @@ function fixture() {
  return { queue, snapshot };
 }
 const project = (queue, snapshots, time = now) => ({ ...queue, plans: P.serverAuthoritativeProgress(queue, snapshots, 'p', time) });
+test('declared command exit is not counted as complete until exact output evidence is confirmed', () => {
+ const f=fixture(), job=f.queue.plans[0].jobs[0], task=f.snapshot.tasks[0];
+ Object.assign(job,{command:'echo ok',outputs:['work/c/report.txt'],collectionResultCsv:undefined});
+ Object.assign(task,{command:job.command,outputs:job.outputs,collectionResultCsv:undefined});
+ Object.assign(task.observation,{executionContract:'declared-command-v1',result:undefined,runtimeDiagnostics:undefined});
+ let next=project(f.queue,[f.snapshot]), current=next.plans[0].jobs[0];
+ assert.equal(current.status,'completed');assert.equal(current.completionState,'unverified');assert.equal(current.verifiedCompletion,undefined);
+ assert.equal(current.trustedTerminalProof.outcome,'completed');
+ const stored=Q.updateVerifiedCompletions(f.queue,f.snapshot,'p',now);
+ assert.equal(stored.plans[0].jobs[0].trustedTerminalProof.outcome,'completed');
+ assert.equal(Q.updateVerifiedCompletions(stored,f.snapshot,'p',now+1000),undefined);
+ stored.plans[0].resultPathPolicy='declared';
+ const restored=Q.restoreFormalJobQueue(JSON.parse(Q.serializeDistributedQueue(stored))).plans[0].jobs[0];
+ assert.equal(restored.executionState,'exited');assert.equal(restored.status,'completed');assert.equal(restored.completionState,'unverified');
+ const offline=project(stored,[],now+3600000).plans[0].jobs[0];
+ assert.equal(offline.status,'completed');assert.equal(offline.executionState,'exited');assert.equal(offline.completionState,'unverified');
+ assert.ok(offline.statusQueryError);
+ const unreadable=structuredClone(f.snapshot);unreadable.tasks[0].observation.resultQueryError='offline';
+ assert.equal(project(f.queue,[unreadable]).plans[0].jobs[0].trustedTerminalProof.outcome,'completed');
+ const mismatch=structuredClone(f.snapshot);mismatch.tasks[0].outputs=['work/c/other.txt'];
+ assert.equal(project(f.queue,[mismatch]).plans[0].jobs[0].trustedTerminalProof,undefined);
+ let [summary]=summarizePlanStatuses({plans:[{file:'p.yaml',jobCount:1}],distributedPlans:next.plans,topologyMode:'worker_pool'});
+ assert.equal(summary.completedCount,0);
+ task.observation.result={runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true};
+ next=project(f.queue,[f.snapshot]);current=next.plans[0].jobs[0];
+ assert.equal(current.completionState,'verified');assert.ok(current.verifiedCompletion);
+ [summary]=summarizePlanStatuses({plans:[{file:'p.yaml',jobCount:1}],distributedPlans:next.plans,topologyMode:'worker_pool'});
+ assert.equal(summary.completedCount,1);
+});
 test('only exact clean completion creates a compact persistent confirmation', () => {
  const f = fixture(), complete = project(f.queue, [f.snapshot]);
  const proof = complete.plans[0].jobs[0].verifiedCompletion;
@@ -37,9 +66,9 @@ test('expiry, disconnect, failed rechecks, empty inventories and missing respons
   assert.equal(summary.completedCount, 1); assert.equal(summary.failedCount, 0);
  }
 });
-test('unverified artifacts or logs, failed exit and an unrelated run cannot establish confirmation', () => {
- for (const alter of [o => o.runtimeDiagnostics.scanComplete = false, o => o.runtimeDiagnostics.count = 1,
-  o => o.result.verified = false, o => o.tmux.exitCode = 7, o => o.result.runId = 'other']) {
+test('unverified artifacts, failed exit and an unrelated run cannot establish confirmation', () => {
+ for (const alter of [o => o.result.verified = false, o => o.result.artifactsComplete = false,
+  o => delete o.result.artifactsComplete, o => delete o.result.identityMatches, o => o.tmux.exitCode = 7, o => o.result.runId = 'other']) {
   const f = fixture(); alter(f.snapshot.tasks[0].observation);
   assert.equal(project(f.queue, [f.snapshot]).plans[0].jobs[0].verifiedCompletion, undefined);
  }
@@ -65,20 +94,25 @@ test('cold or pending Worker rounds expose an unknown recheck without changing t
 });
 test('new positive artifact defects revoke confirmation; failed or ambiguous reads do not', () => {
  const f = fixture(), complete = project(f.queue, [f.snapshot]);
- for (const defect of ['missing', 'bad-size', 'wrong-run', 'failed-read', 'ambiguous-null']) {
+ for (const defect of ['missing', 'bad-size', 'bad-flag', 'wrong-run', 'failed-read', 'ambiguous-null']) {
   const fresh = structuredClone(f.snapshot), t = iso(now + 1000), obs = fresh.tasks[0].observation;
   fresh.fetchedAt = t; for (const lane of Object.keys(obs.evidence)) obs.evidence[lane] = { networkStartedAt: t, receivedAt: t };
   if (defect === 'missing') { obs.result = null; obs.artifactIssue = 'missing_or_invalid_manifest'; }
   if (defect === 'bad-size') { obs.result.present = false; obs.result.artifactsComplete = false; }
+  if (defect === 'bad-flag') obs.result.artifactsComplete = false;
   if (defect === 'wrong-run') obs.result.runId = 'other';
   if (defect === 'failed-read') { obs.result = undefined; obs.resultQueryError = 'NFS unavailable'; }
   if (defect === 'ambiguous-null') obs.result = null;
   const job = project(complete, [fresh], now + 1000).plans[0].jobs[0];
   if (['failed-read', 'ambiguous-null'].includes(defect)) { assert.equal(job.status, 'completed'); assert.ok(job.verifiedCompletion); }
-  else { assert.equal(job.status, 'unknown'); assert.equal(job.verifiedCompletion, undefined); }
+  else { assert.equal(job.status, 'completed'); assert.equal(job.completionState, 'unverified'); assert.equal(job.verifiedCompletion, undefined); }
+  if (defect === 'missing') {
+   const persisted=Q.updateVerifiedCompletions(complete,fresh,'p',now+1000).plans[0].jobs[0];
+   assert.equal(persisted.verifiedCompletion,undefined);assert.equal(persisted.completionState,'unverified');
+  }
  }
 });
-test('a new real nonzero exit or observed exception remains visible and releases the clean confirmation', () => {
+test('a new nonzero exit revokes confirmation but log keywords do not', () => {
  for (const kind of ['exit', 'exception']) {
   const f = fixture(), complete = project(f.queue, [f.snapshot]), fresh = structuredClone(f.snapshot), t = iso(now + 1000);
   fresh.fetchedAt = t; const obs = fresh.tasks[0].observation;
@@ -86,10 +120,16 @@ test('a new real nonzero exit or observed exception remains visible and releases
   if (kind === 'exit') obs.tmux.exitCode = 7;
   else { obs.runtimeDiagnostics.count = 1; obs.runtimeDiagnostics.state = 'anomalous'; }
   const projected = project(complete, [fresh], now + 1000), job = projected.plans[0].jobs[0];
+  if (kind === 'exception') { assert.ok(job.verifiedCompletion); assert.equal(job.status, 'completed'); continue; }
   assert.equal(job.verifiedCompletion, undefined); assert.equal(job.status, 'failed');
+  const persisted=Q.updateVerifiedCompletions(complete,fresh,'p',now+1000).plans[0].jobs[0];
+  assert.equal(persisted.status,'failed');assert.equal(persisted.exitCode,7);assert.equal(persisted.completionState,'unverified');
+  const offline=structuredClone(complete);offline.plans[0].jobs[0]=persisted;
+  assert.equal(project(offline,[],now+3600000).plans[0].jobs[0].status,'failed');
+  const missingPane=structuredClone(fresh);delete missingPane.tasks[0].observation.tmux.paneId;
+  assert.ok(project(complete,[missingPane],now+1000).plans[0].jobs[0].verifiedCompletion);
   const [summary]=summarizePlanStatuses({plans:[{file:'p.yaml',jobCount:1}],distributedPlans:projected.plans,topologyMode:'worker_pool'});
   assert.equal(summary.status,'failed');assert.equal(summary.completedCount,0);assert.equal(summary.failedCount,1);
-  if (kind === 'exception') assert.equal(job.completionState, 'review_required');
  }
 });
 test('confirmed facts do not cross command, Worker or output boundaries, and late old defects cannot revoke them', () => {

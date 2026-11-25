@@ -3,26 +3,40 @@ require('../_helpers/registerTsRequire');
 const { taskLifecycle, observationMatches } = require('../../src/features/TaskLifecycle.ts');
 const base = { lifecycleProtocol:2, commandId:'c', projectId:'p', workerId:'w', observedAt:new Date().toISOString() };
 
-test('declared commands use the actual pane exit, independent of scientific results and log wording', () => {
+test('declared command exit and confirmed output remain separate and ignore scientific log wording', () => {
   const generic = {...base, executionContract:'declared-command-v1', runtimeDiagnostics:{commandId:'c',state:'anomalous',count:1}};
-  assert.equal(taskLifecycle({...generic,tmux:{dead:true,exitCode:0}}).status,'completed');
-  assert.equal(taskLifecycle({...generic,tmux:{dead:true,exitCode:3}}).status,'failed');
-  assert.equal(taskLifecycle({...generic,tmux:{dead:true,exitCode:null}}).status,'unknown');
-  assert.equal(taskLifecycle({...generic,tmux:{dead:false,phase:'running'}}).status,'running');
-  assert.equal(taskLifecycle({...generic,executionQueryError:'offline',tmux:{dead:true,exitCode:0}}).status,'unknown');
+  assert.equal(taskLifecycle({...generic,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).status,'completed');
+  assert.equal(taskLifecycle({...generic,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:3}}).status,'failed');
+  assert.equal(taskLifecycle({...generic,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:null}}).status,'unknown');
+  assert.equal(taskLifecycle({...generic,tmux:{windowId:'@1',paneId:'%1',dead:false,phase:'running'}}).status,'running');
+  assert.equal(taskLifecycle({...generic,executionQueryError:'offline',tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).status,'unknown');
   const {nextVerifiedCompletion,verifiedCompletionProjection} = require('../../src/features/VerifiedCompletion.ts');
   const plan={projectId:'p',id:'plan'}, job={index:0,workerId:'w',commandId:'c',outputDir:'out',command:'echo done'};
-  const observation={...generic,tmux:{dead:true,exitCode:0}};
-  job.verifiedCompletion=nextVerifiedCompletion(plan,job,observation,taskLifecycle(observation),Date.now());
+  const observation={...generic,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}};
+  assert.equal(taskLifecycle(observation).completionState,'unverified');
+  assert.equal(nextVerifiedCompletion(plan,job,observation,taskLifecycle(observation),Date.now()),undefined);
+  const result={runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true};
+  assert.equal(taskLifecycle({...observation,result:{...result,identityMatches:undefined}}).completionState,'unverified');
+  const complete={...observation,result};
+  assert.equal(taskLifecycle({...complete,tmux:{dead:true,exitCode:0}}).completionState,'unverified');
+  job.verifiedCompletion=nextVerifiedCompletion(plan,job,complete,taskLifecycle(complete),Date.now());
   assert.equal(verifiedCompletionProjection(plan,job).status,'completed');
-  assert.equal(verifiedCompletionProjection(plan,job).resultState,'unverified');
+  assert.equal(verifiedCompletionProjection(plan,job).resultState,'complete');
   assert.equal(verifiedCompletionProjection(plan,job).runtimeDiagnostics,undefined);
+  assert.deepEqual(verifiedCompletionProjection(plan,{...job,outputs:['other']}),{});
+  const old=job.verifiedCompletion;
+  assert.equal(nextVerifiedCompletion(plan,job,{...complete,resultQueryError:'offline'},taskLifecycle({...complete,resultQueryError:'offline'}),Date.now()),old);
+  const later=new Date(Date.parse(old.verifiedAt)+1000).toISOString();
+  const missing={...observation,artifactIssue:'missing',evidence:{artifacts:{networkStartedAt:later}}};
+  assert.equal(taskLifecycle(missing).result,'incomplete');assert.match(taskLifecycle(missing).message,/missing/);
+  assert.equal(nextVerifiedCompletion(plan,job,missing,taskLifecycle(missing),Date.now()),undefined);
   const {freshTaskObservation} = require('../../src/features/WorkerProgressEvidence.ts');
   const current = freshTaskObservation({fetchedAt:base.observedAt},{observation:{...observation,resultQueryError:'old',runtimeQueryError:'old'}},observation,Date.parse(base.observedAt),1000);
   assert.equal(current.resultQueryError,'old');
   assert.equal(current.runtimeQueryError,undefined);
-  const missingLane=freshTaskObservation({fetchedAt:base.observedAt},{observation:{...observation,evidence:{execution:{networkStartedAt:base.observedAt,receivedAt:base.observedAt}}}},observation,Date.parse(base.observedAt),1000);
-  assert.match(missingLane.resultQueryError,/尚未取得产物观察/);
+  const missingArtifactLane=freshTaskObservation({fetchedAt:base.observedAt},{observation:{...complete,evidence:{execution:{networkStartedAt:base.observedAt,receivedAt:base.observedAt}}}},complete,Date.parse(base.observedAt),1000);
+  assert.match(missingArtifactLane.resultQueryError,/尚未取得产物观察/);
+  assert.equal(taskLifecycle(missingArtifactLane).completionState,'unverified');
 });
 test('declared command progress does not query research result or log semantics', async () => {
   const {queryWorkerProgress} = require('../../src/features/WorkerProgressQuery.ts');
@@ -85,15 +99,15 @@ test('live declared commands recover from the exact Worker window without seed o
   assert.equal(queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(),[{...snapshot,tasks:[{...task,outputs:undefined}]}],'p',now).plans.length,0);
 });
 
-test('explicit runtime errors fail an ended job despite exit zero and complete artifacts', () => {
+test('log diagnostics do not change an ended job with complete artifacts', () => {
   const runtimeDiagnostics={schemaVersion:1,commandId:'c',runId:'c',state:'anomalous',count:1,scanComplete:true};
-  const result={runId:'c',status:'completed',present:true,verified:true,artifactsComplete:true,exitCode:0};
-  const observed=taskLifecycle({...base,result,runtimeDiagnostics,tmux:{dead:true,exitCode:0}});
-  assert.equal(observed.status,'failed');assert.equal(observed.exitCode,0);
+  const result={runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true,exitCode:0};
+  const observed=taskLifecycle({...base,result,runtimeDiagnostics,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}});
+  assert.equal(observed.status,'completed');assert.equal(observed.exitCode,0);
   assert.equal(observed.execution,'exited');assert.equal(observed.result,'complete');
-  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...runtimeDiagnostics,scanComplete:false},tmux:{dead:true,exitCode:0}}).status,'failed');
-  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...runtimeDiagnostics,commandId:'old'},tmux:{dead:true,exitCode:0}}).status,'completed');
-  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics,tmux:{dead:false,phase:'running'}}).status,'running');
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...runtimeDiagnostics,scanComplete:false},tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).status,'completed');
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...runtimeDiagnostics,commandId:'old'},tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).status,'completed');
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics,tmux:{windowId:'@1',paneId:'%1',dead:false,phase:'running'}}).status,'running');
 });
 test('admitted and starting windows are not running until the task command begins', () => {
   for (const phase of ['queued','bound','admitted','starting'])
@@ -101,27 +115,27 @@ test('admitted and starting windows are not running until the task command begin
   assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:false}}).status,'unknown');
 });
 test('pull evidence advances without an acceptance event; ended shell is not success', () => {
-  assert.equal(taskLifecycle({...base, tmux:{dead:false, phase:'queued'}}).status,'queued');
-  assert.equal(taskLifecycle({...base, tmux:{dead:false, phase:'running'}}).status,'running');
-  assert.equal(taskLifecycle({...base, tmux:{dead:true,exitCode:0}}).execution,'exited');
-  assert.equal(taskLifecycle({...base, tmux:{dead:true,exitCode:0}}).status,'unknown');
-  assert.equal(taskLifecycle({...base, tmux:{dead:true,exitCode:3}}).status,'failed');
+  assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:false, phase:'queued'}}).status,'queued');
+  assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:false, phase:'running'}}).status,'running');
+  assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).execution,'exited');
+  assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).status,'completed');
+  assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:3}}).status,'failed');
 });
 test('closed window recovers from result; failures and foreign results are not hidden', () => {
   const result={runId:'c',status:'completed',present:true,verified:true};
-  assert.equal(taskLifecycle({...base,result}).status,'completed');
-  assert.equal(taskLifecycle({...base,result,tmux:{dead:true,exitCode:1}}).status,'failed');
+  assert.equal(taskLifecycle({...base,result}).status,'unknown');
+  assert.equal(taskLifecycle({...base,result,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:1}}).status,'failed');
   assert.equal(taskLifecycle({...base,result:{...result,runId:'old'}}).result,'conflict');
   assert.equal(taskLifecycle({...base,result:{...result,present:false}}).status,'unknown');
   assert.equal(taskLifecycle({...base,queryError:'offline',result}).execution,'unknown');
   assert.equal(taskLifecycle(base).status,'unknown');
 });
 test('unknown exit codes use this run manifest without inventing an execution failure', () => {
-  const result={runId:'c',status:'completed',present:true,verified:true};
+  const result={runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true};
   for (const exitCode of [undefined,null]) {
     const tmux={windowId:'@102',paneId:'%102',dead:true,phase:'running',exitCode};
     const observed=taskLifecycle({...base,tmux,result});
-    assert.equal(observed.execution,'exited'); assert.equal(observed.result,'complete'); assert.equal(observed.status,'completed');
+    assert.equal(observed.execution,'exited'); assert.equal(observed.result,'complete'); assert.equal(observed.status,'unknown');
     assert.equal(observed.completionState,'unverified'); assert.equal(observed.exitCode,exitCode);
     for (const evidence of [undefined,{...result,runId:'old'},{...result,present:false},{...result,verified:false},{...result,status:'failed'}]) {
       const value=taskLifecycle({...base,tmux,result:evidence});
@@ -131,22 +145,24 @@ test('unknown exit codes use this run manifest without inventing an execution fa
     assert.equal(taskLifecycle({...base,tmux,result,queryError:'offline'}).status,'unknown');
   }
   for (const exitCode of [1,7,-9])
-    assert.equal(taskLifecycle({...base,result,tmux:{dead:true,exitCode}}).status,'failed');
+    assert.equal(taskLifecycle({...base,result,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode}}).status,'failed');
 });
-test('process exit, result completeness and runtime health are independent; old logs never prove clean success',()=>{
-  const result={runId:'c',status:'completed',present:true,verified:true};
+test('process exit and result completeness are independent of log wording',()=>{
+  const result={runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true};
   const clear={schemaVersion:1,commandId:'c',runId:'c',state:'clear',count:0,scanComplete:true};
   const anomaly={...clear,state:'anomalous',count:1,types:{AttributeError:1},phases:{train:1}};
-  const clean=taskLifecycle({...base,result,runtimeDiagnostics:clear,tmux:{dead:true,exitCode:0}});
+  const clean=taskLifecycle({...base,result,runtimeDiagnostics:clear,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}});
   assert.equal(clean.completionState,'verified');assert.equal(clean.status,'completed');
-  const review=taskLifecycle({...base,result,runtimeDiagnostics:anomaly,tmux:{dead:true,exitCode:0}});
-  assert.equal(review.completionState,'review_required');assert.equal(review.exitCode,0);assert.equal(review.result,'complete');
+  const review=taskLifecycle({...base,result,runtimeDiagnostics:anomaly,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}});
+  assert.equal(review.completionState,'verified');assert.equal(review.exitCode,0);assert.equal(review.result,'complete');
   assert.equal(review.runtimeDiagnostics.phases.train,1);
-  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...clear,commandId:'old'}}).completionState,'unverified');
+  assert.equal(taskLifecycle({...base,result:{...result,status:'failed',artifactsComplete:true},tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).completionState,'unverified');
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...clear,commandId:'old'},tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}}).completionState,'verified');
+  assert.equal(taskLifecycle({...base,result:{...result,exitCode:0},runtimeDiagnostics:clear}).completionState,'unverified');
   assert.equal(taskLifecycle({...base,result:{...result,exitCode:7},runtimeDiagnostics:clear}).status,'failed');
-  assert.equal(taskLifecycle({...base,result:{...result,exitCode:7},runtimeDiagnostics:clear,tmux:{dead:true,exitCode:null}}).status,'failed');
+  assert.equal(taskLifecycle({...base,result:{...result,exitCode:7},runtimeDiagnostics:clear,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:null}}).status,'failed');
   const failed=taskLifecycle({...base,result:{...result,status:'failed',artifactsComplete:true,exitCode:7},runtimeDiagnostics:anomaly});
-  assert.equal(failed.status,'failed');assert.equal(failed.result,'complete');assert.equal(failed.completionState,'review_required');
+  assert.equal(failed.status,'failed');assert.equal(failed.result,'complete');assert.equal(failed.completionState,'unverified');
 });
 test('queue refresh corrects the old Worker failure label using current tmux and manifest evidence', () => {
   const Q=require('../../src/features/DistributedPlanQueue.ts');
@@ -154,7 +170,7 @@ test('queue refresh corrects the old Worker failure label using current tmux and
   const snapshot={workerId:'w',fetchedAt:base.observedAt,generatedAt:base.observedAt,capabilities:{taskLifecycle:2},tasks:[{
     commandId:'c',projectId:'p',status:'failed',observation:{...base,tmux:{windowId:'@102',paneId:'%102',dead:true,exitCode:null},
       result:{runId:'c',status:'completed',present:true,verified:true}}}]};
-  assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'completed');
+  assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'unknown');
   snapshot.tasks[0].observation.tmux.exitCode=7;
   assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'failed');
 });
@@ -164,15 +180,25 @@ test('live control matching ignores old revision but never another project or co
   assert.equal(observationMatches(base,{...base,commandId:'other'}),false);
 });
 test('execution and results remain independent for live, missing, unreadable and conflicting evidence', () => {
-  const result={runId:'c',status:'completed',present:true,verified:true};
-  const live=taskLifecycle({...base,result,tmux:{dead:false,phase:'unrecognized'}});
+  const result={runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true};
+  const live=taskLifecycle({...base,result,tmux:{windowId:'@1',paneId:'%1',dead:false,phase:'unrecognized'}});
   assert.equal(live.execution,'unknown');assert.equal(live.result,'complete');assert.equal(live.status,'unknown');
-  const absent=taskLifecycle({...base,result:null,tmux:{dead:true,exitCode:0}});
-  assert.equal(absent.result,'incomplete');assert.equal(absent.status,'unknown');
+  const absent=taskLifecycle({...base,result:null,tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}});
+  assert.equal(absent.result,'incomplete');assert.equal(absent.status,'completed');
   assert.equal(taskLifecycle({...base,result:null,queryError:'offline'}).result,'unverified');
-  const unreadable=taskLifecycle({...base,result,resultQueryError:'read failed',tmux:{dead:true,exitCode:0}});
-  assert.equal(unreadable.result,'unverified');assert.equal(unreadable.status,'unknown');
+  const unreadable=taskLifecycle({...base,result,resultQueryError:'read failed',tmux:{windowId:'@1',paneId:'%1',dead:true,exitCode:0}});
+  assert.equal(unreadable.result,'unverified');assert.equal(unreadable.status,'completed');
   assert.equal(taskLifecycle({...base,result:{...result,identityMatches:false}}).result,'conflict');
+});
+test('legacy completion needs current identity and complete artifacts', () => {
+  const tmux={windowId:'@1',paneId:'%1',dead:true,exitCode:0};
+  const result={runId:'c',status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true};
+  for (const partial of [{...result,artifactsComplete:false}, {...result,artifactsComplete:undefined}, {...result,identityMatches:undefined}]) {
+    const state=taskLifecycle({...base,tmux,result:partial});
+    assert.equal(state.status,'completed'); assert.notEqual(state.result,'complete'); assert.equal(state.completionState,'unverified');
+  }
+  assert.equal(taskLifecycle({...base,tmux,result,artifactIssue:'missing'}).completionState,'unverified');
+  assert.equal(taskLifecycle({...base,tmux,result}).completionState,'verified');
 });
 test('mismatched live observations cannot preserve an old completed card', () => {
   const Q=require('../../src/features/DistributedPlanQueue.ts');
@@ -198,7 +224,7 @@ test('the real queue merge consumes pulled evidence without a durable receipt or
   const Q=require('../../src/features/DistributedPlanQueue.ts');
   const queue={schemaVersion:1,plans:[{id:'wf',projectId:'p',revision:'current',jobs:[{index:0,workerId:'w',commandId:'c',status:'dispatching'}]}]};
   const snapshot={workerId:'w',fetchedAt:base.observedAt,generatedAt:base.observedAt,capabilities:{taskLifecycle:2},
-    tasks:[{commandId:'c',projectId:'p',planRevision:'old',observation:{...base,tmux:{dead:false,phase:'running'}}}]};
+    tasks:[{commandId:'c',projectId:'p',planRevision:'old',observation:{...base,tmux:{windowId:'@1',paneId:'%1',dead:false,phase:'running'}}}]};
   assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'running');
   snapshot.tasks[0].observation.queryError='query failed';
   assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'unknown');

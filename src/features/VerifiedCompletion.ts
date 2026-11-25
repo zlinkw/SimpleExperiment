@@ -1,9 +1,11 @@
-import type { TaskObservation } from "./TaskLifecycle";
+import { exactExitedPane, type TaskObservation } from "./TaskLifecycle";
 
 /** A compact confirmed fact, never permission to launch, stop or delete. */
 export type VerifiedCompletion = { schemaVersion: 1; identity: string; verifiedAt: string; exitCode: 0 };
 export function completionIdentity(plan: any, job: any): string {
-  return JSON.stringify([plan.projectId, plan.id, job.index, job.workerId, job.commandId, job.outputDir, job.collectionResultCsv || ""]);
+  const identity = [plan.projectId, plan.id, job.index, job.workerId, job.commandId, job.outputDir, job.collectionResultCsv || ""];
+  if (job.command) identity.push(job.command, job.outputs);
+  return JSON.stringify(identity);
 }
 export function hasVerifiedCompletion(plan: any, job: any): boolean {
   const proof = job.verifiedCompletion;
@@ -13,12 +15,10 @@ export function hasVerifiedCompletion(plan: any, job: any): boolean {
 }
 export function verifiedCompletionProjection(plan: any, job: any) {
   if (!hasVerifiedCompletion(plan, job)) return {};
-  if (job.command) return { status: "completed" as const, executionState: "exited", resultState: "unverified", completionState: "verified" as const,
+  if (job.command) return { status: "completed" as const, executionState: "exited", resultState: "complete", completionState: "verified" as const,
     exitCode: 0, statusQueryError: undefined, error: undefined, blockReason: undefined, runtimeDiagnostics: undefined };
   return { status: "completed" as const, executionState: "exited", resultState: "complete", completionState: "verified" as const,
-    exitCode: 0, statusQueryError: undefined, error: undefined, blockReason: undefined,
-    runtimeDiagnostics: { schemaVersion: 1 as const, commandId: job.commandId, runId: job.commandId,
-      state: "clear" as const, count: 0, scanComplete: true } };
+    exitCode: 0, statusQueryError: undefined, error: undefined, blockReason: undefined, runtimeDiagnostics: undefined };
 }
 /** Compact proven terminal fact for the SAME identity: proves this exact command ended
  * (integer exit, proven cancellation, or server-recorded terminal state), never that results verified.
@@ -37,10 +37,15 @@ export function nextVerifiedCompletion(plan: any, job: any, observation: TaskObs
   const exact = !observation.queryError;
   const confirmed = hasVerifiedCompletion(plan, job);
   if (job.command && observation.executionContract === "declared-command-v1") {
-    const newer = !confirmed || Date.parse(String(observation.evidence?.execution?.networkStartedAt || "")) > Date.parse(job.verifiedCompletion.verifiedAt);
-    if (exact && newer && !observation.executionQueryError && state.execution === "failed") return undefined;
+    const newer = (lane: "execution" | "artifacts") => !confirmed || Date.parse(String(observation.evidence?.[lane]?.networkStartedAt || "")) > Date.parse(job.verifiedCompletion.verifiedAt);
+    const executionIssue = exact && newer("execution") && !observation.executionQueryError && exactExitedPane(observation.tmux) && state.execution === "failed";
+    const artifactIssue = exact && newer("artifacts") && !observation.resultQueryError && (observation.artifactIssue
+      || observation.result && (observation.result.runId !== job.commandId || observation.result.identityMatches === false || observation.result.status === "failed"
+        || observation.result.present === false || observation.result.artifactsComplete === false));
+    if (executionIssue || artifactIssue) return undefined;
     if (confirmed) return job.verifiedCompletion;
-    if (exact && !observation.executionQueryError && observation.tmux?.dead === true && state.status === "completed" && state.exitCode === 0)
+    if (exact && !observation.executionQueryError && !observation.resultQueryError && exactExitedPane(observation.tmux)
+      && state.status === "completed" && state.result === "complete" && state.exitCode === 0)
       return { schemaVersion: 1, identity: completionIdentity(plan, job), verifiedAt: new Date(now).toISOString(), exitCode: 0 };
     return undefined;
   }
@@ -49,11 +54,11 @@ export function nextVerifiedCompletion(plan: any, job: any, observation: TaskObs
   const artifactIssue = exact && newer("artifacts") && !observation.resultQueryError && (observation.artifactIssue
     || observation.result && (observation.result.runId !== job.commandId || observation.result.identityMatches === false
       || observation.result.status === "failed" || observation.result.present === false || observation.result.artifactsComplete === false));
-  const executionIssue = exact && newer("execution") && !observation.executionQueryError && state.execution === "failed";
-  const runtimeIssue = exact && newer("logs") && state.runtimeDiagnostics?.count > 0;
-  if (artifactIssue || executionIssue || runtimeIssue) return undefined;
+  const executionIssue = exact && newer("execution") && !observation.executionQueryError && exactExitedPane(observation.tmux) && state.execution === "failed";
+  if (artifactIssue || executionIssue) return undefined;
   if (confirmed) return job.verifiedCompletion;
-  if (exact && !observation.executionQueryError && !observation.resultQueryError && state.status === "completed"
+  if (exact && !observation.executionQueryError && !observation.resultQueryError && exactExitedPane(observation.tmux)
+    && observation.tmux?.exitCode === 0 && state.status === "completed"
     && state.result === "complete" && state.completionState === "verified" && state.exitCode === 0)
     return { schemaVersion: 1, identity: completionIdentity(plan, job), verifiedAt: new Date(now).toISOString(), exitCode: 0 };
   return undefined;
