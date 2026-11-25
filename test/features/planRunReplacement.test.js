@@ -42,16 +42,16 @@ test('parent preview binds all backend chunks to the current node and rejects ex
  const preview={action:'isolate',rows:[0,1].map(i=>({disposition:'isolate',backendToken:'chunk'+i,rootIdentity:identity,node,type:i?'file':'directory',destination:'clean_dir/'+batch+'/work/job'+i}))};
  const calls=[];let foreign=false,unowned=false;
  const ports={currentNode:async()=>node,sftp:async(method,params)=>{calls.push({method,params});
-  if(method.endsWith('isolationParentsPreview'))return{eligible:true,isolationParentCleanup:true,token:'parent-token',digest:'digest',rootIdentity:identity,
+  if(method.endsWith('isolationParentsPreview'))return{eligible:true,isolationParentCleanup:true,token:'parent-token',digest:'digest',operationId:'op',rootIdentity:identity,
    sourceIsolationTokens:['chunk0','chunk1'],safety:{emptyDirectoriesOnly:1,doubleConfirmation:1,parentCwdRequired:1},
    targets:unowned?[]:[{absolutePath:foreign?'/safe/other':parent,type:'directory'}],confirmationPaths:[...(unowned?[]:[parent]),...preview.rows.map(row=>'/safe/'+row.destination)]};
-  if(method.endsWith('execute'))return{state:'completed',receipt:{emptyDirectoriesRemoved:1}};
+  if(method.endsWith('execute'))return{state:'completed',receipt:{operationId:'op',action:'prune-isolation-parents',phase:'completed',emptyDirectoriesRemoved:1}};
   return{ok:true};}};
  const parents=await previewEmptyParents(ports,preview,true);
  assert.deepEqual(calls[0].params.isolationTokens,['chunk0','chunk1']);assert.equal(parents[0].confirmationTargets[2].type,'file');
- await assert.rejects(executeEmptyParents(ports,parents),/CONFIRM_REQUIRED/);
+ assert.equal((await executeEmptyParents(ports,parents))[0].state,'failed');
  await confirmEmptyParents(ports,parents,1);await confirmEmptyParents(ports,parents,2);
- assert.equal(await executeEmptyParents(ports,parents),1);
+ assert.equal((await executeEmptyParents(ports,parents))[0].removed,1);
  assert.deepEqual(calls.filter(row=>row.method.endsWith('confirm')).map(row=>row.params.exactTargets),[parents[0].confirmationPaths,parents[0].confirmationPaths]);
  unowned=true;const artifactOnly=await previewEmptyParents(ports,preview,true);assert.equal(artifactOnly.length,1);
  assert.deepEqual(artifactOnly[0].confirmationPaths,preview.rows.map(row=>'/safe/'+row.destination),'unowned containers stay protected; artifacts still need exact confirmations');
@@ -65,7 +65,7 @@ test('legacy empty-directory review shows the same complete paths twice and canc
   const pages=[],phases=[],messages=[];let executed=0;
   const row={node:{id:'worker',kind:'remote',user:'u',host:'h',port:22},confirmationPaths:['/safe/clean_dir/job-known/work','/safe/clean_dir/job-known']};
   const service={list:async()=>[{id:'original',action:'isolate'}],status:async()=>({preview:{action:'isolate'}}),prepareEmptyParentCleanup:async(_preview,future)=>{assert.equal(future,false);return[row];},
-   confirmEmptyParentCleanup:async(rows,phase)=>{assert.deepEqual(rows,[row]);phases.push(phase);},executeEmptyParentCleanup:async()=>{executed++;return 2;}};
+   confirmEmptyParentCleanup:async(rows,phase)=>{assert.deepEqual(rows,[row]);phases.push(phase);},executeEmptyParentCleanup:async()=>{executed++;return [{state:'completed',token:'parent'}];}};
   await reviewEmptyIsolationParents({askRunConfirmation:async page=>{pages.push(page);return page.phase===cancel?'cancel':'delete_empty_parents';},notifyWarn:text=>messages.push(text),notifyInfo:text=>messages.push(text)},service,()=>{});
   assert.equal(executed,cancel?0:1);assert.deepEqual(phases,cancel===1?[]:cancel===2?[1]:[1,2]);
   for(const page of pages)assert.deepEqual(page.groups[0].targets.map(target=>target.path),row.confirmationPaths);

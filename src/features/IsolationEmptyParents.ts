@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { cleanupDigest, cleanupError, cleanupRelative, type CleanupNode, type CleanupPorts, type CleanupPreview } from "./PlanCleanup";
 
-export type EmptyParentPreview = { token: string; digest: string; node: CleanupNode; sourceIsolationTokens: string[];
+export type EmptyParentPreview = { token: string; digest: string; operationId: string; node: CleanupNode; sourceIsolationTokens: string[];
   confirmationPaths: string[]; confirmations: number; targets: Array<{ absolutePath: string; type: "directory" }>;
   confirmationTargets: Array<{ absolutePath: string; type: "file" | "directory" }> };
 type Ports = Pick<CleanupPorts, "sftp" | "currentNode">;
@@ -35,11 +35,12 @@ export async function previewEmptyParents(ports: Ports, preview: CleanupPreview,
     if (answer?.isolationParentCleanup !== true || answer?.safety?.emptyDirectoriesOnly !== 1 || answer?.safety?.doubleConfirmation !== 1
         || answer?.safety?.parentCwdRequired !== 1 || cleanupDigest(answer.rootIdentity) !== cleanupDigest(rows[0].rootIdentity)
         || cleanupDigest(answer.sourceIsolationTokens) !== cleanupDigest(sourceIsolationTokens)
-        || typeof answer.token !== "string" || typeof answer.digest !== "string" || !Array.isArray(answer.targets) || (!parents.length && !forReplacement)
+        || typeof answer.token !== "string" || typeof answer.digest !== "string" || typeof answer.operationId !== "string" || !answer.operationId
+        || !Array.isArray(answer.targets) || (!parents.length && !forReplacement)
         || parents.some((row: any) => row.type !== "directory" || !allowed.has(row.absolutePath))
         || new Set(parents.map((row: any) => row.absolutePath)).size !== parents.length
         || cleanupDigest(answer.confirmationPaths) !== cleanupDigest(expected)) cleanupError("SFTP_EMPTY_PARENT_PROTOCOL_REQUIRED", "空目录清理需要 SimpleSFTP 0.2.116 的精确路径双确认协议；未执行删除。");
-    result.push({ token: answer.token, digest: answer.digest, node, sourceIsolationTokens, confirmationPaths: expected,
+    result.push({ token: answer.token, digest: answer.digest, operationId: answer.operationId, node, sourceIsolationTokens, confirmationPaths: expected,
       confirmations: 0, targets: parents.map((row: any) => ({ absolutePath: row.absolutePath, type: "directory" })),
       confirmationTargets: expected.map(absolutePath => ({ absolutePath,
         type: allowed.has(absolutePath) ? "directory" : rows.find(row => absolute(row.destination) === absolutePath)!.type })) });
@@ -55,15 +56,23 @@ export async function confirmEmptyParents(ports: Ports, previews: EmptyParentPre
     row.confirmations = phase;
   }
 }
-export async function executeEmptyParents(ports: Ports, previews: EmptyParentPreview[], assertCurrent?: () => void): Promise<number> {
-  let removed = 0;
-  for (const row of previews) {
-    await current(ports, row.node);
-    if (row.confirmations !== 2) cleanupError("CONFIRM_REQUIRED");
-    assertCurrent?.();
-    const result = await ports.sftp("files.cleanup.execute", { token: row.token, digest: row.digest, index: 0 }, assertCurrent);
-    if (result?.state !== "completed") cleanupError("EMPTY_PARENT_CLEANUP_UNVERIFIED");
-    removed += Number(result.receipt?.emptyDirectoriesRemoved || 0);
-  }
-  return removed;
+export async function executeEmptyParents(ports: Ports, previews: EmptyParentPreview[], assertCurrent?: () => void): Promise<Array<{ token: string; state: "accepted" | "completed" | "failed" | "unknown"; removed?: number; error?: string }>> {
+  return Promise.all(previews.map(async row => {
+    let requested = false;
+    try {
+      await current(ports, row.node);
+      if (row.confirmations !== 2) cleanupError("CONFIRM_REQUIRED");
+      assertCurrent?.();
+      requested = true;
+      const result = await ports.sftp("files.cleanup.execute", { token: row.token, digest: row.digest, index: 0 }, assertCurrent);
+      if (result?.state === "accepted" && result.token === row.token && result.operationId === row.operationId && row.operationId)
+        return { token: row.token, state: "accepted" as const };
+      if (result?.state === "completed" && result.receipt?.phase === "completed"
+        && result.receipt?.action === "prune-isolation-parents" && result.receipt?.operationId === row.operationId && row.operationId)
+        return { token: row.token, state: "completed" as const, removed: Number(result.receipt.emptyDirectoriesRemoved || 0) };
+      cleanupError("EMPTY_PARENT_CLEANUP_UNVERIFIED");
+    } catch (error) {
+      return { token: row.token, state: requested ? "unknown" as const : "failed" as const, error: error instanceof Error ? error.message : String(error) };
+    }
+  }));
 }

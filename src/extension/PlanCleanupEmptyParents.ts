@@ -28,6 +28,13 @@ export async function reviewEmptyIsolationParents(host: any, service: PlanCleanu
     assertCurrent(); await service.confirmEmptyParentCleanup(previews, phase, assertCurrent);
   }
   assertCurrent();
-  const removed = await service.executeEmptyParentCleanup(previews, assertCurrent);
-  host.notifyInfo("已主动核实并移除 " + removed + " 个空目录。" + (unknown.length ? "另有部分节点未核实，保留未动：" + unknown.join("；") : ""));
+  const results = await service.executeEmptyParentCleanup(previews, assertCurrent);
+  const accepted = results.filter(row => row.state === "accepted");
+  const completed = results.filter(row => row.state === "completed");
+  const unresolved = results.filter(row => row.state === "failed" || row.state === "unknown");
+  const message = "空目录清理：已受理 " + accepted.length + " 项，收到完成回执 " + completed.length + " 项。"
+    + (accepted.length ? "可通过请求身份查询：" + accepted.map(row => row.token).join("、") + "。" : "")
+    + (unresolved.length ? "未完成或结果未知：" + unresolved.map(row => row.token + "（" + row.state + "）：" + row.error).join("；") : "")
+    + (unknown.length ? "另有部分节点未核实，保留未动：" + unknown.join("；") : "");
+  if (unresolved.length || unknown.length) host.notifyWarn(message); else host.notifyInfo(message);
 }

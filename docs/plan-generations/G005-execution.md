@@ -81,3 +81,6 @@ Worker 命令协议的本机函数夹具通过；`node scripts/test-workflow.js 
 SFTP 路径租约基础批 ef6c9c1466c60510d9a2c364d7698fa35d5e6bda 已推送并核同步；基线假13/13（Temp/g005-lease-batch-j2xeq1zb/stdout.log）、J0。SE 对未结算范围的恢复保护基线假2/2（Temp/g005-se-lease-batch-vhap0gie/stdout.log）、noEmit 0；真实清理链/跨插件恢复未验。曾在非 Git 的候选目录误查 Git，失败且未修改，随后在真实仓核对。
 
 隔离清理状态查询贯穿项目上下文；基线假10/10、noEmit 0（Temp/g005-isolate-context-_cwcs421/stdout.log），完整清理链未验。SFTP c70861b96e57b26dfad77a7ae01feaaa471221c9 基线假1/1（Temp/g005-parent-facts-batch-0puwfphl/stdout-inspect.log）；首次 push 被 GitHub Internal Server Error 拒绝（2026-11-25T00:30:16Z，Request ID DE30:1E44B3:EC66F:18A779:6B062C17）。总控核远端未前进后授权一次普通恢复，push 成功，fetch 核 HEAD/origin/master/FETCH_HEAD/upstream 一致。
+
+空目录清理按目标并行受理，完成回执核操作身份，断线/不匹配留未知；基线候选假2/2、既有消费者17/17、noEmit 0（Temp/g005-parent-admit-zufravoq/stdout-final.log、replacement-final.log）。混合终态消费者工作树假2/2（Temp/g005-parent-consumer-gpdp9b1u/stdout.log），依赖未提交，不算本批基线通过；真实链未验。
+SFTP 空目录回执传递原操作身份批 d0c201c50f35f94e73ae716bb4702ed51a21d9c4 已推送并核同步，基线假2/2（Temp/g005-parent-receipt-d72pejab/stdout.log）；真实清理未验。
