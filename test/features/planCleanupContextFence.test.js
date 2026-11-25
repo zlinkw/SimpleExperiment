@@ -3,6 +3,7 @@ const test = require("node:test"), assert = require("node:assert/strict");
 require("../_helpers/registerTsRequire");
 const { PlanCleanup } = require("../../src/features/PlanCleanup.ts");
 const { confirmEmptyParents } = require("../../src/features/IsolationEmptyParents.ts");
+const { reviewEmptyIsolationParents } = require("../../src/extension/PlanCleanupEmptyParents.ts");
 
 function fixture() {
   let current = true, flipBeforeSend = false, flipAfterSend = false, loseResponse = false;
@@ -76,6 +77,20 @@ test("empty parent confirmation does not send after the node lookup changes cont
   assert.equal(calls, 0); assert.equal(parent.confirmations, 0);
 });
 
+test("empty parent review propagates context changes through confirmation", async () => {
+  let current = true, calls = 0;
+  const guard = () => { if (!current) throw Error("context changed"); };
+  const preview = { node: { id: "w", kind: "local" }, confirmationPaths: ["/root/a"] };
+  const service = { list: async () => [{ id: "one", action: "isolate" }],
+    status: async (_id, _round, check) => { check(); return { preview: {} }; },
+    prepareEmptyParentCleanup: async (_preview, _replacement, check) => { check(); return [preview]; },
+    confirmEmptyParentCleanup: async (_rows, _phase, check) => { current = false; check(); calls++; },
+    executeEmptyParentCleanup: async () => { calls++; } };
+  const host = { askRunConfirmation: async () => "delete_empty_parents" };
+  await assert.rejects(reviewEmptyIsolationParents(host, service, guard), /context changed/);
+  assert.equal(calls, 0);
+});
+
 test("the host does not start an isolation after migration changes the caller context", async () => {
   const fs = require("node:fs"), path = require("node:path"), ts = require("typescript"), vm = require("node:vm");
   const source = fs.readFileSync(path.resolve(__dirname, "../../src/extension/PlanCleanupHost.ts"), "utf8");
@@ -83,10 +98,11 @@ test("the host does not start an isolation after migration changes the caller co
   let member; function visit(node) { if (ts.isMethodDeclaration(node) && node.name.getText(tree) === "execute") member = node; ts.forEachChild(node, visit); } visit(tree);
   const Host = vm.runInNewContext(ts.transpileModule("class Host{" + member.getText(tree) + "};Host", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText);
   let current = true, calls = 0;
-  const host = new Host(); host.ensureOperationRecordsMigrated = async () => { current = false; };
+  const host = new Host(); host.runningOperations = new Set(); host.activePaths = new Map();
+  host.ensureOperationRecordsMigrated = async () => { current = false; };
   host.service = { registeredIsolationSource: async () => { calls++; } };
   await assert.rejects(host.execute("operation", () => { if (!current) throw Error("context changed"); }), /context changed/);
-  assert.equal(calls, 0); assert.equal(host.executing, false);
+  assert.equal(calls, 0); assert.equal(host.runningOperations.size, 0);
 });
 
 test("status observations serialize by operation while a stale caller cannot cancel another", async () => {

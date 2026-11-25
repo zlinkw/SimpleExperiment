@@ -75,3 +75,5 @@ Worker 命令协议的本机函数夹具通过；`node scripts/test-workflow.js 
 一次准备分块暂存的命令因嵌套 PowerShell here-string 解析失败，退出 1、未更改索引；改用 pwsh 直接解释并检查补丁后暂存指定 Host 片段。
 一次只读 manifest 查询误把对象当数组，Node 退出 1；改按对象键读取，无项目修改。
 一次只读搜索使用 Windows 不接受的路径通配符、另一次指定了不存在的工作目录；均未修改项目，已定向读取。
+
+空目录审核贯穿项目上下文：工作树首测退出1、7/9（旧夹具缺运行集合/结算方法，Temp/g005-empty-context-69c783ef6d6449d5b07cc7141c409a96/stdout.log），修后9/9（Temp/g005-empty-context-fix-2495d6c679df4f4a8ede1ec981dea1a6/stdout.log）。基线候选首测退出1、8/9（夹具缺运行集合），修后9/9、noEmit 0（Temp/g005-context-batch-8ab7b27ea8b042cd9576c7ec593e8b13/stdout.log、stdout-fixed.log）。真实清理链未验。
