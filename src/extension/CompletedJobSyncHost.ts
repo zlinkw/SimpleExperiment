@@ -152,8 +152,11 @@ export class CompletedJobSyncHost {
           artifactDigest: jobArtifactSyncDigest({ artifacts: { ...job.artifacts, ...result.files } }),
           ...(result.foreignOnly?.length ? { skipped: result.foreignOnly } : {}) },
           artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, artifacts: { ...job.artifacts, ...result.files },
-          ...(scopes.includes(job.outputDir) && (!job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
-            ? { mirroredWorkerIds: targets.map((row: any) => row.id), replaceMirroredWorkerIds: true } : {}) });
+          mirroredWorkerIds: scopes.includes(job.outputDir) && (job.command
+            ? [...(job.outputs || []), ...(job.collectionResultCsv ? [job.collectionResultCsv] : [])]
+              .every((file: string) => scopes.some(scope => file === scope || file.startsWith(scope + "/")))
+            : !job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
+            ? targets.map((row: any) => row.id) : [], replaceMirroredWorkerIds: true });
         if (saved === false) throw Error("任务身份已变化，未保存同步结果。");
         report.synced++;
       };

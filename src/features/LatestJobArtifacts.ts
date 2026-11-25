@@ -17,7 +17,7 @@ export function newestJobOutputs(queue: any): Array<{ plan: any; job: any }> {
 
 /** Intersect only this job's declared artifacts with the saved Worker-to-Worker checkbox scope. */
 export function jobArtifactScopes(job: any, selected: string[]): string[] {
-  const owned = job.command ? [job.outputDir, ...(job.outputs || [])]
+  const owned = job.command ? [job.outputDir, ...(job.outputs || []), ...(job.collectionResultCsv ? [job.collectionResultCsv] : [])]
     : [job.outputDir, ...((job.actualExecutionMode || job.executionMode) !== "train" && job.collectionResultCsv ? [job.collectionResultCsv] : [])];
   for (const item of owned) safeSyncPath(item);
   const paths = new Set<string>();
@@ -34,4 +34,5 @@ export function jobArtifactScopes(job: any, selected: string[]): string[] {
 export const latestJobSyncKey = (plan: any, job: any, scopes: string[], targets: any[]) => cleanupDigest([
   plan.projectId, plan.id, job.commandId, job.workerId, job.outputDir, job.collectionResultCsv, scopes,
   targets.map(row => [row.id, row.host, row.port, row.user, row.remotePath]).sort(),
+  ...(job.command ? [[job.command, job.outputs]] : []),
 ]);

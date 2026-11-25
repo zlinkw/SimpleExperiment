@@ -102,3 +102,5 @@ SE 2d39821e 首次 push 退出1，GitHub 5xx，2026-11-25T01:00:04Z，Request ID
 完成事实区分精确 tmux 执行退出和声明产物确认，未知保留既有证明，新反证撤销；禁止清单退出码伪装为窗口退出。前置计数、重跑选择及同步准入批已同步。HEAD+本批隔离假生命周期20/20、证明11/11（Temp/g005-proof-projection-sa7xkzxr/lifecycle-after-count.log、verified-after-count.log），已审定重跑消费者正向1/1（replacement-guard.log）、同步消费者3/3（sync-consumer.log）、T0（compile-prereqs.log）；首败及测试边界见本登记前文。实际 Worker、Agent、选中范围及 UI 全链仍未验。
 
 协议2进度对已退出声明命令主动核产物，旧 Agent 明确未知；常规进度不自动扫描科研日志，保留清理执行器查询事实。HEAD+本批生命周期假21/21（Temp/g005-progress-output-k8vkdyx0/lifecycle.log）、日志入口正向1/1、结果消费者2/2、T0；结果消费者首测退出1、1/2，夹具缺 identityMatches（results-consumer.log），补后2/2（results-consumer-fixed.log）。未运行文件中的性能项，真实 Agent/UI 未验。
+
+通用声明输出同步范围包含显式 CSV，运行命令和输出改变时不复用旧回执；仅部分勾选时不标全部镜像。HEAD+本批假范围4/4、Host4/4、T0（Temp/g005-declared-scopes-1a5nn3sr/stdout.log、host.log）；排除子范围、真实同步及 UI 仍未闭合。

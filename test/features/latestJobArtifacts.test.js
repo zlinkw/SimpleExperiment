@@ -23,7 +23,11 @@ test('declared command matrix outputs stay distinct and respect selected paths',
  const next={...old,id:'new',enqueuedAt:'2026-10-14T02:00:00Z',jobs:[{...first,status:'running',commandId:'new'}]};
  assert.deepEqual(newestJobOutputs({plans:[old,next]}).map(row=>[row.plan.id,row.job.index]),[['new',0],['old',1]]);
  assert.deepEqual(jobArtifactScopes(first,['work_dirs/p/job0/logs','reports/one/figures','reports/two']),['reports/one/figures','work_dirs/p/job0/logs']);
- assert.deepEqual(jobArtifactScopes(first,['.']),['reports/one','work_dirs/p/job0']);
+ assert.deepEqual(jobArtifactScopes(first,['.']),['reports/one','tmp/result/p/job0.csv','work_dirs/p/job0']);
+ assert.deepEqual(jobArtifactScopes({...first,actualExecutionMode:'train'},['tmp/result']),['tmp/result/p/job0.csv']);
+ const p={id:'p',projectId:'project'},targets=[{id:'a'}],scopes=jobArtifactScopes(first,['.']);
+ assert.notEqual(latestJobSyncKey(p,first,scopes,targets),latestJobSyncKey(p,{...first,outputs:['reports/one','work_dirs/p/job0/new']},scopes,targets));
+ assert.notEqual(latestJobSyncKey(p,first,scopes,targets),latestJobSyncKey(p,{...first,command:'different'},scopes,targets));
 });
 test('artifact metadata cannot erase a current completion or revive a stale observation',()=>{
  const {keepCurrentObservations}=require('../../src/features/DistributedPlanQueue.ts'),now=Date.now();

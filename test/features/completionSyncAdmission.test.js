@@ -30,3 +30,11 @@ test('queue receipt mutation checks the current completion identity and proof',a
  f.job.completionState='verified';delete f.job.verifiedCompletion;assert.equal(await method.call(h,f.root,'p',0,0,{expectedCommandId:'c',expectedCompletionIdentity:expected,requireVerifiedCompletion:true,artifactError:'old'}),false);
  f.job.verifiedCompletion={schemaVersion:1,identity:expected,verifiedAt:'2026-01-01T00:00:00Z',exitCode:0};assert.equal(await method.call(h,f.root,'p',0,0,{expectedCommandId:'c',expectedCompletionIdentity:expected,requireVerifiedCompletion:true,artifactError:'new'}),true);
 });
+
+test('declared result outside selected scope is not marked fully mirrored',async()=>{
+ const f=fixture();Object.assign(f.job,{command:'run',outputs:[],collectionResultCsv:'results/a.csv',actualExecutionMode:'train'});
+ f.job.verifiedCompletion.identity=completionIdentity(f.plan,f.job);let receipt;
+ f.h.patchDistributedJob=async(_r,_p,_i,_a,fields)=>{receipt=fields;return true;};
+ const result=await new CompletedJobSyncHost(f.h,f.root,()=>true).run(['work/a']);
+ assert.equal(result.synced,1);assert.deepEqual(receipt.mirroredWorkerIds,[]);assert.equal(receipt.replaceMirroredWorkerIds,true);
+});
