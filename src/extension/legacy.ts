@@ -45,7 +45,7 @@ import { stopProjectTask } from "./TaskControl";
 import { authorizedRemoteTargets, mcpInvocation } from "../mcp/Invocation";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
 import * as WorkerProgressQuery from "../features/WorkerProgressQuery";
-import { hasVerifiedCompletion, trustedTerminalProofFor } from "../features/VerifiedCompletion";
+import { completionIdentity, hasVerifiedCompletion, trustedTerminalProofFor } from "../features/VerifiedCompletion";
 import { PlanRunHost } from "./PlanRunHost";
 import { WorkerPreparation } from "../features/WorkerPreparation";
 import { CompletedJobSyncHost } from "./CompletedJobSyncHost";
@@ -15074,14 +15074,18 @@ this.assertPlanTopologyReady("Plan 调度");
     }
     async patchDistributedJob(root, planId, index, attempt, fields) {
         let fileFactsChanged = false;
+        let matched = false;
         const changedFilePaths = new Set<string>();
-        const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, expectedCommandId, ...updates } = fields;
+        const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, expectedCommandId, expectedCompletionIdentity, requireVerifiedCompletion, ...updates } = fields;
         await this.saveDistributedQueue(root, undefined, { artifactMutation: true,
             mutateLatest: (latest) => {
                 let changed = false;
                 const plans = latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
                 jobs: plan.jobs.map((job) => {
-                    if (job.index !== index || job.attempt !== attempt || job.outputRetiredAt || expectedCommandId && job.commandId !== expectedCommandId) return job;
+                    if (job.index !== index || job.attempt !== attempt || job.outputRetiredAt || expectedCommandId && job.commandId !== expectedCommandId
+                        || expectedCompletionIdentity && completionIdentity(plan, job) !== expectedCompletionIdentity
+                        || requireVerifiedCompletion && (job.status !== "completed" || job.completionState !== "verified" || !hasVerifiedCompletion(plan, job))) return job;
+                    matched = true;
                     const next = { ...job, ...updates,
                 mirroredWorkerIds: fields.mirroredWorkerIds
                     ? replaceMirroredWorkerIds ? fields.mirroredWorkerIds : [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
@@ -15098,6 +15102,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 return changed ? { ...latest, plans } : latest;
             } });
         if (fileFactsChanged && changedFilePaths.size) await this.invalidateProjectFileIndexes?.("作业或产物记录发生实际变化，需重新核实文件", [...changedFilePaths]);
+        return matched;
     }
     async patchDistributedPublication(root, fields) {
         await this.saveDistributedQueue(root, undefined, { publicationMutation: true,

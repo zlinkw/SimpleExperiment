@@ -5,6 +5,7 @@ import { loadSyncHolds } from "../features/SyncResolution";
 import { jobArtifactSyncDigest } from "../features/PlanArtifactSyncStatus";
 import { artifactStageBlockFromError, jobArtifactRetentionKey } from "../features/JobArtifactSyncIdentity";
 import { UiCommandCancelled } from "../core/UiCommandCancelled";
+import { completionIdentity, hasVerifiedCompletion } from "../features/VerifiedCompletion";
 
 type JobSelection = { planId: string; index: number; commandId: string };
 
@@ -16,7 +17,7 @@ type JobSelection = { planId: string; index: number; commandId: string };
  */
 function selectedJobsEligible(queue: any, root: string, jobs: JobSelection[]): boolean {
   const pending = newestJobOutputs(queue).filter(({ plan, job }: any) => plan.projectId === canonicalProjectId(root)
-    && job.lifecycleProtocol === 2 && job.status === "completed" && !job.unavailable && !!job.workerId && !!job.commandId);
+    && job.lifecycleProtocol === 2 && job.status === "completed" && job.completionState === "verified" && hasVerifiedCompletion(plan, job) && !job.unavailable && !!job.workerId && !!job.commandId);
   return jobs.every(selection => pending.some(({ plan, job }: any) => plan.id === selection.planId
     && job.index === selection.index && job.commandId === selection.commandId));
 }
@@ -110,7 +111,7 @@ export class CompletedJobSyncHost {
     }
     const queue = await h.loadDistributedQueue(this.root);
     let pending = newestJobOutputs(queue).filter(({ plan, job }) => plan.projectId === canonicalProjectId(this.root)
-      && job.lifecycleProtocol === 2 && job.status === "completed" && !job.unavailable && !!job.workerId && !!job.commandId);
+      && job.lifecycleProtocol === 2 && job.status === "completed" && job.completionState === "verified" && hasVerifiedCompletion(plan, job) && !job.unavailable && !!job.workerId && !!job.commandId);
     if (options.jobs) {
       // r46 A: start-time re-validation through the same shared local check as the pre-queue validation.
       if (!options.jobs.length || !selectedJobsEligible(queue, this.root, options.jobs)) throw Error("所选任务未完成或身份已变化，未同步其他任务。");
@@ -123,13 +124,16 @@ export class CompletedJobSyncHost {
       if (!this.current()) throw Error("项目或连接已变化，产物操作已停止。");
       const scopes = jobArtifactScopes({ ...job, executionMode: plan.executionMode }, selected);
       const key = latestJobSyncKey(plan, job, scopes, targets), previous = job.latestArtifactSync;
+      const identity = completionIdentity(plan, job);
       if (!options.force && previous?.key === key && (previous.state === "excluded" || previous.state === "synced"
         && (!previous.artifactDigest || previous.artifactDigest === jobArtifactSyncDigest(job)) || Date.parse(previous.retryAfter || "") > Date.now())) continue;
       const assertCurrent = async () => {
         if (!this.current()) throw Error("同步已停止：项目、连接或清理操作已变化。");
         const latest = newestJobOutputs(await h.loadDistributedQueue(this.root));
         if (!latest.some(row => row.plan.id === plan.id && row.job.index === job.index && row.job.commandId === job.commandId
-          && !row.job.outputRetiredAt && !row.job.cleanup)) throw Error("这项产物已被新的运行或清理操作替代，未继续同步。");
+          && completionIdentity(row.plan, row.job) === identity
+          && row.job.status === "completed" && row.job.completionState === "verified" && hasVerifiedCompletion(row.plan, row.job)
+          && !row.job.outputRetiredAt && !row.job.cleanup)) throw Error("这项产物的完成确认已失效，或已被新的运行或清理操作替代，未继续同步。");
         const holds = await loadSyncHolds(h.context.globalStorageUri.fsPath, this.root);
         const overlap = (a: string, b: string) => a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
         if (Object.entries(holds).some(([file, hold]) => hold.status !== "resolved"
@@ -137,12 +141,12 @@ export class CompletedJobSyncHost {
           throw Error("这些文件在本次运行后被用户删除或暂停同步，未自动补回。");
       };
       const patch = (fields: any) => h.patchDistributedJob(this.root, plan.id, job.index, job.attempt,
-        { expectedCommandId: job.commandId, ...fields });
-      if (!scopes.length) { await patch({ latestArtifactSync: { key, state: "excluded", scopes, checkedAt: new Date().toISOString() }, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined }); report.excluded++; continue; }
+        { expectedCommandId: job.commandId, expectedCompletionIdentity: identity, requireVerifiedCompletion: true, ...fields });
+      if (!scopes.length) { await assertCurrent(); if (await patch({ latestArtifactSync: { key, state: "excluded", scopes, checkedAt: new Date().toISOString() }, artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined }) === false) throw Error("任务身份已变化，未保存同步结果。"); report.excluded++; continue; }
       const finish = async (result: any) => {
         if (!result || result.errors.length) throw Error(result?.errors?.join("；") || "同步未完成");
         await assertCurrent();
-        await patch({ latestArtifactSync: { key, state: "synced", scopes, workerIds: targets.map((row: any) => row.id), checkedAt: new Date().toISOString(),
+        const saved = await patch({ latestArtifactSync: { key, state: "synced", scopes, workerIds: targets.map((row: any) => row.id), checkedAt: new Date().toISOString(),
           // r10：仅当本次确实分类出他端历史保留副本时写入最小可选字段（完整日志已含路径与原因）；
           // 成功含义只限本次当前 job 已验证来源域，不声称其它 Worker 历史副本已合并或清除。
           artifactDigest: jobArtifactSyncDigest({ artifacts: { ...job.artifacts, ...result.files } }),
@@ -150,6 +154,7 @@ export class CompletedJobSyncHost {
           artifactError: undefined, artifactRetryAfter: undefined, artifactStageBlock: undefined, artifacts: { ...job.artifacts, ...result.files },
           ...(scopes.includes(job.outputDir) && (!job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
             ? { mirroredWorkerIds: targets.map((row: any) => row.id), replaceMirroredWorkerIds: true } : {}) });
+        if (saved === false) throw Error("任务身份已变化，未保存同步结果。");
         report.synced++;
       };
       const fail = async (error: any) => {

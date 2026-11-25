@@ -95,3 +95,6 @@ SFTP 查询按重叠目标分槽批 a35401d4a558566edb752fdbdfb83e31fdad0082 已
 
 SE 2d39821e 首次 push 退出1，GitHub 5xx，2026-11-25T01:00:04Z，Request ID E8CE:3F29AB:1353F4:1F864F:6B063313；总控核远端未前进后授权一次恢复，普通 push 成功并 fetch 核同步。
 完成事实候选消费者整文件首测退出1、5/7：旧夹具将未知退出误期望完成，另一夹具缺 runningOperations（Temp/g005-proof-projection-sa7xkzxr/replacement-consumer.log）；不冒全文件通过。覆盖消费者要求执行结束且完整确认；新假测首轮退出1、0/1（夹具缺 CSV，Temp/g005-replacement-proof-h4endpu2/stdout.log），补后1/1（stdout-fixed.log），既有消费者正向1/1（existing-consumer.log），T0。建符号链接曾 WinError 1314，改用 junction，现场保留。声明清单独立分支及完整链仍待核。
+
+产物同步准入及在途重核绑定精确完成证明，队列写入时拒过期身份；HEAD+本批假端3/3、T0（Temp/g005-sync-proof-3w5916xy/stdout-final.log），不表示真实 Worker 同步完成。
+暂存新测试初次 update-index 缺 --add 退出128，随后用 git add 成功；无测试重跑绕过。
