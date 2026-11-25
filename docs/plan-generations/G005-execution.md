@@ -92,3 +92,6 @@ SFTP 查询按重叠目标分槽批 a35401d4a558566edb752fdbdfb83e31fdad0082 已
 完成事实候选消费者首测退出1、8/11：队列尚缺终态持久化/反证撤销（Temp/g005-proof-projection-sa7xkzxr/verified.log）；仍待闭合。声明产物新鲜度先行批基线正向 pattern 1/1、noEmit 0（Temp/g005-fresh-artifact-bw7p5_88/stdout.log），Worker/全链未验。
 
 完成事实候选补队列依赖后消费者退出1、10/11，PLAN 计数仍按执行结束计完整（Temp/g005-proof-projection-sa7xkzxr/verified-core.log）。PLAN 计数先行批基线1/1、逻辑计划4/4、noEmit 0（Temp/g005-plan-count-0vhf01lv/stdout.log、logical.log）；真实 UI/全链未验。
+
+SE 2d39821e 首次 push 退出1，GitHub 5xx，2026-11-25T01:00:04Z，Request ID E8CE:3F29AB:1353F4:1F864F:6B063313；总控核远端未前进后授权一次恢复，普通 push 成功并 fetch 核同步。
+完成事实候选消费者整文件首测退出1、5/7：旧夹具将未知退出误期望完成，另一夹具缺 runningOperations（Temp/g005-proof-projection-sa7xkzxr/replacement-consumer.log）；不冒全文件通过。覆盖消费者要求执行结束且完整确认；新假测首轮退出1、0/1（夹具缺 CSV，Temp/g005-replacement-proof-h4endpu2/stdout.log），补后1/1（stdout-fixed.log），既有消费者正向1/1（existing-consumer.log），T0。建符号链接曾 WinError 1314，改用 junction，现场保留。声明清单独立分支及完整链仍待核。

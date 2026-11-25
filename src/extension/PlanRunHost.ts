@@ -172,9 +172,11 @@ export class PlanRunHost {
         const declaration = jobs.find((row: any) => !row.command && Number(row.index) === result.index && row.output_dir === result.outputDir && row.result_csv === result.collectionResultCsv);
         if (declaration) completed.add(result.index);
       }
-      for (const task of snapshot.tasks || []) if (task.observation && observationMatches(task.observation,
-        { commandId: task.commandId, workerId: snapshot.workerId, projectId: task.projectId })
-        && taskLifecycle(task.observation).status === "completed" && executionAllowsCompletion(task.outputDir, task.commandId)) {
+      for (const task of snapshot.tasks || []) {
+        if (!task.observation || !observationMatches(task.observation,
+          { commandId: task.commandId, workerId: snapshot.workerId, projectId: task.projectId })) continue;
+        const state = taskLifecycle(task.observation);
+        if (state.status !== "completed" || state.completionState !== "verified" || !executionAllowsCompletion(task.outputDir, task.commandId)) continue;
         // A previous command at the same path is not completion of this new submission.
         const declaration = jobs.find((row: any) => !row.command && row.case === task.case && Number(row.seed) === Number(task.seed)
           && row.output_dir === task.outputDir && row.result_csv === task.collectionResultCsv);
