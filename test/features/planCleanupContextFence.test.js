@@ -91,6 +91,13 @@ test("empty parent review propagates context changes through confirmation", asyn
   assert.equal(calls, 0);
 });
 
+test("isolated cleanup passes the caller context into its status observation", async () => {
+  const f = fixture(); let current = true, checked = false;
+  f.service.status = async (_id, _round, guard) => { current = false; checked = typeof guard === "function"; guard?.(); };
+  await assert.rejects(f.service.autoDeleteIsolated("operation", undefined, () => { if (!current) throw Error("context changed"); }), /context changed/);
+  assert.equal(checked, true); assert.equal(f.calls.length, 0);
+});
+
 test("the host does not start an isolation after migration changes the caller context", async () => {
   const fs = require("node:fs"), path = require("node:path"), ts = require("typescript"), vm = require("node:vm");
   const source = fs.readFileSync(path.resolve(__dirname, "../../src/extension/PlanCleanupHost.ts"), "utf8");

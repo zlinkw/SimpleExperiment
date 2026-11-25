@@ -1419,7 +1419,7 @@ export class PlanCleanup {
   async executeEmptyParentCleanup(previews: EmptyParentPreview[], assertCurrent?: () => void) { return executeEmptyParents(this.ports, previews, assertCurrent); }
   async autoDeleteIsolated(id: string, parents?: EmptyParentPreview[], assertCurrent?: () => void): Promise<{ state: "accepted" | "failed" | "unknown"; operationId?: string; message?: string }> {
     assertCurrent?.();
-    const operation = await this.status(id);
+    const operation = await this.status(id, undefined, assertCurrent);
     assertCurrent?.();
     if (operation.preview.action !== "isolate") cleanupError("NOT_ISOLATED_OPERATION");
     if (Number(operation.preview.autoDeleteCapability) !== 1)
