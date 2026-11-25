@@ -248,7 +248,8 @@ function countTaskStatuses(rows: Record<string, any>[]): { completedCount: numbe
   const statuses = rows.filter(row => row.unavailable !== true).map((row) => taskStatusToken(row.status));
   return {
     unavailableCount: rows.filter(row => row.unavailable === true).length,
-    completedCount: statuses.filter((status) => TASK_COMPLETED.has(status)).length,
+    completedCount: rows.filter(row => row.unavailable !== true && TASK_COMPLETED.has(taskStatusToken(row.status))
+      && (row.lifecycleProtocol !== 2 || row.completionState === "verified")).length,
     failedCount: statuses.filter((status) => TASK_FAILED.has(status)).length,
     cancelledCount: statuses.filter((status) => TASK_CANCELLED.has(status)).length,
     activeCount: statuses.filter((status) => TASK_ACTIVE.has(status)).length,
