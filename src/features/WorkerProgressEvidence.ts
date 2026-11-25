@@ -17,7 +17,8 @@ export function freshTaskObservation(snapshot: any, task: any, fallback: TaskObs
   if (snapshot.error || !evidenceFresh(times?.execution, fetchedAt, now, maxAgeMs))
     value.executionQueryError = snapshot.error || "状态查询已过期";
   if (value.executionContract === "declared-command-v1") {
-    delete value.resultQueryError;
+    if (times && !times.artifacts || !evidenceFresh(times?.artifacts, fetchedAt, now, maxAgeMs))
+      value.resultQueryError = snapshot.error || value.resultQueryError || "本轮尚未取得产物观察";
     delete value.runtimeQueryError;
     return value;
   }

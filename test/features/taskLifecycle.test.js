@@ -19,8 +19,10 @@ test('declared commands use the actual pane exit, independent of scientific resu
   assert.equal(verifiedCompletionProjection(plan,job).runtimeDiagnostics,undefined);
   const {freshTaskObservation} = require('../../src/features/WorkerProgressEvidence.ts');
   const current = freshTaskObservation({fetchedAt:base.observedAt},{observation:{...observation,resultQueryError:'old',runtimeQueryError:'old'}},observation,Date.parse(base.observedAt),1000);
-  assert.equal(current.resultQueryError,undefined);
+  assert.equal(current.resultQueryError,'old');
   assert.equal(current.runtimeQueryError,undefined);
+  const missingLane=freshTaskObservation({fetchedAt:base.observedAt},{observation:{...observation,evidence:{execution:{networkStartedAt:base.observedAt,receivedAt:base.observedAt}}}},observation,Date.parse(base.observedAt),1000);
+  assert.match(missingLane.resultQueryError,/尚未取得产物观察/);
 });
 test('declared command progress does not query research result or log semantics', async () => {
   const {queryWorkerProgress} = require('../../src/features/WorkerProgressQuery.ts');

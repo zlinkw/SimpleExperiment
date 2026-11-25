@@ -88,3 +88,5 @@ SFTP 空目录回执传递原操作身份批 d0c201c50f35f94e73ae716bb4702ed51a2
 SFTP 查询按重叠目标分槽批 a35401d4a558566edb752fdbdfb83e31fdad0082 已推送核同步；基线仅审定的两个正向 pattern 假2/2、node --check 0（Temp/g005-observe-scope-d_kmo3if/stdout.log），未运行性能项。声明命令产物清单生成与查询包含显式 CSV；基线抽取函数/假进程1/1、noEmit 0（Temp/g005-declared-producer-je3o90pw/stdout-final.log），未部署 Agent，状态归并/选中范围及全链未验。
 
 完成事实基线候选首测退出1、19/21：进度查询缺声明字段依赖，旧清单夹具将未知退出误期望完成（Temp/g005-proof-projection-sa7xkzxr/stdout.log）；尚未通过。声明身份查询先行批基线正向 pattern 1/1、noEmit 0（Temp/g005-progress-identity-1h9nofk6/stdout.log）；真实 Worker/全链未验。
+
+完成事实候选消费者首测退出1、8/11：队列尚缺终态持久化/反证撤销（Temp/g005-proof-projection-sa7xkzxr/verified.log）；仍待闭合。声明产物新鲜度先行批基线正向 pattern 1/1、noEmit 0（Temp/g005-fresh-artifact-bw7p5_88/stdout.log），Worker/全链未验。
