@@ -1,8 +1,8 @@
 import { observationTiming } from "./WorkerProgressEvidence";
 
-/** Progress reads never send a cached observation or a launch payload back to the Worker. */
+/** Progress reads send the declared identity without cached observations or the full launch payload. */
 export function progressQuery(task: any) {
-  return Object.fromEntries(["commandId", "projectId", "workerId", "outputDir", "collectionResultCsv",
+  return Object.fromEntries(["commandId", "projectId", "workerId", "workflowId", "outputDir", "command", "outputs", "collectionResultCsv",
     "experimentIndex", "case", "seed", "mode", "executionMode", "checkpointTestOnly", "runtimeLogAnalysisId"]
     .filter(key => task[key] !== undefined).map(key => [key, task[key]]));
 }

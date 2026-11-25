@@ -58,13 +58,13 @@ test('long log scans rotate behind other exact runs and stop when no progress is
   assert.ok(seen.slice(0, 3).flat().includes('c6'));
 });
 
-test('observation wire payload removes cached logs and launch source while preserving identity checks', () => {
-  const q = { ...query('c'), collectionResultCsv: 'work/c/results.csv', experimentIndex: 4, case: 'PAD', seed: 44,
+test('observation wire payload preserves declared identity without cached logs', () => {
+  const q = { ...query('c'), workflowId: 'flow', outputs: ['work/c/report'], collectionResultCsv: 'work/c/results.csv', experimentIndex: 4, case: 'PAD', seed: 44,
     executionMode: 'train_test', checkpointTestOnly: true, runtimeLogAnalysisId: 'explicit',
     observation: { tmux: {}, runtimeDiagnostics: { exceptions: [{ summary: 'x'.repeat(40000) }] } },
     sourceSnapshot: 'x'.repeat(100000), command: 'train.py', status: 'completed' };
   const compact = progressQuery(q);
-  for (const field of ['commandId','projectId','workerId','outputDir','collectionResultCsv','experimentIndex','case','seed','executionMode','checkpointTestOnly','runtimeLogAnalysisId'])
+  for (const field of ['commandId','projectId','workerId','workflowId','outputDir','command','outputs','collectionResultCsv','experimentIndex','case','seed','executionMode','checkpointTestOnly','runtimeLogAnalysisId'])
     assert.equal(compact[field], q[field]);
   assert.ok(JSON.stringify(compact).length < JSON.stringify(q).length / 100);
   assert.equal(compact.observation, undefined); assert.equal(compact.sourceSnapshot, undefined);
